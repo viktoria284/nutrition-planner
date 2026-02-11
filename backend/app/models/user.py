@@ -1,7 +1,8 @@
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, func, Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base_class import Base
+from app.models.enums import UserRole
 
 
 class User(Base):
@@ -11,4 +12,11 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
+    role: Mapped[UserRole] = mapped_column(
+        SAEnum(UserRole, name="user_role", native_enum=True),
+        nullable=False,
+        server_default=UserRole.user.value,
+    )
+
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
