@@ -1,15 +1,44 @@
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models.user import User
 
 
+def get_user_by_id(db: Session, user_id: int) -> User | None:
+    return db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+
+
 def get_user_by_email(db: Session, email: str) -> User | None:
+    email = email.strip().lower()
     return db.execute(select(User).where(User.email == email)).scalar_one_or_none()
 
 
-def create_user(db: Session, email: str, hashed_password: str) -> User:
-    user = User(email=email, hashed_password=hashed_password, is_active=True)
+def get_user_by_username(db: Session, username: str) -> User | None:
+    username = username.strip().lower()
+    return db.execute(select(User).where(User.username == username)).scalar_one_or_none()
+
+
+def get_user_by_identifier(db: Session, identifier: str) -> User | None:
+    identifier = identifier.strip().lower()
+    return db.execute(
+        select(User).where(or_(User.email == identifier, User.username == identifier))
+    ).scalar_one_or_none()
+
+
+def create_user(
+    db: Session,
+    email: str,
+    username: str,
+    display_name: str | None,
+    hashed_password: str,
+) -> User:
+    user = User(
+        email=email.strip().lower(),
+        username=username.strip().lower(),
+        display_name=(display_name.strip() if display_name else None),
+        hashed_password=hashed_password,
+        is_active=True,
+    )
     db.add(user)
     db.commit()
     db.refresh(user)

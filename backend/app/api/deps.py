@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.services.security import decode_token
-from app.services.users import get_user_by_email
+from app.services.users import get_user_by_email, get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -23,13 +23,12 @@ def get_current_user(
 ):
     try:
         payload = decode_token(token)
-        email = payload.get("sub")
-        if not email:
-            raise ValueError("no sub")
+        sub = payload.get("sub")
+        user_id = int(sub)
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
-    user = get_user_by_email(db, email=email)
+    user = get_user_by_id(db, user_id=user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
