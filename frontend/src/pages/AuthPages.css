@@ -1,0 +1,147 @@
+.auth-layout {
+  min-height: calc(100vh - 64px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 32px 20px;
+  background: var(--bg);
+}
+
+.auth-main {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.auth-main-inner {
+  width: 100%;
+  max-width: 440px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(var(--primary-rgb), 0.08);
+  padding: 32px;
+}
+
+.auth-title {
+  margin: 0;
+  text-align: left;
+  font-family: "Rubik", "Source Sans 3", sans-serif;
+  font-size: 1.9rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.auth-subtitle {
+  margin: 8px 0 0;
+  text-align: left;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 1rem;
+  color: var(--text-soft);
+}
+
+.auth-error {
+  margin-top: 18px;
+  border: 1px solid rgba(var(--danger-rgb), 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(var(--danger-rgb), 0.08);
+  color: var(--danger);
+  padding: 10px 12px;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 0.97rem;
+  white-space: pre-wrap;
+}
+
+.auth-form {
+  margin-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.auth-field {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-label {
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.auth-input {
+  height: 48px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  padding: 0 14px;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 1rem;
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.auth-input::placeholder {
+  color: var(--text-soft);
+  opacity: 0.7;
+}
+
+.auth-submit {
+  margin-top: 4px;
+  height: 48px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--primary);
+  color: var(--surface);
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+
+.auth-submit:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.auth-footer {
+  margin-top: 14px;
+  text-align: left;
+  color: var(--text-soft);
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 1rem;
+}
+
+.auth-footer-link {
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.auth-footer-link:hover {
+  color: var(--primary-dark);
+}
+
+@media (max-width: 680px) {
+  .auth-layout {
+    padding: 20px 14px;
+  }
+
+  .auth-main-inner {
+    padding: 18px;
+  }
+
+  .auth-title {
+    font-size: 1.65rem;
+  }
+}

@@ -1,0 +1,64 @@
+@import url("https://fonts.googleapis.com/css2?family=Rubik:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap");
+
+:root {
+  --primary: #44944a;
+  --primary-dark: #35753a;
+  --primary-rgb: 68, 148, 74;
+  --danger-rgb: 187, 47, 47;
+  --danger: #bb2f2f;
+
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+
+  --text-main: #1e1e1e;
+  --text-soft: #666666;
+
+  --border: #e6e6e6;
+  --radius-md: 10px;
+
+  font-family: "Source Sans 3", "Segoe UI", Tahoma, sans-serif;
+  line-height: 1.45;
+  font-weight: 400;
+  color: var(--text-main);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
