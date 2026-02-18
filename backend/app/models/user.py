@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, DateTime, Integer, String, func, Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
 from app.models.enums import UserRole
@@ -24,3 +24,4 @@ class User(Base):
     )
 
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    profiles: Mapped[list["Profile"]] = relationship("Profile", back_populates="user")
