@@ -1,6 +1,7 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.models.profile import Profile
 from app.models.user import User
 
 
@@ -40,6 +41,20 @@ def create_user(
         is_active=True,
     )
     db.add(user)
+
+    # Ensure user.id is available before commit so we can create the default profile
+    db.flush()
+
+    profile = Profile(
+        user_id=user.id,
+        name="Мой профиль",
+        target_kcal=None,
+        target_protein=None,
+        target_fat=None,
+        target_carbs=None,
+    )
+    db.add(profile)
+
     db.commit()
     db.refresh(user)
     return user

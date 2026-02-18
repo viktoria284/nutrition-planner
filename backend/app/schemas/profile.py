@@ -3,10 +3,10 @@ from pydantic import BaseModel
 
 class ProfileCreate(BaseModel):
     name: str
-    target_kcal: int
-    target_protein: int
-    target_fat: int
-    target_carbs: int
+    target_kcal: int | None = None
+    target_protein: int | None = None
+    target_fat: int | None = None
+    target_carbs: int | None = None
 
 
 class ProfileUpdate(BaseModel):
@@ -21,10 +21,10 @@ class ProfileOut(BaseModel):
     id: int
     user_id: int
     name: str
-    target_kcal: int
-    target_protein: int
-    target_fat: int
-    target_carbs: int
+    target_kcal: int | None
+    target_protein: int | None
+    target_fat: int | None
+    target_carbs: int | None
 
     class Config:
         from_attributes = True

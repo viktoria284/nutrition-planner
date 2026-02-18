@@ -15,9 +15,9 @@ class Profile(Base):
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
 
-    target_kcal: Mapped[int] = mapped_column(Integer, nullable=False)
-    target_protein: Mapped[int] = mapped_column(Integer, nullable=False)
-    target_fat: Mapped[int] = mapped_column(Integer, nullable=False)
-    target_carbs: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_kcal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_protein: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_fat: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_carbs: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user: Mapped["User"] = relationship("User", back_populates="profiles")
