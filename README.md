@@ -40,6 +40,15 @@ alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Создание admin пользователя (dev-seed)
+После применения миграций можно создать dev-пользователя:
+```bash
+cd backend
+source .venv/bin/activate
+ADMIN_EMAIL=admin@example.com ADMIN_USERNAME=admin ADMIN_PASSWORD=admin python -m app.scripts.create_admin
+```
+Дополнительно можно передать `ADMIN_DISPLAY_NAME` (по умолчанию `Admin`).
+
 4. Запустите frontend в отдельном терминале:
 ```bash
 cd frontend
@@ -76,6 +85,12 @@ VITE_API_URL=http://localhost:8000
 ```bash
 docker compose logs -f db
 docker compose down
+```
+
+### Backend (из `backend`)
+```bash
+alembic upgrade head
+python -m app.scripts.create_admin
 ```
 
 ### Frontend (из `frontend`)

@@ -1,6 +1,7 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.models.enums import UserRole
 from app.models.profile import Profile
 from app.models.user import User
 
@@ -32,6 +33,7 @@ def create_user(
     username: str,
     display_name: str | None,
     hashed_password: str,
+    role: UserRole = UserRole.user,
 ) -> User:
     user = User(
         email=email.strip().lower(),
@@ -39,6 +41,7 @@ def create_user(
         display_name=(display_name.strip() if display_name else None),
         hashed_password=hashed_password,
         is_active=True,
+        role=role,
     )
     db.add(user)
 
