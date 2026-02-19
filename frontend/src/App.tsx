@@ -2,6 +2,7 @@ import { Link, Route, Routes } from "react-router-dom";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { HomePage } from "./pages/HomePage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { useAuth } from "./auth/useAuth";
 import "./App.css";
@@ -18,7 +19,12 @@ function TopBar() {
 
         <nav className="topbar-nav">
           {token ? (
-            <span className="status-text">Вы вошли как {user?.username}</span>
+            <>
+              <span className="status-text">Вы вошли как {user?.username}</span>
+              <Link to="/settings" className="nav-link">
+                Настройки
+              </Link>
+            </>
           ) : (
             <>
               <Link to="/login" className="nav-link">
@@ -46,6 +52,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <HomePage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <RequireAuth>
+                <SettingsPage />
               </RequireAuth>
             }
           />

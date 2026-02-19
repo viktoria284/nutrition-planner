@@ -119,6 +119,9 @@
   padding: 0 18px;
   border-radius: 10px;
   border: 1px solid var(--primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: "Source Sans 3", "Segoe UI", sans-serif;
   font-size: 1rem;
   font-weight: 600;
@@ -149,6 +152,10 @@
 
 .btn-secondary:hover:not(:disabled) {
   background: #f3f3f3;
+}
+
+.home-link-btn {
+  text-decoration: none;
 }
 
 @media (max-width: 860px) {

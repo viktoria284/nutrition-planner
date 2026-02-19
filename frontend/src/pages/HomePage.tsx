@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 
 export function HomePage() {
@@ -22,6 +23,9 @@ export function HomePage() {
         </p>
 
         <div className="home-actions">
+          <Link to="/settings" className="btn btn-secondary home-link-btn">
+            Настройки
+          </Link>
           <button onClick={() => void refreshMe()} className="btn btn-secondary">
             Обновить /auth/me
           </button>
