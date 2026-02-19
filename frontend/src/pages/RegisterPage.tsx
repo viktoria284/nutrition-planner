@@ -13,6 +13,8 @@ export function RegisterPage() {
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword2, setShowPassword2] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const onSubmit = async (e: React.FormEvent) => {
@@ -97,26 +99,48 @@ export function RegisterPage() {
 
             <label className="auth-field">
               <span className="auth-label">Пароль</span>
-              <input
-                className="auth-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="new-password"
-                placeholder="Минимум 8 символов"
-              />
+              <div className="auth-password-wrap">
+                <input
+                  className="auth-input auth-input-password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="Минимум 8 символов"
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                  aria-pressed={showPassword}
+                  onClick={() => setShowPassword((prev) => !prev)}
+                >
+                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
             </label>
 
             <label className="auth-field">
               <span className="auth-label">Повтори пароль</span>
-              <input
-                className="auth-input"
-                type="password"
-                value={password2}
-                onChange={(e) => setPassword2(e.target.value)}
-                autoComplete="new-password"
-                placeholder="••••••••"
-              />
+              <div className="auth-password-wrap">
+                <input
+                  className="auth-input auth-input-password"
+                  type={showPassword2 ? "text" : "password"}
+                  value={password2}
+                  onChange={(e) => setPassword2(e.target.value)}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                />
+                <button
+                  type="button"
+                  className="auth-password-toggle"
+                  aria-label={showPassword2 ? "Скрыть пароль" : "Показать пароль"}
+                  aria-pressed={showPassword2}
+                  onClick={() => setShowPassword2((prev) => !prev)}
+                >
+                  {showPassword2 ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
             </label>
 
             <button className="auth-submit" disabled={submitting}>
@@ -133,5 +157,43 @@ export function RegisterPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M2.2 12s3.2-6 9.8-6 9.8 6 9.8 6-3.2 6-9.8 6-9.8-6-9.8-6Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function EyeOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M2.2 12s3.2-6 9.8-6a10.3 10.3 0 0 1 5.7 1.7M21.8 12s-3.2 6-9.8 6A10.3 10.3 0 0 1 6.3 16.3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="m4 4 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
