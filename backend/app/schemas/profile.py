@@ -1,20 +1,25 @@
-from pydantic import BaseModel
+from typing import Annotated
+
+from pydantic import BaseModel, Field
+
+TargetKcal = Annotated[int, Field(ge=0, le=20000)]
+TargetGrams = Annotated[int, Field(ge=0, le=2000)]
 
 
 class ProfileCreate(BaseModel):
     name: str
-    target_kcal: int | None = None
-    target_protein: int | None = None
-    target_fat: int | None = None
-    target_carbs: int | None = None
+    target_kcal: TargetKcal | None = None
+    target_protein: TargetGrams | None = None
+    target_fat: TargetGrams | None = None
+    target_carbs: TargetGrams | None = None
 
 
 class ProfileUpdate(BaseModel):
     name: str | None = None
-    target_kcal: int | None = None
-    target_protein: int | None = None
-    target_fat: int | None = None
-    target_carbs: int | None = None
+    target_kcal: TargetKcal | None = None
+    target_protein: TargetGrams | None = None
+    target_fat: TargetGrams | None = None
+    target_carbs: TargetGrams | None = None
 
 
 class ProfileOut(BaseModel):

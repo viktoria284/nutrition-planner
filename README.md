@@ -91,6 +91,7 @@ docker compose down
 ```bash
 alembic upgrade head
 python -m app.scripts.create_admin
+python -m pytest -q
 ```
 
 ### Frontend (из `frontend`)
