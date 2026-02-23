@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+
+from app.db.base_class import Base
+from app.models.enums import FoodSource, FoodStatus
+
+
+class FoodItem(Base):
+    __tablename__ = "food_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    brand: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    kcal: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
+    protein: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    fat: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    carbs: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+
+    source: Mapped[FoodSource] = mapped_column(
+        SAEnum(FoodSource, name="food_source", native_enum=True),
+        nullable=False,
+        server_default=FoodSource.private.value,
+    )
+    status: Mapped[FoodStatus] = mapped_column(
+        SAEnum(FoodStatus, name="food_status", native_enum=True),
+        nullable=False,
+        server_default=FoodStatus.draft.value,
+    )
+
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    servings: Mapped[list["FoodServing"]] = relationship(
+        "FoodServing",
+        back_populates="food",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint("length(trim(name)) > 0", name="ck_food_items_name_not_blank"),
+        CheckConstraint("(source != 'verified') OR owner_user_id IS NULL", name="ck_food_items_verified_owner_null"),
+        CheckConstraint("kcal >= 0", name="ck_food_items_kcal_non_negative"),
+        CheckConstraint("protein >= 0", name="ck_food_items_protein_non_negative"),
+        CheckConstraint("fat >= 0", name="ck_food_items_fat_non_negative"),
+        CheckConstraint("carbs >= 0", name="ck_food_items_carbs_non_negative"),
+        Index("ix_food_items_name_lower", func.lower(name)),
+    )
+
+    @validates("name")
+    def _validate_name(self, _key: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("FoodItem name cannot be empty")
+        return normalized
+
+    @validates("brand")
+    def _validate_brand(self, _key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class FoodServing(Base):
+    __tablename__ = "food_servings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    food_id: Mapped[int] = mapped_column(
+        ForeignKey("food_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    grams: Mapped[Decimal] = mapped_column(Numeric(7, 2), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    food: Mapped[FoodItem] = relationship("FoodItem", back_populates="servings")
+
+    __table_args__ = (
+        CheckConstraint("length(trim(name)) > 0", name="ck_food_servings_name_not_blank"),
+        CheckConstraint("grams > 0", name="ck_food_servings_grams_positive"),
+    )
+
+    @validates("name")
+    def _validate_name(self, _key: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("FoodServing name cannot be empty")
+        return normalized
