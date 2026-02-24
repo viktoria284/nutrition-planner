@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from sqlalchemy import Select, and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.enums import FoodSource, FoodStatus
-from app.models.foods import FoodItem
-from app.schemas.foods import FoodItemCreate, FoodItemUpdate
+from app.models.foods import FoodItem, FoodServing
+from app.schemas.foods import FoodItemCreate, FoodItemUpdate, FoodServingCreate
 
 
 class FoodPublishConflictError(ValueError):
@@ -108,4 +108,35 @@ def update_food(db: Session, food: FoodItem, payload: FoodItemUpdate) -> FoodIte
 
 def delete_food(db: Session, food: FoodItem) -> None:
     db.delete(food)
+    db.commit()
+
+
+def list_servings(db: Session, food_id: int) -> list[FoodServing]:
+    return db.execute(
+        select(FoodServing).where(FoodServing.food_id == food_id).order_by(FoodServing.id)
+    ).scalars().all()
+
+
+def create_serving(db: Session, food: FoodItem, payload: FoodServingCreate) -> FoodServing:
+    serving = FoodServing(
+        food_id=food.id,
+        name=payload.name,
+        grams=payload.grams,
+    )
+    db.add(serving)
+    db.commit()
+    db.refresh(serving)
+    return serving
+
+
+def get_serving_with_food(db: Session, serving_id: int) -> FoodServing | None:
+    return db.execute(
+        select(FoodServing)
+        .where(FoodServing.id == serving_id)
+        .options(selectinload(FoodServing.food))
+    ).scalar_one_or_none()
+
+
+def delete_serving(db: Session, serving: FoodServing) -> None:
+    db.delete(serving)
     db.commit()

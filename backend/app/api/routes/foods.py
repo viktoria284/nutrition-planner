@@ -8,16 +8,25 @@ from app.api.deps import get_current_user, get_db
 from app.models.enums import FoodSource
 from app.models.foods import FoodItem
 from app.models.user import User
-from app.schemas.foods import FoodItemCreate, FoodItemRead, FoodItemUpdate, FoodItemWithServingsRead
+from app.schemas.foods import (
+    FoodItemCreate,
+    FoodItemRead,
+    FoodItemUpdate,
+    FoodItemWithServingsRead,
+    FoodServingCreate,
+    FoodServingRead,
+)
 from app.services.foods import (
     FoodPublishConflictError,
     FoodNotEditableError,
     build_visible_foods_query,
     create_food,
+    create_serving,
     delete_food,
     ensure_editable,
     get_owned_food_or_none,
     get_visible_food_by_id,
+    list_servings,
     publish_food,
     update_food,
 )
@@ -143,3 +152,36 @@ def delete_food_item(
 
     delete_food(db, food)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{food_id}/servings", response_model=list[FoodServingRead])
+def list_food_servings(
+    food_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    food = get_visible_food_by_id(db, current_user.id, food_id)
+    if not food:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    return list_servings(db, food_id)
+
+
+@router.post("/{food_id}/servings", response_model=FoodServingRead, status_code=status.HTTP_201_CREATED)
+def create_food_serving(
+    food_id: int,
+    payload: FoodServingCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    food = get_owned_food_or_none(db, current_user.id, food_id)
+    if not food:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    try:
+        ensure_editable(food)
+    except FoodNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    serving = create_serving(db, food, payload)
+    return FoodServingRead.model_validate(serving)

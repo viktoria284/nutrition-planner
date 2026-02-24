@@ -1,5 +1,5 @@
-from typing import Annotated
 from decimal import Decimal
+from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -38,6 +38,7 @@ class FoodItemWithServingsRead(FoodItemRead):
 
 KcalDecimal = Annotated[Decimal, Field(ge=0, le=2000)]
 MacroDecimal = Annotated[Decimal, Field(ge=0, le=200)]
+PositiveDecimal = Annotated[Decimal, Field(gt=0)]
 
 
 class FoodItemCreate(BaseModel):
@@ -90,3 +91,16 @@ class FoodItemUpdate(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+
+class FoodServingCreate(BaseModel):
+    name: str
+    grams: PositiveDecimal
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name cannot be empty")
+        return normalized

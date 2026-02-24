@@ -60,6 +60,19 @@ def create_food_via_api(client: TestClient, token: str, *, name: str = "Apple") 
     return response.json()
 
 
+def create_serving_via_api(client: TestClient, token: str, food_id: int, *, name: str = "1 cup", grams: str = "250") -> dict:
+    response = client.post(
+        f"/foods/{food_id}/servings",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "grams": grams,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def create_food(
     db_session_factory: sessionmaker[Session],
     *,
@@ -326,3 +339,79 @@ def test_patch_and_delete_after_publish_return_409(client: TestClient) -> None:
 
     delete_response = client.delete(f"/foods/{food_id}", headers=auth_headers(token_user1))
     assert delete_response.status_code == 409, delete_response.text
+
+
+def test_serving_grams_validation(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+
+    grams_zero = client.post(
+        f"/foods/{food_id}/servings",
+        headers=auth_headers(token_user1),
+        json={"name": "Zero", "grams": "0"},
+    )
+    assert grams_zero.status_code == 422, grams_zero.text
+
+    grams_negative = client.post(
+        f"/foods/{food_id}/servings",
+        headers=auth_headers(token_user1),
+        json={"name": "Negative", "grams": "-1"},
+    )
+    assert grams_negative.status_code == 422, grams_negative.text
+
+
+def test_other_user_cannot_delete_serving_returns_404(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    register_user(client, email="user2@example.com", username="usertwo")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    token_user2 = login_and_get_token(client, identifier="user2@example.com")
+
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+    serving = create_serving_via_api(client, token_user1, food_id)
+
+    delete_response = client.delete(f"/servings/{serving['id']}", headers=auth_headers(token_user2))
+    assert delete_response.status_code == 404, delete_response.text
+
+
+def test_list_servings_requires_food_visibility(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    register_user(client, email="user2@example.com", username="usertwo")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    token_user2 = login_and_get_token(client, identifier="user2@example.com")
+
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+    serving = create_serving_via_api(client, token_user1, food_id, name="1 piece", grams="120")
+
+    owner_list = client.get(f"/foods/{food_id}/servings", headers=auth_headers(token_user1))
+    assert owner_list.status_code == 200, owner_list.text
+    owner_ids = [item["id"] for item in owner_list.json()]
+    assert serving["id"] in owner_ids
+
+    other_list = client.get(f"/foods/{food_id}/servings", headers=auth_headers(token_user2))
+    assert other_list.status_code == 404, other_list.text
+
+
+def test_happy_path_create_list_delete_serving(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+
+    created_serving = create_serving_via_api(client, token_user1, food_id, name="1 glass", grams="200")
+
+    list_after_create = client.get(f"/foods/{food_id}/servings", headers=auth_headers(token_user1))
+    assert list_after_create.status_code == 200, list_after_create.text
+    ids_after_create = [item["id"] for item in list_after_create.json()]
+    assert created_serving["id"] in ids_after_create
+
+    delete_response = client.delete(f"/servings/{created_serving['id']}", headers=auth_headers(token_user1))
+    assert delete_response.status_code == 204, delete_response.text
+
+    list_after_delete = client.get(f"/foods/{food_id}/servings", headers=auth_headers(token_user1))
+    assert list_after_delete.status_code == 200, list_after_delete.text
+    assert list_after_delete.json() == []
