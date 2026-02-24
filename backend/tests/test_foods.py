@@ -43,6 +43,23 @@ def auth_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def create_food_via_api(client: TestClient, token: str, *, name: str = "Apple") -> dict:
+    response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "brand": "Brand",
+            "kcal": "95.00",
+            "protein": "0.30",
+            "fat": "0.20",
+            "carbs": "25.00",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def create_food(
     db_session_factory: sessionmaker[Session],
     *,
@@ -205,3 +222,107 @@ def test_create_and_publish_food_flow(client: TestClient) -> None:
     response_user1_after_publish = client.get(f"/foods/{food_id}", headers=auth_headers(token_user1))
     assert response_user1_after_publish.status_code == 200, response_user1_after_publish.text
     assert response_user1_after_publish.json()["id"] == food_id
+
+
+def test_patch_and_delete_food_happy_path(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+
+    created_food = create_food_via_api(client, token_user1, name="  Initial name  ")
+    food_id = created_food["id"]
+
+    patch_response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(token_user1),
+        json={
+            "name": "  Updated name  ",
+            "brand": "   ",
+            "kcal": "120.00",
+            "protein": "2.20",
+            "fat": "0.90",
+            "carbs": "27.30",
+        },
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    patched_food = patch_response.json()
+    assert patched_food["name"] == "Updated name"
+    assert patched_food["brand"] is None
+    assert Decimal(str(patched_food["kcal"])) == Decimal("120.00")
+    assert Decimal(str(patched_food["protein"])) == Decimal("2.20")
+    assert Decimal(str(patched_food["fat"])) == Decimal("0.90")
+    assert Decimal(str(patched_food["carbs"])) == Decimal("27.30")
+
+    delete_response = client.delete(f"/foods/{food_id}", headers=auth_headers(token_user1))
+    assert delete_response.status_code == 204, delete_response.text
+
+    get_after_delete = client.get(f"/foods/{food_id}", headers=auth_headers(token_user1))
+    assert get_after_delete.status_code == 404, get_after_delete.text
+
+
+def test_foreign_user_cannot_patch_or_delete_food(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    register_user(client, email="user2@example.com", username="usertwo")
+
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    token_user2 = login_and_get_token(client, identifier="user2@example.com")
+
+    created_food = create_food_via_api(client, token_user1, name="Owned food")
+    food_id = created_food["id"]
+
+    patch_response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(token_user2),
+        json={"name": "Hacked"},
+    )
+    assert patch_response.status_code == 404, patch_response.text
+
+    delete_response = client.delete(f"/foods/{food_id}", headers=auth_headers(token_user2))
+    assert delete_response.status_code == 404, delete_response.text
+
+
+def test_patch_food_name_blank_returns_422(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+
+    response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(token_user1),
+        json={"name": "   "},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_patch_food_negative_kcal_returns_422(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+
+    response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(token_user1),
+        json={"kcal": "-1"},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_patch_and_delete_after_publish_return_409(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(token_user1))
+    assert publish_response.status_code == 200, publish_response.text
+
+    patch_response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(token_user1),
+        json={"name": "Try update"},
+    )
+    assert patch_response.status_code == 409, patch_response.text
+
+    delete_response = client.delete(f"/foods/{food_id}", headers=auth_headers(token_user1))
+    assert delete_response.status_code == 409, delete_response.text

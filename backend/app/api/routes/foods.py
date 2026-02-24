@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, selectinload
 
@@ -8,13 +8,18 @@ from app.api.deps import get_current_user, get_db
 from app.models.enums import FoodSource
 from app.models.foods import FoodItem
 from app.models.user import User
-from app.schemas.foods import FoodItemCreate, FoodItemRead, FoodItemWithServingsRead
+from app.schemas.foods import FoodItemCreate, FoodItemRead, FoodItemUpdate, FoodItemWithServingsRead
 from app.services.foods import (
     FoodPublishConflictError,
+    FoodNotEditableError,
     build_visible_foods_query,
     create_food,
+    delete_food,
+    ensure_editable,
+    get_owned_food_or_none,
     get_visible_food_by_id,
     publish_food,
+    update_food,
 )
 
 router = APIRouter(prefix="/foods", tags=["foods"])
@@ -99,3 +104,42 @@ def publish_food_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
     return FoodItemRead.model_validate(food)
+
+
+@router.patch("/{food_id}", response_model=FoodItemRead)
+def patch_food_item(
+    food_id: int,
+    payload: FoodItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    food = get_owned_food_or_none(db, current_user.id, food_id)
+    if not food:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    try:
+        ensure_editable(food)
+    except FoodNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    updated_food = update_food(db, food, payload)
+    return FoodItemRead.model_validate(updated_food)
+
+
+@router.delete("/{food_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_food_item(
+    food_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    food = get_owned_food_or_none(db, current_user.id, food_id)
+    if not food:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    try:
+        ensure_editable(food)
+    except FoodNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    delete_food(db, food)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

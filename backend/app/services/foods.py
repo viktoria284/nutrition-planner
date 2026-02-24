@@ -5,10 +5,14 @@ from sqlalchemy.orm import Session
 
 from app.models.enums import FoodSource, FoodStatus
 from app.models.foods import FoodItem
-from app.schemas.foods import FoodItemCreate
+from app.schemas.foods import FoodItemCreate, FoodItemUpdate
 
 
 class FoodPublishConflictError(ValueError):
+    pass
+
+
+class FoodNotEditableError(ValueError):
     pass
 
 
@@ -45,6 +49,20 @@ def get_visible_food_by_id(db: Session, user_id: int, food_id: int) -> FoodItem 
     return db.execute(query).scalar_one_or_none()
 
 
+def get_owned_food_or_none(db: Session, user_id: int, food_id: int) -> FoodItem | None:
+    return db.execute(
+        select(FoodItem).where(
+            FoodItem.id == food_id,
+            FoodItem.owner_user_id == user_id,
+        )
+    ).scalar_one_or_none()
+
+
+def ensure_editable(food: FoodItem) -> None:
+    if food.source != FoodSource.private or food.status != FoodStatus.draft:
+        raise FoodNotEditableError("Only private draft foods can be modified")
+
+
 def create_food(db: Session, user_id: int, data: FoodItemCreate) -> FoodItem:
     food = FoodItem(
         name=data.name,
@@ -64,8 +82,8 @@ def create_food(db: Session, user_id: int, data: FoodItemCreate) -> FoodItem:
 
 
 def publish_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
-    food = get_visible_food_by_id(db, user_id, food_id)
-    if not food or food.owner_user_id != user_id:
+    food = get_owned_food_or_none(db, user_id, food_id)
+    if not food:
         return None
 
     if food.source in (FoodSource.community, FoodSource.verified):
@@ -76,3 +94,18 @@ def publish_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
     db.commit()
     db.refresh(food)
     return food
+
+
+def update_food(db: Session, food: FoodItem, payload: FoodItemUpdate) -> FoodItem:
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(food, field, value)
+
+    db.commit()
+    db.refresh(food)
+    return food
+
+
+def delete_food(db: Session, food: FoodItem) -> None:
+    db.delete(food)
+    db.commit()
