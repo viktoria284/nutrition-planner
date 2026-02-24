@@ -42,6 +42,11 @@ def setup_test_db() -> Generator[None, None, None]:
 
 
 @pytest.fixture
+def db_session_factory() -> sessionmaker[Session]:
+    return TestingSessionLocal
+
+
+@pytest.fixture
 def client() -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client

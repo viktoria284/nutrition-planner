@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy.orm import Session
+
+from app.models.enums import FoodSource, FoodStatus
+from app.models.foods import FoodItem
+from app.schemas.foods import FoodItemCreate
+
+
+class FoodPublishConflictError(ValueError):
+    pass
+
+
+def build_visible_foods_query(db: Session, user_id: int, q: str | None = None) -> Select[tuple[FoodItem]]:
+    # db is kept in signature intentionally for consistency with other services.
+    _ = db
+    visible_condition = or_(
+        and_(FoodItem.source == FoodSource.private, FoodItem.owner_user_id == user_id),
+        FoodItem.source == FoodSource.verified,
+        and_(
+            FoodItem.source == FoodSource.community,
+            or_(FoodItem.owner_user_id == user_id, FoodItem.status == FoodStatus.approved),
+        ),
+    )
+
+    query: Select[tuple[FoodItem]] = select(FoodItem).where(visible_condition)
+
+    if q is not None:
+        search = q.strip()
+        if search:
+            pattern = f"%{search}%"
+            query = query.where(
+                or_(
+                    FoodItem.name.ilike(pattern),
+                    func.coalesce(FoodItem.brand, "").ilike(pattern),
+                )
+            )
+
+    return query
+
+
+def get_visible_food_by_id(db: Session, user_id: int, food_id: int) -> FoodItem | None:
+    query = build_visible_foods_query(db, user_id).where(FoodItem.id == food_id)
+    return db.execute(query).scalar_one_or_none()
+
+
+def create_food(db: Session, user_id: int, data: FoodItemCreate) -> FoodItem:
+    food = FoodItem(
+        name=data.name,
+        brand=data.brand,
+        kcal=data.kcal,
+        protein=data.protein,
+        fat=data.fat,
+        carbs=data.carbs,
+        owner_user_id=user_id,
+        source=FoodSource.private,
+        status=FoodStatus.draft,
+    )
+    db.add(food)
+    db.commit()
+    db.refresh(food)
+    return food
+
+
+def publish_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
+    food = get_visible_food_by_id(db, user_id, food_id)
+    if not food or food.owner_user_id != user_id:
+        return None
+
+    if food.source in (FoodSource.community, FoodSource.verified):
+        raise FoodPublishConflictError("Food is already community or verified and cannot be published")
+
+    food.source = FoodSource.community
+    food.status = FoodStatus.pending
+    db.commit()
+    db.refresh(food)
+    return food
