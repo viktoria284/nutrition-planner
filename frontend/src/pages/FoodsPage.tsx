@@ -254,7 +254,8 @@ export function FoodsPage() {
               <li key={food.id}>
                 <Link to={`/foods/${food.id}`} className="food-row-link">
                   <div className="food-row-main">
-                    <p className="food-row-title">{food.brand ? `${food.name} — ${food.brand}` : food.name}</p>
+                    <p className="food-row-title">{food.name}</p>
+                    {food.brand && <p className="food-row-brand">{food.brand}</p>}
                   </div>
 
                   <div className="food-row-meta">

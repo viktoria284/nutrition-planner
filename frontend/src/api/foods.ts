@@ -29,6 +29,20 @@ export type FoodCreatePayload = {
   carbs: number;
 };
 
+export type FoodServing = {
+  id: number;
+  food_id: number;
+  name: string;
+  grams: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type FoodServingCreatePayload = {
+  name: string;
+  grams: number;
+};
+
 type FoodSearchParams = {
   q: string;
   limit?: number;
@@ -76,6 +90,39 @@ export async function getFood(id: number | string): Promise<FoodItem> {
   return apiRequest<FoodItem>({
     method: "GET",
     path: `/foods/${id}`,
+    token: getToken(),
+  });
+}
+
+export async function listServings(foodId: number | string): Promise<FoodServing[]> {
+  return apiRequest<FoodServing[]>({
+    method: "GET",
+    path: `/foods/${foodId}/servings`,
+    token: getToken(),
+  });
+}
+
+export async function createServing(
+  foodId: number | string,
+  payload: FoodServingCreatePayload,
+): Promise<FoodServing> {
+  const body: FoodServingCreatePayload = {
+    name: payload.name.trim(),
+    grams: payload.grams,
+  };
+
+  return apiRequest<FoodServing>({
+    method: "POST",
+    path: `/foods/${foodId}/servings`,
+    token: getToken(),
+    body,
+  });
+}
+
+export async function deleteServing(servingId: number | string): Promise<void> {
+  await apiRequest<void>({
+    method: "DELETE",
+    path: `/servings/${servingId}`,
     token: getToken(),
   });
 }

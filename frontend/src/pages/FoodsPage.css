@@ -92,6 +92,12 @@
   font-weight: 700;
 }
 
+.food-row-brand {
+  margin: 2px 0 0;
+  color: var(--text-soft);
+  font-size: 0.95rem;
+}
+
 .food-row-meta {
   display: flex;
   align-items: center;
@@ -245,6 +251,76 @@
   font-size: 0.98rem;
 }
 
+.servings-card {
+  gap: 12px;
+}
+
+.servings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.servings-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.servings-error-block {
+  display: grid;
+  gap: 10px;
+  max-width: 520px;
+}
+
+.servings-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.serving-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fafafa;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.serving-line {
+  margin: 0;
+  font-weight: 600;
+}
+
+.serving-delete-btn {
+  height: 40px;
+  padding: 0 12px;
+}
+
+.serving-form {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+
+.serving-form-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.serving-form-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .food-nutrients {
   margin: 0;
   display: grid;
@@ -294,6 +370,19 @@
 
   .foods-create-actions {
     justify-content: stretch;
+  }
+
+  .serving-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .serving-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .serving-delete-btn {
+    width: 100%;
   }
 
   .food-row-link {
