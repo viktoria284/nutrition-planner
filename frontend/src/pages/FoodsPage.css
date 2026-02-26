@@ -1,0 +1,308 @@
+.foods-page {
+  padding: 28px 24px 40px;
+}
+
+.foods-shell {
+  width: min(860px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 14px;
+}
+
+.foods-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.foods-title {
+  margin: 0;
+  font-family: "Rubik", "Source Sans 3", sans-serif;
+  font-size: clamp(1.5rem, 1.8vw, 2rem);
+  font-weight: 600;
+}
+
+.foods-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.foods-search-field {
+  display: grid;
+  gap: 6px;
+}
+
+.foods-search-label {
+  font-size: 0.93rem;
+  font-weight: 600;
+}
+
+.foods-search-input {
+  width: 100%;
+  height: 44px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  padding: 0 12px;
+}
+
+.foods-search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.foods-note {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.foods-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.food-row-link {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.food-row-link:hover {
+  border-color: rgba(var(--primary-rgb), 0.35);
+  background: #fcfffb;
+}
+
+.food-row-main {
+  min-width: 0;
+}
+
+.food-row-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.food-row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.food-row-kcal {
+  color: var(--text-soft);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.food-source-badge {
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.food-source-badge.is-private {
+  background: rgba(var(--primary-rgb), 0.12);
+  border-color: rgba(var(--primary-rgb), 0.3);
+  color: var(--primary-dark);
+}
+
+.food-source-badge.is-verified {
+  background: rgba(27, 108, 195, 0.11);
+  border-color: rgba(27, 108, 195, 0.28);
+  color: #1b6cc3;
+}
+
+.food-source-badge.is-community {
+  background: rgba(128, 102, 64, 0.12);
+  border-color: rgba(128, 102, 64, 0.28);
+  color: #806640;
+}
+
+.foods-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(16, 16, 16, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.foods-modal {
+  width: min(620px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.foods-modal-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  font-family: "Rubik", "Source Sans 3", sans-serif;
+}
+
+.foods-create-form {
+  display: grid;
+  gap: 12px;
+}
+
+.foods-field {
+  display: grid;
+  gap: 6px;
+}
+
+.foods-field-label {
+  font-size: 0.93rem;
+  font-weight: 600;
+}
+
+.foods-field-input {
+  width: 100%;
+  height: 42px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  padding: 0 12px;
+}
+
+.foods-field-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.foods-field-input.is-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.12);
+}
+
+.foods-field-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.foods-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.foods-create-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.foods-details-head {
+  margin-bottom: 4px;
+}
+
+.food-details-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.food-details-title {
+  margin: 0;
+  font-family: "Rubik", "Source Sans 3", sans-serif;
+  font-size: clamp(1.3rem, 1.6vw, 1.75rem);
+  font-weight: 600;
+}
+
+.food-details-subtitle {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.food-details-brand {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.98rem;
+}
+
+.food-nutrients {
+  margin: 0;
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.food-nutrients-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.food-nutrients-row + .food-nutrients-row {
+  border-top: 1px solid var(--border);
+}
+
+.food-nutrients-row dt {
+  font-weight: 600;
+}
+
+.food-nutrients-row dd {
+  margin: 0;
+  font-weight: 700;
+}
+
+@media (max-width: 860px) {
+  .foods-page {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
+@media (max-width: 700px) {
+  .foods-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .foods-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .foods-create-actions {
+    justify-content: stretch;
+  }
+
+  .food-row-link {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .food-row-meta {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

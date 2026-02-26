@@ -25,6 +25,9 @@ export function Navbar() {
               <NavLink to="/planner" className={navClass}>
                 Планировщик
               </NavLink>
+              <NavLink to="/foods" className={navClass}>
+                Foods
+              </NavLink>
               <NavLink to="/recipes" className={navClass}>
                 Рецепты
               </NavLink>

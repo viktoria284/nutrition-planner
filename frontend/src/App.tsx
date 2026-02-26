@@ -5,6 +5,8 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { RecipesPage } from "./pages/RecipesPage";
 import { ShoppingPage } from "./pages/ShoppingPage";
+import { FoodsPage } from "./pages/FoodsPage";
+import { FoodDetailsPage } from "./pages/FoodDetailsPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Navbar } from "./components/Navbar";
 import { ProfilesProvider } from "./context/ProfilesContext";
@@ -47,6 +49,22 @@ export default function App() {
               element={
                 <RequireAuth>
                   <ShoppingPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/foods"
+              element={
+                <RequireAuth>
+                  <FoodsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/foods/:id"
+              element={
+                <RequireAuth>
+                  <FoodDetailsPage />
                 </RequireAuth>
               }
             />
