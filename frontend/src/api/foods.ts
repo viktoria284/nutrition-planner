@@ -43,6 +43,10 @@ export type FoodServingCreatePayload = {
   grams: number;
 };
 
+export type FoodReportPayload = {
+  reason?: string | null;
+};
+
 type FoodSearchParams = {
   q: string;
   limit?: number;
@@ -124,5 +128,20 @@ export async function deleteServing(servingId: number | string): Promise<void> {
     method: "DELETE",
     path: `/servings/${servingId}`,
     token: getToken(),
+  });
+}
+
+export async function reportFood(
+  foodId: number,
+  payload?: FoodReportPayload,
+): Promise<void | any> {
+  const normalizedReason = typeof payload?.reason === "string" ? payload.reason.trim() : payload?.reason;
+  const body: FoodReportPayload = normalizedReason ? { reason: normalizedReason } : {};
+
+  return apiRequest<void | any>({
+    method: "POST",
+    path: `/foods/${foodId}/reports`,
+    token: getToken(),
+    body,
   });
 }

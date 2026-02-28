@@ -1,7 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError } from "../api/http";
-import { createServing, deleteServing, getFood, listServings, type FoodItem, type FoodServing } from "../api/foods";
+import {
+  createServing,
+  deleteServing,
+  getFood,
+  listServings,
+  reportFood,
+  type FoodItem,
+  type FoodServing,
+} from "../api/foods";
 import { Alert } from "../components/Alert";
 import "./FoodsPage.css";
 
@@ -76,6 +84,9 @@ export function FoodDetailsPage() {
   const [servingErrors, setServingErrors] = useState<ServingFormErrors>({});
   const [creatingServing, setCreatingServing] = useState(false);
   const [deletingServingId, setDeletingServingId] = useState<number | null>(null);
+  const [reportingFood, setReportingFood] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const [reportSuccess, setReportSuccess] = useState(false);
 
   const refreshServings = () => setServingsReloadSeq((prev) => prev + 1);
 
@@ -90,6 +101,9 @@ export function FoodDetailsPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setReportError(null);
+    setReportSuccess(false);
+    setReportingFood(false);
 
     getFood(id)
       .then((item) => {
@@ -210,6 +224,33 @@ export function FoodDetailsPage() {
     }
   };
 
+  const onReportFood = async () => {
+    if (!food) return;
+
+    setReportingFood(true);
+    setReportError(null);
+    setReportSuccess(false);
+
+    try {
+      await reportFood(food.id);
+      setReportSuccess(true);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setReportError("Вы уже отправляли жалобу");
+        } else if (err.status === 400) {
+          setReportError("Нельзя жаловаться на этот продукт");
+        } else {
+          setReportError("Не удалось отправить жалобу");
+        }
+      } else {
+        setReportError("Не удалось отправить жалобу");
+      }
+    } finally {
+      setReportingFood(false);
+    }
+  };
+
   return (
     <section className="foods-page">
       <div className="foods-shell">
@@ -224,8 +265,24 @@ export function FoodDetailsPage() {
 
         {!loading && !error && food && (
           <article className="food-details-card">
-            <h1 className="food-details-title">{food.name}</h1>
-            {food.brand && <p className="food-details-brand">{food.brand}</p>}
+            <div className="food-details-top">
+              <div className="food-details-heading">
+                <h1 className="food-details-title">{food.name}</h1>
+                {food.brand && <p className="food-details-brand">{food.brand}</p>}
+              </div>
+
+              {food.source === "community" && (
+                <div className="food-details-actions">
+                  <button type="button" className="btn btn-subtle" onClick={onReportFood} disabled={reportingFood}>
+                    {reportingFood ? "Отправка..." : "Пожаловаться"}
+                  </button>
+
+                  {reportSuccess && <p className="food-report-success">Жалоба отправлена</p>}
+                  {reportError && <p className="food-report-error">{reportError}</p>}
+                </div>
+              )}
+            </div>
+
             <p className="food-details-subtitle">Нутриенты на 100 г</p>
 
             <dl className="food-nutrients">
@@ -290,45 +347,47 @@ export function FoodDetailsPage() {
 
             {servingErrors.form && <Alert text={servingErrors.form} />}
 
-            <form className="serving-form" onSubmit={onCreateServing} noValidate>
-              <h3 className="serving-form-title">Добавить порцию</h3>
+            {food.source === "private" && food.status === "draft" && (
+              <form className="serving-form" onSubmit={onCreateServing} noValidate>
+                <h3 className="serving-form-title">Добавить порцию</h3>
 
-              <div className="serving-form-grid">
-                <label className="foods-field" htmlFor="serving_name">
-                  <span className="foods-field-label">Название</span>
-                  <input
-                    id="serving_name"
-                    className={`foods-field-input ${servingErrors.name ? "is-invalid" : ""}`}
-                    type="text"
-                    value={servingForm.name}
-                    onChange={(e) => updateServingField("name", e.target.value)}
-                    placeholder="Например, 1 штука"
-                  />
-                  {servingErrors.name && <p className="foods-field-error">{servingErrors.name}</p>}
-                </label>
+                <div className="serving-form-grid">
+                  <label className="foods-field" htmlFor="serving_name">
+                    <span className="foods-field-label">Название</span>
+                    <input
+                      id="serving_name"
+                      className={`foods-field-input ${servingErrors.name ? "is-invalid" : ""}`}
+                      type="text"
+                      value={servingForm.name}
+                      onChange={(e) => updateServingField("name", e.target.value)}
+                      placeholder="Например, 1 штука"
+                    />
+                    {servingErrors.name && <p className="foods-field-error">{servingErrors.name}</p>}
+                  </label>
 
-                <label className="foods-field" htmlFor="serving_grams">
-                  <span className="foods-field-label">Граммы</span>
-                  <input
-                    id="serving_grams"
-                    className={`foods-field-input ${servingErrors.grams ? "is-invalid" : ""}`}
-                    type="number"
-                    min={1}
-                    step="any"
-                    value={servingForm.grams}
-                    onChange={(e) => updateServingField("grams", e.target.value)}
-                    placeholder="120"
-                  />
-                  {servingErrors.grams && <p className="foods-field-error">{servingErrors.grams}</p>}
-                </label>
-              </div>
+                  <label className="foods-field" htmlFor="serving_grams">
+                    <span className="foods-field-label">Граммы</span>
+                    <input
+                      id="serving_grams"
+                      className={`foods-field-input ${servingErrors.grams ? "is-invalid" : ""}`}
+                      type="number"
+                      min={1}
+                      step="any"
+                      value={servingForm.grams}
+                      onChange={(e) => updateServingField("grams", e.target.value)}
+                      placeholder="120"
+                    />
+                    {servingErrors.grams && <p className="foods-field-error">{servingErrors.grams}</p>}
+                  </label>
+                </div>
 
-              <div className="foods-create-actions">
-                <button type="submit" className="btn btn-primary" disabled={creatingServing || deletingServingId !== null}>
-                  {creatingServing ? "Добавляем..." : "Добавить порцию"}
-                </button>
-              </div>
-            </form>
+                <div className="foods-create-actions">
+                  <button type="submit" className="btn btn-primary" disabled={creatingServing || deletingServingId !== null}>
+                    {creatingServing ? "Добавляем..." : "Добавить порцию"}
+                  </button>
+                </div>
+              </form>
+            )}
           </article>
         )}
       </div>
