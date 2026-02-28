@@ -100,6 +100,7 @@ def create_food(
     source: FoodSource,
     status: FoodStatus,
     owner_user_id: int | None,
+    is_listed: bool = True,
 ) -> int:
     db_session = db_session_factory()
     try:
@@ -113,6 +114,7 @@ def create_food(
             source=source,
             status=status,
             owner_user_id=owner_user_id,
+            is_listed=is_listed,
         )
         db_session.add(food)
         db_session.commit()
@@ -343,6 +345,7 @@ def test_publish_food_sets_approved(client: TestClient) -> None:
     published_food = publish_response.json()
     assert published_food["source"] == "community"
     assert published_food["status"] == "approved"
+    assert published_food["is_listed"] is True
 
     response_user2_after_publish = client.get(f"/foods/{food_id}", headers=auth_headers(token_user2))
     assert response_user2_after_publish.status_code == 200, response_user2_after_publish.text
@@ -532,7 +535,7 @@ def test_happy_path_create_list_delete_serving(client: TestClient) -> None:
     assert list_after_delete.json() == []
 
 
-def test_three_unique_reports_move_food_to_pending_and_hide_from_other_users_search(client: TestClient) -> None:
+def test_reports_unlist_on_threshold(client: TestClient) -> None:
     register_user(client, email="owner@example.com", username="owneruser")
     register_user(client, email="u1@example.com", username="userone")
     register_user(client, email="u2@example.com", username="usertwo")
@@ -560,6 +563,7 @@ def test_three_unique_reports_move_food_to_pending_and_hide_from_other_users_sea
         assert report_response.status_code == 200, report_response.text
 
     assert report_response.json()["status"] == "pending"
+    assert report_response.json()["is_listed"] is False
 
     foreign_get = client.get(f"/foods/{food_id}", headers=auth_headers(user1_token))
     assert foreign_get.status_code == 200, foreign_get.text
@@ -580,6 +584,84 @@ def test_three_unique_reports_move_food_to_pending_and_hide_from_other_users_sea
     owner_get = client.get(f"/foods/{food_id}", headers=auth_headers(owner_token))
     assert owner_get.status_code == 200, owner_get.text
     assert owner_get.json()["status"] == "pending"
+    assert owner_get.json()["is_listed"] is False
+
+
+def test_withdraw_unlists_but_keeps_access_by_id(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    register_user(client, email="u1@example.com", username="userone")
+
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+    user1_token = login_and_get_token(client, identifier="u1@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Tuna")
+    food_id = created_food["id"]
+
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    withdraw_response = client.post(f"/foods/{food_id}/withdraw", headers=auth_headers(owner_token))
+    assert withdraw_response.status_code == 200, withdraw_response.text
+    withdrawn_food = withdraw_response.json()
+    assert withdrawn_food["source"] == "community"
+    assert withdrawn_food["status"] == "approved"
+    assert withdrawn_food["is_listed"] is False
+
+    search_other = client.get(
+        "/foods/search",
+        headers=auth_headers(user1_token),
+        params={"q": "Community"},
+    )
+    assert search_other.status_code == 200, search_other.text
+    assert all(item["id"] != food_id for item in search_other.json())
+
+    search_owner = client.get(
+        "/foods/search",
+        headers=auth_headers(owner_token),
+        params={"q": "Community"},
+    )
+    assert search_owner.status_code == 200, search_owner.text
+    assert any(item["id"] == food_id for item in search_owner.json())
+
+    get_other = client.get(f"/foods/{food_id}", headers=auth_headers(user1_token))
+    assert get_other.status_code == 200, get_other.text
+    assert get_other.json()["id"] == food_id
+
+    get_owner = client.get(f"/foods/{food_id}", headers=auth_headers(owner_token))
+    assert get_owner.status_code == 200, get_owner.text
+    assert get_owner.json()["id"] == food_id
+
+
+def test_withdraw_by_non_owner_returns_403(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    register_user(client, email="u1@example.com", username="userone")
+
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+    user1_token = login_and_get_token(client, identifier="u1@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Rice")
+    food_id = created_food["id"]
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    withdraw_response = client.post(f"/foods/{food_id}/withdraw", headers=auth_headers(user1_token))
+    assert withdraw_response.status_code == 403, withdraw_response.text
+
+
+def test_withdraw_twice_returns_409(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Oats")
+    food_id = created_food["id"]
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    first_withdraw = client.post(f"/foods/{food_id}/withdraw", headers=auth_headers(owner_token))
+    assert first_withdraw.status_code == 200, first_withdraw.text
+
+    second_withdraw = client.post(f"/foods/{food_id}/withdraw", headers=auth_headers(owner_token))
+    assert second_withdraw.status_code == 409, second_withdraw.text
 
 
 def test_duplicate_report_by_same_user_returns_409(client: TestClient) -> None:
@@ -625,7 +707,7 @@ def test_cannot_report_own_food(client: TestClient) -> None:
         headers=auth_headers(owner_token),
         json={"reason": "self report"},
     )
-    assert report_response.status_code == 409, report_response.text
+    assert report_response.status_code == 400, report_response.text
 
 
 def test_admin_moderate_approve_reject(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:

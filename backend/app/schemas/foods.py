@@ -29,6 +29,7 @@ class FoodItemRead(BaseModel):
     status: FoodStatus
     owner_user_id: int | None
     reports_count: int
+    is_listed: bool
 
     class Config:
         from_attributes = True

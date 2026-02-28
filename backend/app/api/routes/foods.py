@@ -20,6 +20,9 @@ from app.schemas.foods import (
 from app.services.foods import (
     FoodReportConflictError,
     FoodReportNotAllowedError,
+    FoodReportSelfError,
+    FoodWithdrawConflictError,
+    FoodWithdrawForbiddenError,
     FoodPublishConflictError,
     FoodNotEditableError,
     build_visible_foods_query,
@@ -33,6 +36,7 @@ from app.services.foods import (
     publish_food,
     report_food,
     update_food,
+    withdraw_food,
 )
 
 router = APIRouter(prefix="/foods", tags=["foods"])
@@ -131,6 +135,25 @@ def publish_food_item(
     return FoodItemRead.model_validate(food)
 
 
+@router.post("/{food_id}/withdraw", response_model=FoodItemRead)
+def withdraw_food_item(
+    food_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        food = withdraw_food(db, current_user.id, food_id)
+    except FoodWithdrawForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except FoodWithdrawConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not food:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    return FoodItemRead.model_validate(food)
+
+
 @router.patch("/{food_id}", response_model=FoodItemRead)
 def patch_food_item(
     food_id: int,
@@ -217,7 +240,9 @@ def report_food_item(
 ):
     try:
         food = report_food(db, current_user.id, food_id, payload.reason)
-    except (FoodReportConflictError, FoodReportNotAllowedError) as exc:
+    except (FoodReportSelfError, FoodReportNotAllowedError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except FoodReportConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     if not food:

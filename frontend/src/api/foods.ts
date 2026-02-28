@@ -15,6 +15,7 @@ export type FoodItem = {
   carbs: number;
   source: FoodSource;
   status: FoodStatus;
+  is_listed: boolean;
   owner_user_id?: number | null;
   created_at?: string;
   updated_at?: string;
@@ -27,6 +28,15 @@ export type FoodCreatePayload = {
   protein: number;
   fat: number;
   carbs: number;
+};
+
+export type FoodItemUpdatePayload = {
+  name?: string;
+  brand?: string | null;
+  kcal?: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
 };
 
 export type FoodServing = {
@@ -94,6 +104,46 @@ export async function getFood(id: number | string): Promise<FoodItem> {
   return apiRequest<FoodItem>({
     method: "GET",
     path: `/foods/${id}`,
+    token: getToken(),
+  });
+}
+
+export async function updateFood(id: number | string, payload: FoodItemUpdatePayload): Promise<FoodItem> {
+  const body: FoodItemUpdatePayload = { ...payload };
+
+  if (Object.prototype.hasOwnProperty.call(body, "brand")) {
+    const normalizedBrand = typeof body.brand === "string" ? body.brand.trim() : body.brand;
+    body.brand = normalizedBrand || null;
+  }
+
+  return apiRequest<FoodItem>({
+    method: "PATCH",
+    path: `/foods/${id}`,
+    token: getToken(),
+    body,
+  });
+}
+
+export async function deleteFood(id: number | string): Promise<void> {
+  await apiRequest<void>({
+    method: "DELETE",
+    path: `/foods/${id}`,
+    token: getToken(),
+  });
+}
+
+export async function publishFood(id: number): Promise<FoodItem> {
+  return apiRequest<FoodItem>({
+    method: "POST",
+    path: `/foods/${id}/publish`,
+    token: getToken(),
+  });
+}
+
+export async function withdrawFood(id: number): Promise<FoodItem> {
+  return apiRequest<FoodItem>({
+    method: "POST",
+    path: `/foods/${id}/withdraw`,
     token: getToken(),
   });
 }

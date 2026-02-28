@@ -27,6 +27,18 @@ class FoodReportNotAllowedError(ValueError):
     pass
 
 
+class FoodReportSelfError(ValueError):
+    pass
+
+
+class FoodWithdrawForbiddenError(ValueError):
+    pass
+
+
+class FoodWithdrawConflictError(ValueError):
+    pass
+
+
 class FoodModerationError(ValueError):
     pass
 
@@ -81,7 +93,10 @@ def build_visible_foods_query(
             FoodItem.source == FoodSource.verified,
             and_(
                 FoodItem.source == FoodSource.community,
-                or_(FoodItem.owner_user_id == user_id, FoodItem.status == FoodStatus.approved),
+                or_(
+                    FoodItem.owner_user_id == user_id,
+                    and_(FoodItem.status == FoodStatus.approved, FoodItem.is_listed.is_(True)),
+                ),
             ),
         )
         query = query.where(visible_condition)
@@ -175,6 +190,7 @@ def publish_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
 
     food.source = FoodSource.community
     food.status = FoodStatus.approved
+    food.is_listed = True
     db.commit()
     db.refresh(food)
     return food
@@ -233,20 +249,11 @@ def report_food(db: Session, reporter_user_id: int, food_id: int, reason: str | 
     if not food:
         return None
 
+    if food.owner_user_id == reporter_user_id:
+        raise FoodReportSelfError("You cannot report your own food")
+
     if food.source != FoodSource.community or food.status != FoodStatus.approved:
         raise FoodReportNotAllowedError("Only community approved foods can be reported")
-
-    if food.owner_user_id == reporter_user_id:
-        raise FoodReportNotAllowedError("You cannot report your own food")
-
-    existing_report = db.execute(
-        select(FoodReport.id).where(
-            FoodReport.food_id == food_id,
-            FoodReport.reporter_user_id == reporter_user_id,
-        )
-    ).scalar_one_or_none()
-    if existing_report is not None:
-        raise FoodReportConflictError("You have already reported this food")
 
     db.add(
         FoodReport(
@@ -269,7 +276,28 @@ def report_food(db: Session, reporter_user_id: int, food_id: int, reason: str | 
 
     if food.reports_count >= 3 and food.source == FoodSource.community and food.status == FoodStatus.approved:
         food.status = FoodStatus.pending
+        food.is_listed = False
 
+    db.commit()
+    db.refresh(food)
+    return food
+
+
+def withdraw_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
+    food = db.execute(select(FoodItem).where(FoodItem.id == food_id)).scalar_one_or_none()
+    if not food:
+        return None
+
+    if food.owner_user_id != user_id:
+        raise FoodWithdrawForbiddenError("Only owner can withdraw this food")
+
+    if food.source != FoodSource.community or food.status != FoodStatus.approved:
+        raise FoodWithdrawConflictError("Only approved community foods can be withdrawn")
+
+    if not food.is_listed:
+        raise FoodWithdrawConflictError("Food is already withdrawn")
+
+    food.is_listed = False
     db.commit()
     db.refresh(food)
     return food
@@ -298,18 +326,20 @@ def moderate_food(db: Session, food_id: int, action: str) -> FoodItem | None:
 def seed_verified_foods(db: Session) -> int:
     created_count = 0
 
+    existing_rows = db.execute(
+        select(FoodItem.name, FoodItem.brand).where(FoodItem.source == FoodSource.verified)
+    ).all()
+
+    def key(name: str | None, brand: str | None) -> tuple[str, str]:
+        return (name or "").strip().casefold(), (brand or "").strip().casefold()
+
+    existing_keys = {key(name, brand) for name, brand in existing_rows}
+
     for item in VERIFIED_FOODS_SEED_DATA:
         name = item["name"].strip()
         brand = (item.get("brand") or "").strip()
-
-        exists = db.execute(
-            select(FoodItem.id).where(
-                FoodItem.source == FoodSource.verified,
-                func.lower(FoodItem.name) == name.lower(),
-                func.lower(func.coalesce(FoodItem.brand, "")) == brand.lower(),
-            )
-        ).scalar_one_or_none()
-        if exists is not None:
+        item_key = key(name, brand)
+        if item_key in existing_keys:
             continue
 
         db.add(
@@ -325,6 +355,7 @@ def seed_verified_foods(db: Session) -> int:
                 owner_user_id=None,
             )
         )
+        existing_keys.add(item_key)
         created_count += 1
 
     db.commit()

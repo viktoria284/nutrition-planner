@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum as SAEnum,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
@@ -51,6 +53,12 @@ class FoodItem(Base):
         index=True,
     )
     reports_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    is_listed: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -85,6 +93,7 @@ class FoodItem(Base):
         CheckConstraint("fat >= 0", name="ck_food_items_fat_non_negative"),
         CheckConstraint("carbs >= 0", name="ck_food_items_carbs_non_negative"),
         Index("ix_food_items_name_lower", func.lower(name)),
+        Index("ix_food_items_source_status_is_listed", source, status, is_listed),
     )
 
     @validates("name")

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { createFood, searchFoods, type FoodCreatePayload, type FoodItem, type FoodSource } from "../api/foods";
 import { Alert } from "../components/Alert";
+import { FoodSearchSelect } from "../components/FoodSearchSelect";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import "./FoodsPage.css";
 
@@ -120,6 +121,7 @@ export function FoodsPage() {
   const [createForm, setCreateForm] = useState<CreateFoodForm>(EMPTY_CREATE_FORM);
   const [createErrors, setCreateErrors] = useState<CreateFoodErrors>({});
   const [createLoading, setCreateLoading] = useState(false);
+  const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
 
   const trimmedQuery = query.trim();
   const canSearch = trimmedQuery.length >= 2;
@@ -242,6 +244,24 @@ export function FoodsPage() {
             autoComplete="off"
           />
         </label>
+
+        <article className="foods-picker-card">
+          <h2 className="foods-picker-title">Быстрый выбор продукта</h2>
+          <p className="foods-picker-subtitle">Переиспользуемый селект с поиском для будущих экранов.</p>
+
+          <FoodSearchSelect
+            value={selectedFood}
+            onChange={setSelectedFood}
+            placeholder="Введите название продукта"
+            allowCreate
+          />
+
+          {selectedFood && (
+            <Link className="btn btn-secondary foods-picker-open" to={`/foods/${selectedFood.id}`}>
+              Открыть карточку
+            </Link>
+          )}
+        </article>
 
         {!canSearch && <p className="foods-note">Введите минимум 2 символа</p>}
         {canSearch && loading && <p className="foods-note">Загрузка...</p>}
