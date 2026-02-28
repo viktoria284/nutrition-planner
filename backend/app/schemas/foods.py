@@ -39,9 +39,12 @@ class FoodItemWithServingsRead(FoodItemRead):
     servings: list[FoodServingRead]
 
 
-KcalDecimal = Annotated[Decimal, Field(ge=0, le=2000)]
-MacroDecimal = Annotated[Decimal, Field(ge=0, le=200)]
+KcalDecimal = Annotated[Decimal, Field(ge=0)]
+MacroDecimal = Annotated[Decimal, Field(ge=0)]
 PositiveDecimal = Annotated[Decimal, Field(gt=0)]
+
+MAX_KCAL = Decimal("1000")
+MAX_MACRO = Decimal("100")
 
 
 class FoodItemCreate(BaseModel):
@@ -67,6 +70,34 @@ class FoodItemCreate(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("kcal")
+    @classmethod
+    def validate_kcal_upper_bound(cls, value: Decimal) -> Decimal:
+        if value > MAX_KCAL:
+            raise ValueError("Калорийность должна быть ≤ 1000 ккал на 100 г.")
+        return value
+
+    @field_validator("protein")
+    @classmethod
+    def validate_protein_upper_bound(cls, value: Decimal) -> Decimal:
+        if value > MAX_MACRO:
+            raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
+
+    @field_validator("fat")
+    @classmethod
+    def validate_fat_upper_bound(cls, value: Decimal) -> Decimal:
+        if value > MAX_MACRO:
+            raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
+
+    @field_validator("carbs")
+    @classmethod
+    def validate_carbs_upper_bound(cls, value: Decimal) -> Decimal:
+        if value > MAX_MACRO:
+            raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
 
 
 class FoodItemUpdate(BaseModel):
@@ -94,6 +125,42 @@ class FoodItemUpdate(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @field_validator("kcal")
+    @classmethod
+    def validate_kcal_upper_bound(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if value > MAX_KCAL:
+            raise ValueError("Калорийность должна быть ≤ 1000 ккал на 100 г.")
+        return value
+
+    @field_validator("protein")
+    @classmethod
+    def validate_protein_upper_bound(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if value > MAX_MACRO:
+            raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
+
+    @field_validator("fat")
+    @classmethod
+    def validate_fat_upper_bound(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if value > MAX_MACRO:
+            raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
+
+    @field_validator("carbs")
+    @classmethod
+    def validate_carbs_upper_bound(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if value > MAX_MACRO:
+            raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
 
 
 class FoodServingCreate(BaseModel):

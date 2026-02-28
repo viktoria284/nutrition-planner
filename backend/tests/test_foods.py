@@ -439,6 +439,58 @@ def test_patch_food_negative_kcal_returns_422(client: TestClient) -> None:
     assert response.status_code == 422, response.text
 
 
+def test_create_food_protein_above_100_returns_422(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+
+    response = client.post(
+        "/foods",
+        headers=auth_headers(token_user1),
+        json={
+            "name": "Too much protein",
+            "brand": "Brand",
+            "kcal": "250.00",
+            "protein": "101.00",
+            "fat": "10.00",
+            "carbs": "10.00",
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_create_food_kcal_above_1000_returns_422(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+
+    response = client.post(
+        "/foods",
+        headers=auth_headers(token_user1),
+        json={
+            "name": "Too much calories",
+            "brand": "Brand",
+            "kcal": "1001.00",
+            "protein": "20.00",
+            "fat": "10.00",
+            "carbs": "10.00",
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_patch_food_carbs_above_100_returns_422(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+    created_food = create_food_via_api(client, token_user1)
+    food_id = created_food["id"]
+
+    response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(token_user1),
+        json={"carbs": "150"},
+    )
+    assert response.status_code == 422, response.text
+
+
 def test_patch_and_delete_after_publish_return_409(client: TestClient) -> None:
     register_user(client, email="user1@example.com", username="userone")
     token_user1 = login_and_get_token(client, identifier="user1@example.com")

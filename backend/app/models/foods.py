@@ -92,6 +92,10 @@ class FoodItem(Base):
         CheckConstraint("protein >= 0", name="ck_food_items_protein_non_negative"),
         CheckConstraint("fat >= 0", name="ck_food_items_fat_non_negative"),
         CheckConstraint("carbs >= 0", name="ck_food_items_carbs_non_negative"),
+        CheckConstraint("kcal <= 1000", name="ck_food_items_kcal_max"),
+        CheckConstraint("protein <= 100", name="ck_food_items_protein_max"),
+        CheckConstraint("fat <= 100", name="ck_food_items_fat_max"),
+        CheckConstraint("carbs <= 100", name="ck_food_items_carbs_max"),
         Index("ix_food_items_name_lower", func.lower(name)),
         Index("ix_food_items_source_status_is_listed", source, status, is_listed),
     )
