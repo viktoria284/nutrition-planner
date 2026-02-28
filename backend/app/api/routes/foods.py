@@ -2,21 +2,24 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import case, func
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models.enums import FoodSource
+from app.models.enums import FoodSource, UserRole
 from app.models.foods import FoodItem
 from app.models.user import User
 from app.schemas.foods import (
     FoodItemCreate,
     FoodItemRead,
+    FoodReportCreate,
     FoodItemUpdate,
     FoodItemWithServingsRead,
     FoodServingCreate,
     FoodServingRead,
 )
 from app.services.foods import (
+    FoodReportConflictError,
+    FoodReportNotAllowedError,
     FoodPublishConflictError,
     FoodNotEditableError,
     build_visible_foods_query,
@@ -24,10 +27,11 @@ from app.services.foods import (
     create_serving,
     delete_food,
     ensure_editable,
+    get_accessible_food_by_id,
     get_owned_food_or_none,
-    get_visible_food_by_id,
     list_servings,
     publish_food,
+    report_food,
     update_food,
 )
 
@@ -52,6 +56,7 @@ def search_foods(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    is_admin = current_user.role == UserRole.admin
     query_text = q.strip()
     if len(query_text) < 2:
         raise HTTPException(
@@ -66,7 +71,7 @@ def search_foods(
     )
 
     query = (
-        build_visible_foods_query(db, current_user.id, q=query_text)
+        build_visible_foods_query(db, current_user.id, q=query_text, is_admin=is_admin)
         .order_by(sort_priority, func.lower(FoodItem.name), FoodItem.id)
         .limit(limit)
         .offset(offset)
@@ -81,15 +86,14 @@ def get_food_by_id(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if include_servings:
-        query = (
-            build_visible_foods_query(db, current_user.id)
-            .where(FoodItem.id == food_id)
-            .options(selectinload(FoodItem.servings))
-        )
-        food = db.execute(query).scalar_one_or_none()
-    else:
-        food = get_visible_food_by_id(db, current_user.id, food_id)
+    is_admin = current_user.role == UserRole.admin
+    food = get_accessible_food_by_id(
+        db,
+        current_user.id,
+        food_id,
+        is_admin=is_admin,
+        include_servings=include_servings,
+    )
     if not food:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
@@ -160,7 +164,12 @@ def list_food_servings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    food = get_visible_food_by_id(db, current_user.id, food_id)
+    food = get_accessible_food_by_id(
+        db,
+        current_user.id,
+        food_id,
+        is_admin=current_user.role == UserRole.admin,
+    )
     if not food:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
 
@@ -185,3 +194,21 @@ def create_food_serving(
 
     serving = create_serving(db, food, payload)
     return FoodServingRead.model_validate(serving)
+
+
+@router.post("/{food_id}/reports", response_model=FoodItemRead)
+def report_food_item(
+    food_id: int,
+    payload: FoodReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        food = report_food(db, current_user.id, food_id, payload.reason)
+    except (FoodReportConflictError, FoodReportNotAllowedError) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not food:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")
+
+    return FoodItemRead.model_validate(food)

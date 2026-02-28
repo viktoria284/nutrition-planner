@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.enums import FoodSource, FoodStatus
-from app.models.foods import FoodItem, FoodServing
+from app.models.foods import FoodItem, FoodReport, FoodServing
 from app.schemas.foods import FoodItemCreate, FoodItemUpdate, FoodServingCreate
 
 
@@ -16,19 +17,38 @@ class FoodNotEditableError(ValueError):
     pass
 
 
-def build_visible_foods_query(db: Session, user_id: int, q: str | None = None) -> Select[tuple[FoodItem]]:
+class FoodReportConflictError(ValueError):
+    pass
+
+
+class FoodReportNotAllowedError(ValueError):
+    pass
+
+
+class FoodModerationError(ValueError):
+    pass
+
+
+def build_visible_foods_query(
+    db: Session,
+    user_id: int,
+    q: str | None = None,
+    *,
+    is_admin: bool = False,
+) -> Select[tuple[FoodItem]]:
     # db is kept in signature intentionally for consistency with other services.
     _ = db
-    visible_condition = or_(
-        and_(FoodItem.source == FoodSource.private, FoodItem.owner_user_id == user_id),
-        FoodItem.source == FoodSource.verified,
-        and_(
-            FoodItem.source == FoodSource.community,
-            or_(FoodItem.owner_user_id == user_id, FoodItem.status == FoodStatus.approved),
-        ),
-    )
-
-    query: Select[tuple[FoodItem]] = select(FoodItem).where(visible_condition)
+    query: Select[tuple[FoodItem]] = select(FoodItem)
+    if not is_admin:
+        visible_condition = or_(
+            and_(FoodItem.source == FoodSource.private, FoodItem.owner_user_id == user_id),
+            FoodItem.source == FoodSource.verified,
+            and_(
+                FoodItem.source == FoodSource.community,
+                or_(FoodItem.owner_user_id == user_id, FoodItem.status == FoodStatus.approved),
+            ),
+        )
+        query = query.where(visible_condition)
 
     if q is not None:
         search = q.strip()
@@ -44,8 +64,36 @@ def build_visible_foods_query(db: Session, user_id: int, q: str | None = None) -
     return query
 
 
-def get_visible_food_by_id(db: Session, user_id: int, food_id: int) -> FoodItem | None:
-    query = build_visible_foods_query(db, user_id).where(FoodItem.id == food_id)
+def get_visible_food_by_id(db: Session, user_id: int, food_id: int, *, is_admin: bool = False) -> FoodItem | None:
+    query = build_visible_foods_query(db, user_id, is_admin=is_admin).where(FoodItem.id == food_id)
+    return db.execute(query).scalar_one_or_none()
+
+
+def get_accessible_food_by_id(
+    db: Session,
+    user_id: int,
+    food_id: int,
+    *,
+    is_admin: bool = False,
+    include_servings: bool = False,
+) -> FoodItem | None:
+    query: Select[tuple[FoodItem]] = select(FoodItem).where(FoodItem.id == food_id)
+
+    if include_servings:
+        query = query.options(selectinload(FoodItem.servings))
+
+    if not is_admin:
+        access_condition = or_(
+            and_(FoodItem.source == FoodSource.private, FoodItem.owner_user_id == user_id),
+            FoodItem.source == FoodSource.verified,
+            and_(
+                FoodItem.source == FoodSource.community,
+                FoodItem.status.in_([FoodStatus.approved, FoodStatus.pending]),
+            ),
+            and_(FoodItem.source == FoodSource.community, FoodItem.owner_user_id == user_id),
+        )
+        query = query.where(access_condition)
+
     return db.execute(query).scalar_one_or_none()
 
 
@@ -90,7 +138,7 @@ def publish_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
         raise FoodPublishConflictError("Food is already community or verified and cannot be published")
 
     food.source = FoodSource.community
-    food.status = FoodStatus.pending
+    food.status = FoodStatus.approved
     db.commit()
     db.refresh(food)
     return food
@@ -140,3 +188,72 @@ def get_serving_with_food(db: Session, serving_id: int) -> FoodServing | None:
 def delete_serving(db: Session, serving: FoodServing) -> None:
     db.delete(serving)
     db.commit()
+
+
+def report_food(db: Session, reporter_user_id: int, food_id: int, reason: str | None) -> FoodItem | None:
+    food = db.execute(
+        select(FoodItem).where(FoodItem.id == food_id).with_for_update()
+    ).scalar_one_or_none()
+    if not food:
+        return None
+
+    if food.source != FoodSource.community or food.status != FoodStatus.approved:
+        raise FoodReportNotAllowedError("Only community approved foods can be reported")
+
+    if food.owner_user_id == reporter_user_id:
+        raise FoodReportNotAllowedError("You cannot report your own food")
+
+    existing_report = db.execute(
+        select(FoodReport.id).where(
+            FoodReport.food_id == food_id,
+            FoodReport.reporter_user_id == reporter_user_id,
+        )
+    ).scalar_one_or_none()
+    if existing_report is not None:
+        raise FoodReportConflictError("You have already reported this food")
+
+    db.add(
+        FoodReport(
+            food_id=food_id,
+            reporter_user_id=reporter_user_id,
+            reason=reason,
+        )
+    )
+
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise FoodReportConflictError("You have already reported this food") from exc
+
+    reports_count = db.execute(
+        select(func.count(FoodReport.id)).where(FoodReport.food_id == food_id)
+    ).scalar_one()
+    food.reports_count = int(reports_count or 0)
+
+    if food.reports_count >= 3 and food.source == FoodSource.community and food.status == FoodStatus.approved:
+        food.status = FoodStatus.pending
+
+    db.commit()
+    db.refresh(food)
+    return food
+
+
+def moderate_food(db: Session, food_id: int, action: str) -> FoodItem | None:
+    food = db.execute(select(FoodItem).where(FoodItem.id == food_id)).scalar_one_or_none()
+    if not food:
+        return None
+
+    if food.source != FoodSource.community:
+        raise FoodModerationError("Only community foods can be moderated")
+
+    if action == "approve":
+        food.status = FoodStatus.approved
+    elif action == "reject":
+        food.status = FoodStatus.rejected
+    else:
+        raise FoodModerationError("Invalid moderation action")
+
+    db.commit()
+    db.refresh(food)
+    return food

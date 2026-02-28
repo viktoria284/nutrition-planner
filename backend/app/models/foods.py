@@ -12,6 +12,8 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
@@ -48,6 +50,7 @@ class FoodItem(Base):
         nullable=True,
         index=True,
     )
+    reports_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -63,6 +66,12 @@ class FoodItem(Base):
 
     servings: Mapped[list["FoodServing"]] = relationship(
         "FoodServing",
+        back_populates="food",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    reports: Mapped[list["FoodReport"]] = relationship(
+        "FoodReport",
         back_populates="food",
         cascade="all, delete-orphan",
         passive_deletes=True,
@@ -130,3 +139,30 @@ class FoodServing(Base):
         if not normalized:
             raise ValueError("FoodServing name cannot be empty")
         return normalized
+
+
+class FoodReport(Base):
+    __tablename__ = "food_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    food_id: Mapped[int] = mapped_column(
+        ForeignKey("food_items.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reporter_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    food: Mapped[FoodItem] = relationship("FoodItem", back_populates="reports")
+
+    __table_args__ = (
+        UniqueConstraint("food_id", "reporter_user_id", name="uq_food_reports_food_reporter"),
+    )

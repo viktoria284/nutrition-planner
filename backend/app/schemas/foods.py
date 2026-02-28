@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime
 from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
@@ -27,6 +28,7 @@ class FoodItemRead(BaseModel):
     source: FoodSource
     status: FoodStatus
     owner_user_id: int | None
+    reports_count: int
 
     class Config:
         from_attributes = True
@@ -104,3 +106,26 @@ class FoodServingCreate(BaseModel):
         if not normalized:
             raise ValueError("name cannot be empty")
         return normalized
+
+
+class FoodReportCreate(BaseModel):
+    reason: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class FoodReportRead(BaseModel):
+    id: int
+    food_id: int
+    reporter_user_id: int
+    reason: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

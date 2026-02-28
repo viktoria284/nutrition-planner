@@ -3,8 +3,10 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.models.enums import FoodSource, FoodStatus
+from app.models.enums import FoodSource, FoodStatus, UserRole
 from app.models.foods import FoodItem
+from app.services.security import hash_password
+from app.services.users import create_user
 
 TEST_PASSWORD = "Passw0rd!"
 
@@ -71,6 +73,21 @@ def create_serving_via_api(client: TestClient, token: str, food_id: int, *, name
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def create_admin_user(db_session_factory: sessionmaker[Session], *, email: str = "admin@example.com") -> None:
+    db_session = db_session_factory()
+    try:
+        create_user(
+            db=db_session,
+            email=email,
+            username="admin",
+            display_name="Admin",
+            hashed_password=hash_password(TEST_PASSWORD),
+            role=UserRole.admin,
+        )
+    finally:
+        db_session.close()
 
 
 def create_food(
@@ -192,7 +209,7 @@ def test_search_sorts_my_verified_community_approved(
     assert returned_ids == [my_food_id, verified_food_id, community_approved_food_id]
 
 
-def test_create_and_publish_food_flow(client: TestClient) -> None:
+def test_publish_food_sets_approved(client: TestClient) -> None:
     user1 = register_user(client, email="user1@example.com", username="userone")
     register_user(client, email="user2@example.com", username="usertwo")
 
@@ -227,10 +244,10 @@ def test_create_and_publish_food_flow(client: TestClient) -> None:
     assert publish_response.status_code == 200, publish_response.text
     published_food = publish_response.json()
     assert published_food["source"] == "community"
-    assert published_food["status"] == "pending"
+    assert published_food["status"] == "approved"
 
     response_user2_after_publish = client.get(f"/foods/{food_id}", headers=auth_headers(token_user2))
-    assert response_user2_after_publish.status_code == 404, response_user2_after_publish.text
+    assert response_user2_after_publish.status_code == 200, response_user2_after_publish.text
 
     response_user1_after_publish = client.get(f"/foods/{food_id}", headers=auth_headers(token_user1))
     assert response_user1_after_publish.status_code == 200, response_user1_after_publish.text
@@ -415,3 +432,144 @@ def test_happy_path_create_list_delete_serving(client: TestClient) -> None:
     list_after_delete = client.get(f"/foods/{food_id}/servings", headers=auth_headers(token_user1))
     assert list_after_delete.status_code == 200, list_after_delete.text
     assert list_after_delete.json() == []
+
+
+def test_three_unique_reports_move_food_to_pending_and_hide_from_other_users_search(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    register_user(client, email="u1@example.com", username="userone")
+    register_user(client, email="u2@example.com", username="usertwo")
+    register_user(client, email="u3@example.com", username="userthree")
+
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+    user1_token = login_and_get_token(client, identifier="u1@example.com")
+    user2_token = login_and_get_token(client, identifier="u2@example.com")
+    user3_token = login_and_get_token(client, identifier="u3@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Bread")
+    food_id = created_food["id"]
+    created_serving = create_serving_via_api(client, owner_token, food_id, name="1 slice", grams="30")
+
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+    assert publish_response.json()["status"] == "approved"
+
+    for token in (user1_token, user2_token, user3_token):
+        report_response = client.post(
+            f"/foods/{food_id}/reports",
+            headers=auth_headers(token),
+            json={"reason": "bad data"},
+        )
+        assert report_response.status_code == 200, report_response.text
+
+    assert report_response.json()["status"] == "pending"
+
+    foreign_get = client.get(f"/foods/{food_id}", headers=auth_headers(user1_token))
+    assert foreign_get.status_code == 200, foreign_get.text
+    assert foreign_get.json()["status"] == "pending"
+
+    foreign_search = client.get(
+        "/foods/search",
+        headers=auth_headers(user1_token),
+        params={"q": "Community"},
+    )
+    assert foreign_search.status_code == 200, foreign_search.text
+    assert all(item["id"] != food_id for item in foreign_search.json())
+
+    foreign_servings = client.get(f"/foods/{food_id}/servings", headers=auth_headers(user1_token))
+    assert foreign_servings.status_code == 200, foreign_servings.text
+    assert any(item["id"] == created_serving["id"] for item in foreign_servings.json())
+
+    owner_get = client.get(f"/foods/{food_id}", headers=auth_headers(owner_token))
+    assert owner_get.status_code == 200, owner_get.text
+    assert owner_get.json()["status"] == "pending"
+
+
+def test_duplicate_report_by_same_user_returns_409(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    register_user(client, email="u1@example.com", username="userone")
+
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+    user1_token = login_and_get_token(client, identifier="u1@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Milk")
+    food_id = created_food["id"]
+
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    first_report = client.post(
+        f"/foods/{food_id}/reports",
+        headers=auth_headers(user1_token),
+        json={"reason": "wrong macros"},
+    )
+    assert first_report.status_code == 200, first_report.text
+
+    duplicate_report = client.post(
+        f"/foods/{food_id}/reports",
+        headers=auth_headers(user1_token),
+        json={"reason": "duplicate"},
+    )
+    assert duplicate_report.status_code == 409, duplicate_report.text
+
+
+def test_cannot_report_own_food(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Pasta")
+    food_id = created_food["id"]
+
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    report_response = client.post(
+        f"/foods/{food_id}/reports",
+        headers=auth_headers(owner_token),
+        json={"reason": "self report"},
+    )
+    assert report_response.status_code == 409, report_response.text
+
+
+def test_admin_moderate_approve_reject(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:
+    register_user(client, email="owner@example.com", username="owneruser")
+    register_user(client, email="u1@example.com", username="userone")
+    register_user(client, email="u2@example.com", username="usertwo")
+    register_user(client, email="u3@example.com", username="userthree")
+    create_admin_user(db_session_factory)
+
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+    user1_token = login_and_get_token(client, identifier="u1@example.com")
+    user2_token = login_and_get_token(client, identifier="u2@example.com")
+    user3_token = login_and_get_token(client, identifier="u3@example.com")
+    admin_token = login_and_get_token(client, identifier="admin@example.com")
+
+    created_food = create_food_via_api(client, owner_token, name="Community Soup")
+    food_id = created_food["id"]
+
+    publish_response = client.post(f"/foods/{food_id}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    for token in (user1_token, user2_token, user3_token):
+        report_response = client.post(
+            f"/foods/{food_id}/reports",
+            headers=auth_headers(token),
+            json={"reason": "needs moderation"},
+        )
+        assert report_response.status_code == 200, report_response.text
+    assert report_response.json()["status"] == "pending"
+
+    approve_response = client.put(
+        f"/admin/foods/{food_id}/moderate",
+        headers=auth_headers(admin_token),
+        params={"action": "approve"},
+    )
+    assert approve_response.status_code == 200, approve_response.text
+    assert approve_response.json()["status"] == "approved"
+
+    reject_response = client.put(
+        f"/admin/foods/{food_id}/moderate",
+        headers=auth_headers(admin_token),
+        params={"action": "reject"},
+    )
+    assert reject_response.status_code == 200, reject_response.text
+    assert reject_response.json()["status"] == "rejected"
