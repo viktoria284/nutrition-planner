@@ -196,6 +196,22 @@
   line-height: 1.45;
 }
 
+.foods-form-errors {
+  border: 1px solid rgba(var(--danger-rgb), 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(var(--danger-rgb), 0.08);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.foods-form-error-item {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
 .foods-create-form {
   display: grid;
   gap: 12px;

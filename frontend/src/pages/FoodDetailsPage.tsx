@@ -46,7 +46,7 @@ type FoodEditErrors = {
   protein?: string;
   fat?: string;
   carbs?: string;
-  form?: string;
+  form?: string[];
 };
 
 const REPORT_REASON_OPTIONS = [
@@ -136,11 +136,15 @@ function validateServingForm(form: ServingForm): { errors: ServingFormErrors; pa
 
 function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; payload: FoodItemUpdatePayload | null } {
   const errors: FoodEditErrors = {};
+  const formErrors: string[] = [];
 
   const name = form.name.trim();
   const brand = form.brand.trim();
 
-  if (!name) errors.name = "Введите название.";
+  if (!name) {
+    errors.name = "invalid";
+    formErrors.push("Введите название продукта.");
+  }
 
   const numericKeys: Array<keyof Pick<FoodEditForm, "kcal" | "protein" | "fat" | "carbs">> = [
     "kcal",
@@ -150,21 +154,51 @@ function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; pay
   ];
 
   const parsed: Partial<Record<"kcal" | "protein" | "fat" | "carbs", number>> = {};
+  let hasInvalidNumeric = false;
+  let hasNegative = false;
+  let hasMacroUpper = false;
+  let hasKcalUpper = false;
 
   for (const key of numericKeys) {
     const raw = form[key].trim();
-    const value = Number(raw);
-
-    if (!raw || !Number.isFinite(value) || value < 0) {
-      errors[key] = "Введите число ≥ 0";
+    if (!raw) {
+      errors[key] = "invalid";
+      hasInvalidNumeric = true;
       continue;
+    }
+
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      errors[key] = "invalid";
+      hasInvalidNumeric = true;
+      continue;
+    }
+
+    if (value < 0) {
+      errors[key] = "invalid";
+      hasNegative = true;
+    }
+
+    if (key === "kcal" && value > 1000) {
+      errors[key] = "invalid";
+      hasKcalUpper = true;
+    }
+
+    if ((key === "protein" || key === "fat" || key === "carbs") && value > 100) {
+      errors[key] = "invalid";
+      hasMacroUpper = true;
     }
 
     parsed[key] = value;
   }
 
-  if (Object.keys(errors).length > 0) {
-    errors.form = "Проверьте поля формы.";
+  if (hasInvalidNumeric) formErrors.push("Заполните корректные числовые значения КБЖУ.");
+  if (hasNegative) formErrors.push("Значения не могут быть отрицательными.");
+  if (hasMacroUpper) formErrors.push("Белки, жиры и углеводы должны быть не больше 100 г на 100 г продукта.");
+  if (hasKcalUpper) formErrors.push("Калорийность должна быть не больше 1000 ккал на 100 г.");
+
+  if (formErrors.length > 0) {
+    errors.form = formErrors;
     return { errors, payload: null };
   }
 
@@ -582,7 +616,7 @@ export function FoodDetailsPage() {
   const onSaveFood = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!food) {
-      setEditErrors({ form: "Продукт не найден." });
+      setEditErrors({ form: ["Продукт не найден."] });
       return;
     }
 
@@ -603,14 +637,14 @@ export function FoodDetailsPage() {
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
-          setEditErrors({ form: "Этот продукт нельзя редактировать (только личные черновики)." });
+          setEditErrors({ form: ["Этот продукт нельзя редактировать (только личные черновики)."] });
         } else if (err.status === 404) {
-          setEditErrors({ form: "Продукт не найден" });
+          setEditErrors({ form: ["Продукт не найден"] });
         } else {
-          setEditErrors({ form: "Не удалось сохранить изменения." });
+          setEditErrors({ form: ["Не удалось сохранить изменения."] });
         }
       } else {
-        setEditErrors({ form: "Не удалось сохранить изменения." });
+        setEditErrors({ form: ["Не удалось сохранить изменения."] });
       }
     } finally {
       setSavingFood(false);
@@ -1032,7 +1066,15 @@ export function FoodDetailsPage() {
               Редактировать продукт
             </h2>
 
-            {editErrors.form && <Alert text={editErrors.form} />}
+            {editErrors.form && editErrors.form.length > 0 && (
+              <div className="foods-form-errors" role="alert">
+                {editErrors.form.map((message, index) => (
+                  <p key={`${message}-${index}`} className="foods-form-error-item">
+                    {message}
+                  </p>
+                ))}
+              </div>
+            )}
 
             <form className="foods-create-form" onSubmit={onSaveFood} noValidate>
               <label className="foods-field" htmlFor="edit_food_name">
@@ -1046,7 +1088,6 @@ export function FoodDetailsPage() {
                   placeholder="Например, Кефир 2.5%"
                   autoFocus
                 />
-                {editErrors.name && <p className="foods-field-error">{editErrors.name}</p>}
               </label>
 
               <label className="foods-field" htmlFor="edit_food_brand">
@@ -1059,7 +1100,6 @@ export function FoodDetailsPage() {
                   onChange={(e) => updateEditField("brand", e.target.value)}
                   placeholder="Например, Простоквашино"
                 />
-                {editErrors.brand && <p className="foods-field-error">{editErrors.brand}</p>}
               </label>
 
               <div className="foods-grid">
@@ -1075,7 +1115,6 @@ export function FoodDetailsPage() {
                     onChange={(e) => updateEditField("kcal", e.target.value)}
                     placeholder="0"
                   />
-                  {editErrors.kcal && <p className="foods-field-error">{editErrors.kcal}</p>}
                 </label>
 
                 <label className="foods-field" htmlFor="edit_food_protein">
@@ -1090,7 +1129,6 @@ export function FoodDetailsPage() {
                     onChange={(e) => updateEditField("protein", e.target.value)}
                     placeholder="0"
                   />
-                  {editErrors.protein && <p className="foods-field-error">{editErrors.protein}</p>}
                 </label>
 
                 <label className="foods-field" htmlFor="edit_food_fat">
@@ -1105,7 +1143,6 @@ export function FoodDetailsPage() {
                     onChange={(e) => updateEditField("fat", e.target.value)}
                     placeholder="0"
                   />
-                  {editErrors.fat && <p className="foods-field-error">{editErrors.fat}</p>}
                 </label>
 
                 <label className="foods-field" htmlFor="edit_food_carbs">
@@ -1120,7 +1157,6 @@ export function FoodDetailsPage() {
                     onChange={(e) => updateEditField("carbs", e.target.value)}
                     placeholder="0"
                   />
-                  {editErrors.carbs && <p className="foods-field-error">{editErrors.carbs}</p>}
                 </label>
               </div>
 

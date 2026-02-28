@@ -22,7 +22,7 @@ type CreateFoodErrors = {
   protein?: string;
   fat?: string;
   carbs?: string;
-  form?: string;
+  form?: string[];
 };
 
 const EMPTY_CREATE_FORM: CreateFoodForm = {
@@ -55,11 +55,15 @@ function sourceBadgeClass(source: FoodSource): string {
 
 function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; payload: FoodCreatePayload | null } {
   const errors: CreateFoodErrors = {};
+  const formErrors: string[] = [];
 
   const name = form.name.trim();
   const brand = form.brand.trim();
 
-  if (!name) errors.name = "Введите название.";
+  if (!name) {
+    errors.name = "invalid";
+    formErrors.push("Введите название продукта.");
+  }
 
   const numericKeys: Array<keyof Pick<CreateFoodForm, "kcal" | "protein" | "fat" | "carbs">> = [
     "kcal",
@@ -69,30 +73,52 @@ function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; p
   ];
 
   const parsed: Partial<Record<"kcal" | "protein" | "fat" | "carbs", number>> = {};
+  let hasInvalidNumeric = false;
+  let hasNegative = false;
+  let hasMacroUpper = false;
+  let hasKcalUpper = false;
 
   for (const key of numericKeys) {
     const raw = form[key].trim();
-    if (!raw) continue;
+    if (!raw) {
+      errors[key] = "invalid";
+      hasInvalidNumeric = true;
+      continue;
+    }
 
     const value = Number(raw);
-    if (!Number.isFinite(value) || value < 0) {
-      errors[key] = "Введите число ≥ 0";
+    if (!Number.isFinite(value)) {
+      errors[key] = "invalid";
+      hasInvalidNumeric = true;
       continue;
+    }
+
+    if (value < 0) {
+      errors[key] = "invalid";
+      hasNegative = true;
+    }
+
+    if (key === "kcal" && value > 1000) {
+      errors[key] = "invalid";
+      hasKcalUpper = true;
+    }
+
+    if ((key === "protein" || key === "fat" || key === "carbs") && value > 100) {
+      errors[key] = "invalid";
+      hasMacroUpper = true;
     }
 
     parsed[key] = value;
   }
 
-  if (Object.keys(errors).length > 0) {
-    errors.form = "Проверьте поля формы.";
-    return { errors, payload: null };
-  }
+  if (hasInvalidNumeric) formErrors.push("Заполните корректные числовые значения КБЖУ.");
+  if (hasNegative) formErrors.push("Значения не могут быть отрицательными.");
+  if (hasMacroUpper) formErrors.push("Белки, жиры и углеводы должны быть не больше 100 г на 100 г продукта.");
+  if (hasKcalUpper) formErrors.push("Калорийность должна быть не больше 1000 ккал на 100 г.");
 
-  if (parsed.kcal === undefined || parsed.protein === undefined || parsed.fat === undefined || parsed.carbs === undefined) {
-    return {
-      errors: { form: "Заполните kcal, protein, fat и carbs." },
-      payload: null,
-    };
+  if (formErrors.length > 0) {
+    errors.form = formErrors;
+    return { errors, payload: null };
   }
 
   return {
@@ -212,7 +238,8 @@ export function FoodsPage() {
         setFoods((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
       }
     } catch (err) {
-      setCreateErrors({ form: err instanceof Error ? err.message : "Не удалось создать продукт." });
+      void err;
+      setCreateErrors({ form: ["Не удалось создать продукт."] });
     } finally {
       setCreateLoading(false);
     }
@@ -302,7 +329,15 @@ export function FoodsPage() {
               Добавить продукт
             </h2>
 
-            {createErrors.form && <Alert text={createErrors.form} />}
+            {createErrors.form && createErrors.form.length > 0 && (
+              <div className="foods-form-errors" role="alert">
+                {createErrors.form.map((message, index) => (
+                  <p key={`${message}-${index}`} className="foods-form-error-item">
+                    {message}
+                  </p>
+                ))}
+              </div>
+            )}
 
             <form className="foods-create-form" onSubmit={onCreateFood} noValidate>
               <label className="foods-field" htmlFor="create_food_name">
@@ -316,7 +351,6 @@ export function FoodsPage() {
                   placeholder="Например, Кефир 2.5%"
                   autoFocus
                 />
-                {createErrors.name && <p className="foods-field-error">{createErrors.name}</p>}
               </label>
 
               <label className="foods-field" htmlFor="create_food_brand">
@@ -329,7 +363,6 @@ export function FoodsPage() {
                   onChange={(e) => updateCreateField("brand", e.target.value)}
                   placeholder="Например, Простоквашино"
                 />
-                {createErrors.brand && <p className="foods-field-error">{createErrors.brand}</p>}
               </label>
 
               <div className="foods-grid">
@@ -345,7 +378,6 @@ export function FoodsPage() {
                     onChange={(e) => updateCreateField("kcal", e.target.value)}
                     placeholder="0"
                   />
-                  {createErrors.kcal && <p className="foods-field-error">{createErrors.kcal}</p>}
                 </label>
 
                 <label className="foods-field" htmlFor="create_food_protein">
@@ -360,7 +392,6 @@ export function FoodsPage() {
                     onChange={(e) => updateCreateField("protein", e.target.value)}
                     placeholder="0"
                   />
-                  {createErrors.protein && <p className="foods-field-error">{createErrors.protein}</p>}
                 </label>
 
                 <label className="foods-field" htmlFor="create_food_fat">
@@ -375,7 +406,6 @@ export function FoodsPage() {
                     onChange={(e) => updateCreateField("fat", e.target.value)}
                     placeholder="0"
                   />
-                  {createErrors.fat && <p className="foods-field-error">{createErrors.fat}</p>}
                 </label>
 
                 <label className="foods-field" htmlFor="create_food_carbs">
@@ -390,7 +420,6 @@ export function FoodsPage() {
                     onChange={(e) => updateCreateField("carbs", e.target.value)}
                     placeholder="0"
                   />
-                  {createErrors.carbs && <p className="foods-field-error">{createErrors.carbs}</p>}
                 </label>
               </div>
 
