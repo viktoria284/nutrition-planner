@@ -1,7 +1,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -63,16 +63,28 @@ def search_foods(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="q must contain at least 2 non-space characters",
         )
+    q_lower = query_text.lower()
+    prefix_pattern = f"{q_lower}%"
 
     sort_priority = case(
         (FoodItem.owner_user_id == current_user.id, 0),
         (FoodItem.source == FoodSource.verified, 1),
         else_=2,
     )
+    match_rank = case(
+        (
+            or_(
+                func.lower(FoodItem.name).like(prefix_pattern),
+                func.lower(func.coalesce(FoodItem.brand, "")).like(prefix_pattern),
+            ),
+            0,
+        ),
+        else_=1,
+    )
 
     query = (
         build_visible_foods_query(db, current_user.id, q=query_text, is_admin=is_admin)
-        .order_by(sort_priority, func.lower(FoodItem.name), FoodItem.id)
+        .order_by(sort_priority, match_rank, func.lower(FoodItem.name), FoodItem.id)
         .limit(limit)
         .offset(offset)
     )

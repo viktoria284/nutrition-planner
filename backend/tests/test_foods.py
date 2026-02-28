@@ -1,11 +1,13 @@
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.enums import FoodSource, FoodStatus, UserRole
 from app.models.foods import FoodItem
 from app.services.security import hash_password
+from app.services.foods import seed_verified_foods
 from app.services.users import create_user
 
 TEST_PASSWORD = "Passw0rd!"
@@ -94,6 +96,7 @@ def create_food(
     db_session_factory: sessionmaker[Session],
     *,
     name: str,
+    brand: str | None = None,
     source: FoodSource,
     status: FoodStatus,
     owner_user_id: int | None,
@@ -102,7 +105,7 @@ def create_food(
     try:
         food = FoodItem(
             name=name,
-            brand=None,
+            brand=brand,
             kcal=Decimal("100.00"),
             protein=Decimal("10.00"),
             fat=Decimal("5.00"),
@@ -135,6 +138,26 @@ def test_private_food_hidden_from_other_user(client: TestClient, db_session_fact
     response = client.get(f"/foods/{private_food_id}", headers=auth_headers(token_user2))
 
     assert response.status_code == 404, response.text
+
+
+def test_seed_verified_foods_idempotent(db_session_factory: sessionmaker[Session]) -> None:
+    db_session = db_session_factory()
+    try:
+        created_first = seed_verified_foods(db_session)
+        count_after_first = db_session.execute(
+            select(func.count(FoodItem.id)).where(FoodItem.source == FoodSource.verified)
+        ).scalar_one()
+
+        created_second = seed_verified_foods(db_session)
+        count_after_second = db_session.execute(
+            select(func.count(FoodItem.id)).where(FoodItem.source == FoodSource.verified)
+        ).scalar_one()
+    finally:
+        db_session.close()
+
+    assert 20 <= created_first <= 50
+    assert created_second == 0
+    assert count_after_second == count_after_first
 
 
 def test_verified_food_visible_for_both_users(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:
@@ -207,6 +230,81 @@ def test_search_sorts_my_verified_community_approved(
     assert response.status_code == 200, response.text
     returned_ids = [item["id"] for item in response.json()]
     assert returned_ids == [my_food_id, verified_food_id, community_approved_food_id]
+
+
+def test_search_starts_with_ranked_above_contains(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+
+    apple_id = create_food(
+        db_session_factory,
+        name="Apple",
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+    )
+    applesauce_id = create_food(
+        db_session_factory,
+        name="Applesauce",
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+    )
+    pineapple_id = create_food(
+        db_session_factory,
+        name="Pineapple",
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+    )
+
+    response = client.get("/foods/search", headers=auth_headers(token_user1), params={"q": "app"})
+    assert response.status_code == 200, response.text
+    result_ids = [item["id"] for item in response.json()]
+    assert result_ids.index(apple_id) < result_ids.index(pineapple_id)
+    assert result_ids.index(applesauce_id) < result_ids.index(pineapple_id)
+
+    milk_id = create_food(
+        db_session_factory,
+        name="Milk",
+        brand="Alpro",
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+    )
+    yogurt_id = create_food(
+        db_session_factory,
+        name="Yogurt",
+        brand="Calpro",
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+    )
+
+    brand_response = client.get("/foods/search", headers=auth_headers(token_user1), params={"q": "alp"})
+    assert brand_response.status_code == 200, brand_response.text
+    brand_result_ids = [item["id"] for item in brand_response.json()]
+    assert brand_result_ids.index(milk_id) < brand_result_ids.index(yogurt_id)
+
+
+def test_search_keeps_source_priority_owned_before_verified(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token_user1 = login_and_get_token(client, identifier="user1@example.com")
+
+    owned_food = create_food_via_api(client, token_user1, name="Apple Pie")
+    owned_food_id = owned_food["id"]
+    verified_food_id = create_food(
+        db_session_factory,
+        name="Apple Juice",
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+    )
+
+    response = client.get("/foods/search", headers=auth_headers(token_user1), params={"q": "app"})
+    assert response.status_code == 200, response.text
+    result_ids = [item["id"] for item in response.json()]
+    assert result_ids.index(owned_food_id) < result_ids.index(verified_food_id)
 
 
 def test_publish_food_sets_approved(client: TestClient) -> None:
