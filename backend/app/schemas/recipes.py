@@ -1,10 +1,26 @@
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ALLOWED_MEAL_TYPES = {"breakfast", "lunch", "dinner", "snack"}
 MealTypes = Annotated[list[str], Field(min_length=1)]
+PositiveDecimal = Annotated[Decimal, Field(gt=0)]
+
+
+def _normalize_meal_types(value: list[str]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        item_normalized = item.strip().lower()
+        if item_normalized not in ALLOWED_MEAL_TYPES:
+            raise ValueError("invalid meal type")
+        if item_normalized in seen:
+            raise ValueError("duplicate meal type")
+        seen.add(item_normalized)
+        normalized.append(item_normalized)
+    return normalized
 
 
 class RecipeCreate(BaseModel):
@@ -32,17 +48,7 @@ class RecipeCreate(BaseModel):
     @field_validator("meal_types")
     @classmethod
     def validate_meal_types(cls, value: list[str]) -> list[str]:
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            item_normalized = item.strip().lower()
-            if item_normalized not in ALLOWED_MEAL_TYPES:
-                raise ValueError("invalid meal type")
-            if item_normalized in seen:
-                raise ValueError("duplicate meal type")
-            seen.add(item_normalized)
-            normalized.append(item_normalized)
-        return normalized
+        return _normalize_meal_types(value)
 
 
 class RecipeUpdate(BaseModel):
@@ -76,18 +82,35 @@ class RecipeUpdate(BaseModel):
             return None
         if len(value) == 0:
             raise ValueError("meal types cannot be empty")
+        return _normalize_meal_types(value)
 
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in value:
-            item_normalized = item.strip().lower()
-            if item_normalized not in ALLOWED_MEAL_TYPES:
-                raise ValueError("invalid meal type")
-            if item_normalized in seen:
-                raise ValueError("duplicate meal type")
-            seen.add(item_normalized)
-            normalized.append(item_normalized)
-        return normalized
+
+class RecipeIngredientCreate(BaseModel):
+    food_id: int
+    grams: PositiveDecimal
+
+
+class RecipeIngredientUpdate(BaseModel):
+    food_id: int | None = None
+    grams: PositiveDecimal | None = None
+
+    @model_validator(mode="after")
+    def validate_non_empty_payload(self) -> "RecipeIngredientUpdate":
+        if self.food_id is None and self.grams is None:
+            raise ValueError("at least one field must be provided")
+        return self
+
+
+class RecipeIngredientRead(BaseModel):
+    id: int
+    recipe_id: int
+    food_id: int
+    grams: Decimal
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 class RecipeRead(BaseModel):
@@ -97,6 +120,15 @@ class RecipeRead(BaseModel):
     description: str | None
     servings_count: int
     meal_types: list[str]
+    total_grams: Decimal
+    total_kcal: Decimal
+    total_protein: Decimal
+    total_fat: Decimal
+    total_carbs: Decimal
+    per_serving_kcal: Decimal
+    per_serving_protein: Decimal
+    per_serving_fat: Decimal
+    per_serving_carbs: Decimal
     created_at: datetime
     updated_at: datetime
 
