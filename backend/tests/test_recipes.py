@@ -66,6 +66,29 @@ def create_food_via_api(
     return response.json()
 
 
+def create_recipe_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    name: str = "Тестовый рецепт",
+    servings_count: int = 2,
+    meal_types: list[str] | None = None,
+    description: str | None = None,
+) -> dict:
+    response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "description": description,
+            "servings_count": servings_count,
+            "meal_types": meal_types or ["breakfast"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def test_create_recipe_ok_without_ingredients(client: TestClient) -> None:
     user = register_user(client, email="user1@example.com", username="userone")
     token = login_and_get_token(client, identifier="user1@example.com")
@@ -350,3 +373,184 @@ def test_owner_only_ingredient_ops(client: TestClient) -> None:
         headers=auth_headers(token_user2),
     )
     assert foreign_delete.status_code == 404, foreign_delete.text
+
+
+def test_publish_sets_approved_listed(client: TestClient) -> None:
+    register_user(client, email="publisher@example.com", username="publisher")
+    token = login_and_get_token(client, identifier="publisher@example.com")
+
+    recipe = create_recipe_via_api(client, token, name="Recipe to publish")
+
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(token))
+    assert publish_response.status_code == 200, publish_response.text
+    published = publish_response.json()
+    assert published["source"] == "community"
+    assert published["status"] == "approved"
+    assert published["is_listed"] is True
+
+    second_publish = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(token))
+    assert second_publish.status_code == 409, second_publish.text
+
+
+def test_non_owner_can_get_only_published(client: TestClient) -> None:
+    register_user(client, email="owner-visibility@example.com", username="ownervisibility")
+    owner_token = login_and_get_token(client, identifier="owner-visibility@example.com")
+
+    register_user(client, email="viewer-visibility@example.com", username="viewervisibility")
+    viewer_token = login_and_get_token(client, identifier="viewer-visibility@example.com")
+
+    private_recipe = create_recipe_via_api(client, owner_token, name="Private visibility recipe")
+
+    private_get = client.get(f"/recipes/{private_recipe['id']}", headers=auth_headers(viewer_token))
+    assert private_get.status_code == 404, private_get.text
+
+    publish_response = client.post(f"/recipes/{private_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    published_get = client.get(f"/recipes/{private_recipe['id']}", headers=auth_headers(viewer_token))
+    assert published_get.status_code == 200, published_get.text
+
+
+def test_self_report_400(client: TestClient) -> None:
+    register_user(client, email="owner@example.com", username="owner")
+    owner_token = login_and_get_token(client, identifier="owner@example.com")
+    owner_recipe = create_recipe_via_api(client, owner_token, name="Owner recipe for report")
+
+    publish_response = client.post(f"/recipes/{owner_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    self_report = client.post(
+        f"/recipes/{owner_recipe['id']}/report",
+        headers=auth_headers(owner_token),
+        json={"reason": "Спам"},
+    )
+    assert self_report.status_code == 400, self_report.text
+
+
+def test_duplicate_report_409(client: TestClient) -> None:
+    register_user(client, email="owner-duplicate@example.com", username="ownerduplicate")
+    owner_token = login_and_get_token(client, identifier="owner-duplicate@example.com")
+    owner_recipe = create_recipe_via_api(client, owner_token, name="Owner recipe duplicate report")
+
+    publish_response = client.post(f"/recipes/{owner_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="reporter@example.com", username="reporter")
+    reporter_token = login_and_get_token(client, identifier="reporter@example.com")
+
+    first_report = client.post(
+        f"/recipes/{owner_recipe['id']}/report",
+        headers=auth_headers(reporter_token),
+        json={"reason": "Спам", "comment": "duplicate"},
+    )
+    assert first_report.status_code == 200, first_report.text
+    assert first_report.json()["reports_count"] == 1
+
+    duplicate_report = client.post(
+        f"/recipes/{owner_recipe['id']}/report",
+        headers=auth_headers(reporter_token),
+        json={"reason": "Спам"},
+    )
+    assert duplicate_report.status_code == 409, duplicate_report.text
+
+
+def test_report_requires_published(client: TestClient) -> None:
+    register_user(client, email="owner-report-published@example.com", username="ownerreportpublished")
+    owner_token = login_and_get_token(client, identifier="owner-report-published@example.com")
+    private_recipe = create_recipe_via_api(client, owner_token, name="Private report target")
+
+    register_user(client, email="viewer-report-published@example.com", username="viewerreportpublished")
+    viewer_token = login_and_get_token(client, identifier="viewer-report-published@example.com")
+
+    report_response = client.post(
+        f"/recipes/{private_recipe['id']}/report",
+        headers=auth_headers(viewer_token),
+        json={"reason": "Спам"},
+    )
+    assert report_response.status_code == 404, report_response.text
+
+
+def test_report_threshold_unlists_and_hides_from_others(client: TestClient) -> None:
+    register_user(client, email="owner-threshold@example.com", username="ownerthreshold")
+    owner_token = login_and_get_token(client, identifier="owner-threshold@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Threshold recipe")
+
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    report_users: list[str] = []
+    for index in range(3):
+        email = f"reporter{index}@example.com"
+        username = f"reporter{index}"
+        register_user(client, email=email, username=username)
+        report_users.append(login_and_get_token(client, identifier=email))
+
+    for token in report_users:
+        report_response = client.post(
+            f"/recipes/{recipe['id']}/report",
+            headers=auth_headers(token),
+            json={"reason": "Неверные данные"},
+        )
+        assert report_response.status_code == 200, report_response.text
+
+    owner_get = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(owner_token))
+    assert owner_get.status_code == 200, owner_get.text
+    data = owner_get.json()
+    assert data["reports_count"] == 3
+    assert data["status"] == "pending"
+    assert data["is_listed"] is False
+
+    viewer_get = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(report_users[0]))
+    assert viewer_get.status_code == 404, viewer_get.text
+
+
+def test_withdraw_recipe_owner_only_and_unlist(client: TestClient) -> None:
+    register_user(client, email="withdraw-owner@example.com", username="withdrawowner")
+    owner_token = login_and_get_token(client, identifier="withdraw-owner@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Withdraw recipe")
+
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="withdraw-foreign@example.com", username="withdrawforeign")
+    foreign_token = login_and_get_token(client, identifier="withdraw-foreign@example.com")
+
+    foreign_withdraw = client.post(f"/recipes/{recipe['id']}/withdraw", headers=auth_headers(foreign_token))
+    assert foreign_withdraw.status_code == 403, foreign_withdraw.text
+
+    owner_withdraw = client.post(f"/recipes/{recipe['id']}/withdraw", headers=auth_headers(owner_token))
+    assert owner_withdraw.status_code == 200, owner_withdraw.text
+    assert owner_withdraw.json()["is_listed"] is False
+
+
+def test_recipe_not_editable_after_publish(client: TestClient) -> None:
+    register_user(client, email="edit-lock@example.com", username="editlock")
+    token = login_and_get_token(client, identifier="edit-lock@example.com")
+    recipe = create_recipe_via_api(client, token, name="Lock recipe")
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Ingredient Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="10.00",
+    )
+
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    patch_response = client.patch(
+        f"/recipes/{recipe['id']}",
+        headers=auth_headers(token),
+        json={"name": "Updated after publish"},
+    )
+    assert patch_response.status_code == 409, patch_response.text
+
+    add_ingredient_response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={"food_id": food["id"], "grams": "50"},
+    )
+    assert add_ingredient_response.status_code == 409, add_ingredient_response.text

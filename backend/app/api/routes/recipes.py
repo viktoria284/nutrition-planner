@@ -11,21 +11,33 @@ from app.schemas.recipes import (
     RecipeIngredientRead,
     RecipeIngredientUpdate,
     RecipeRead,
+    RecipeReportCreate,
     RecipeUpdate,
 )
 from app.services.recipes import (
+    RecipeNotEditableError,
     RecipeIngredientFoodNotFoundError,
     RecipeIngredientNotFoundError,
     RecipeNotFoundError,
+    RecipePublishConflictError,
+    RecipeReportConflictError,
+    RecipeReportNotAllowedError,
+    RecipeReportSelfError,
+    RecipeWithdrawConflictError,
+    RecipeWithdrawForbiddenError,
     add_ingredient,
     build_recipe_read,
     create_recipe,
     delete_ingredient,
     delete_my_recipe,
+    get_accessible_recipe_by_id,
     get_my_recipe_or_404,
     list_my_recipes,
+    publish_recipe,
+    report_recipe,
     update_ingredient,
     update_my_recipe,
+    withdraw_recipe,
 )
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -64,15 +76,14 @@ def get_recipe_by_id(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    try:
-        recipe = get_my_recipe_or_404(
-            db,
-            current_user.id,
-            recipe_id,
-            include_ingredients=True,
-        )
-    except RecipeNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
+    recipe = get_accessible_recipe_by_id(
+        db,
+        current_user.id,
+        recipe_id,
+        include_ingredients=True,
+    )
+    if not recipe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
     return build_recipe_read(recipe)
 
 
@@ -93,6 +104,8 @@ def patch_recipe_by_id(
         )
     except RecipeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
+    except RecipeNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return build_recipe_read(recipe)
 
 
@@ -106,7 +119,65 @@ def delete_recipe_by_id(
         delete_my_recipe(db, current_user.id, recipe_id)
     except RecipeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
+    except RecipeNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{recipe_id}/publish", response_model=RecipeRead)
+def publish_recipe_by_id(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        recipe = publish_recipe(db, current_user.id, recipe_id)
+    except RecipePublishConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not recipe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+
+    return build_recipe_read(recipe)
+
+
+@router.post("/{recipe_id}/withdraw", response_model=RecipeRead)
+def withdraw_recipe_by_id(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        recipe = withdraw_recipe(db, current_user.id, recipe_id)
+    except RecipeWithdrawForbiddenError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except RecipeWithdrawConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not recipe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+
+    return build_recipe_read(recipe)
+
+
+@router.post("/{recipe_id}/report", response_model=RecipeRead)
+def report_recipe_by_id(
+    recipe_id: int,
+    payload: RecipeReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        recipe = report_recipe(db, current_user.id, recipe_id, payload)
+    except (RecipeReportSelfError, RecipeReportNotAllowedError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except RecipeReportConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    if not recipe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+
+    return build_recipe_read(recipe)
 
 
 @router.post("/{recipe_id}/ingredients", response_model=RecipeIngredientRead, status_code=status.HTTP_201_CREATED)
@@ -120,6 +191,8 @@ def post_recipe_ingredient(
         ingredient = add_ingredient(db, current_user.id, recipe_id, payload)
     except (RecipeNotFoundError, RecipeIngredientFoodNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found") from exc
+    except RecipeNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RecipeIngredientRead.model_validate(ingredient)
 
 
@@ -135,6 +208,8 @@ def patch_recipe_ingredient(
         ingredient = update_ingredient(db, current_user.id, recipe_id, ingredient_id, payload)
     except (RecipeNotFoundError, RecipeIngredientNotFoundError, RecipeIngredientFoodNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found") from exc
+    except RecipeNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RecipeIngredientRead.model_validate(ingredient)
 
 
@@ -149,4 +224,6 @@ def delete_recipe_ingredient(
         delete_ingredient(db, current_user.id, recipe_id, ingredient_id)
     except (RecipeNotFoundError, RecipeIngredientNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found") from exc
+    except RecipeNotEditableError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

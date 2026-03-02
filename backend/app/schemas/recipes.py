@@ -4,6 +4,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.models.enums import FoodSource, FoodStatus
+
 ALLOWED_MEAL_TYPES = {"breakfast", "lunch", "dinner", "snack"}
 MealTypes = Annotated[list[str], Field(min_length=1)]
 PositiveDecimal = Annotated[Decimal, Field(gt=0)]
@@ -101,6 +103,27 @@ class RecipeIngredientUpdate(BaseModel):
         return self
 
 
+class RecipeReportCreate(BaseModel):
+    reason: str | None = None
+    comment: str | None = None
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @field_validator("comment")
+    @classmethod
+    def validate_comment(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class RecipeIngredientRead(BaseModel):
     id: int
     recipe_id: int
@@ -120,6 +143,10 @@ class RecipeRead(BaseModel):
     description: str | None
     servings_count: int
     meal_types: list[str]
+    source: FoodSource
+    status: FoodStatus
+    reports_count: int
+    is_listed: bool
     total_grams: Decimal
     total_kcal: Decimal
     total_protein: Decimal

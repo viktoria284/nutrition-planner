@@ -3,7 +3,10 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { PlannerPage } from "./pages/PlannerPage";
-import { RecipesPage } from "./pages/RecipesPage";
+import { RecipesListPage } from "./pages/RecipesListPage";
+import { RecipeCreatePage } from "./pages/RecipeCreatePage";
+import { RecipeDetailsPage } from "./pages/RecipeDetailsPage";
+import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { ShoppingPage } from "./pages/ShoppingPage";
 import { FoodsPage } from "./pages/FoodsPage";
 import { FoodDetailsPage } from "./pages/FoodDetailsPage";
@@ -40,7 +43,31 @@ export default function App() {
               path="/recipes"
               element={
                 <RequireAuth>
-                  <RecipesPage />
+                  <RecipesListPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/recipes/new"
+              element={
+                <RequireAuth>
+                  <RecipeCreatePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/recipes/:id"
+              element={
+                <RequireAuth>
+                  <RecipeDetailsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/recipes/:id/edit"
+              element={
+                <RequireAuth>
+                  <RecipeEditPage />
                 </RequireAuth>
               }
             />

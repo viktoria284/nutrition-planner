@@ -3,11 +3,27 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.db.base_class import Base
+from app.models.enums import FoodSource, FoodStatus
 
 
 class Recipe(Base):
@@ -26,6 +42,23 @@ class Recipe(Base):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
     )
+    source: Mapped[FoodSource] = mapped_column(
+        SAEnum(FoodSource, name="food_source", native_enum=True),
+        nullable=False,
+        server_default=FoodSource.private.value,
+    )
+    status: Mapped[FoodStatus] = mapped_column(
+        SAEnum(FoodStatus, name="food_status", native_enum=True),
+        nullable=False,
+        server_default=FoodStatus.draft.value,
+    )
+    is_listed: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+    reports_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -45,10 +78,17 @@ class Recipe(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    reports: Mapped[list["RecipeReport"]] = relationship(
+        "RecipeReport",
+        back_populates="recipe",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="ck_recipes_name_not_blank"),
         CheckConstraint("servings_count >= 1", name="ck_recipes_servings_count_ge_1"),
+        Index("ix_recipes_source_status_is_listed", source, status, is_listed),
     )
 
     @validates("name")
@@ -104,4 +144,32 @@ class RecipeIngredient(Base):
 
     __table_args__ = (
         CheckConstraint("grams > 0", name="ck_recipe_ingredients_grams_gt_0"),
+    )
+
+
+class RecipeReport(Base):
+    __tablename__ = "recipe_reports"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recipe_id: Mapped[int] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    reporter_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    recipe: Mapped[Recipe] = relationship("Recipe", back_populates="reports")
+
+    __table_args__ = (
+        UniqueConstraint("recipe_id", "reporter_user_id", name="uq_recipe_reports_recipe_reporter"),
     )
