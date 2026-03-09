@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ApiError } from "../api/http";
 import { listRecipes, type MealType, type RecipeRead } from "../api/recipes";
 import { Alert } from "../components/Alert";
 import "./RecipesPage.css";
@@ -25,6 +26,16 @@ function formatMetric(value: string | number): string {
   return numeric.toFixed(2).replace(/\.?0+$/, "");
 }
 
+function resolveApiError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 404) return "Не найдено или нет доступа";
+    if (err.status === 409) return "Конфликт: действие уже выполнено или недопустимо в текущем состоянии";
+    if (err.status === 422) return "Проверьте корректность полей";
+    if (err.status === 400) return "Некорректный запрос";
+  }
+  return fallback;
+}
+
 type RecipesLocationState = {
   flashMessage?: string;
 };
@@ -48,7 +59,7 @@ export function RecipesListPage() {
       setRecipes(items);
     } catch (err) {
       setRecipes([]);
-      setError(err instanceof Error ? err.message : "Не удалось загрузить рецепты.");
+      setError(resolveApiError(err, "Не удалось загрузить рецепты."));
     } finally {
       setLoading(false);
     }

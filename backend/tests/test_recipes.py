@@ -214,6 +214,24 @@ def test_validation_meal_types_empty(client: TestClient) -> None:
     assert any(err["loc"][-1] == "meal_types" for err in response.json().get("detail", []))
 
 
+def test_validation_meal_types_duplicate(client: TestClient) -> None:
+    register_user(client, email="user1@example.com", username="userone")
+    token = login_and_get_token(client, identifier="user1@example.com")
+
+    response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={
+            "name": "Смузи",
+            "description": None,
+            "servings_count": 1,
+            "meal_types": ["breakfast", "breakfast"],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert any(err["loc"][-1] == "meal_types" for err in response.json().get("detail", []))
+
+
 def test_recipe_nutrients_calc_two_ingredients(client: TestClient) -> None:
     register_user(client, email="user1@example.com", username="userone")
     token = login_and_get_token(client, identifier="user1@example.com")
@@ -459,6 +477,87 @@ def test_multiplier_positive(client: TestClient) -> None:
     assert response.status_code == 422, response.text
 
 
+def test_fractional_multiplier(client: TestClient) -> None:
+    register_user(client, email="fractional-mult@example.com", username="fractionalmult")
+    token = login_and_get_token(client, identifier="fractional-mult@example.com")
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Food Fractional Mult",
+        kcal="100.00",
+        protein="10.00",
+        fat="0.00",
+        carbs="10.00",
+    )
+    serving = create_serving_via_api(
+        client,
+        token,
+        food_id=food["id"],
+        name="1 шт",
+        grams="120",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=2)
+
+    add_response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={
+            "food_id": food["id"],
+            "serving_id": serving["id"],
+            "multiplier": "0.5",
+        },
+    )
+    assert add_response.status_code == 201, add_response.text
+    ingredient = add_response.json()
+    assert Decimal(str(ingredient["grams"])) == Decimal("60.00")
+
+    get_recipe_response = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert get_recipe_response.status_code == 200, get_recipe_response.text
+    data = get_recipe_response.json()
+    assert Decimal(str(data["total_grams"])) == Decimal("60.00")
+    assert Decimal(str(data["total_kcal"])) == Decimal("60.00")
+    assert Decimal(str(data["per_serving_kcal"])) == Decimal("30.00")
+
+
+def test_fractional_grams_with_rounding(client: TestClient) -> None:
+    register_user(client, email="fractional-grams@example.com", username="fractionalgrams")
+    token = login_and_get_token(client, identifier="fractional-grams@example.com")
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Food Fractional Grams",
+        kcal="123.45",
+        protein="7.89",
+        fat="3.21",
+        carbs="11.11",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=2)
+
+    add_response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={"food_id": food["id"], "grams": "12.5"},
+    )
+    assert add_response.status_code == 201, add_response.text
+    ingredient = add_response.json()
+    assert Decimal(str(ingredient["grams"])) == Decimal("12.50")
+
+    get_recipe_response = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert get_recipe_response.status_code == 200, get_recipe_response.text
+    data = get_recipe_response.json()
+    assert Decimal(str(data["total_grams"])) == Decimal("12.50")
+    assert Decimal(str(data["total_kcal"])) == Decimal("15.43")
+    assert Decimal(str(data["total_protein"])) == Decimal("0.99")
+    assert Decimal(str(data["total_fat"])) == Decimal("0.40")
+    assert Decimal(str(data["total_carbs"])) == Decimal("1.39")
+    assert Decimal(str(data["per_serving_kcal"])) == Decimal("7.72")
+    assert Decimal(str(data["per_serving_protein"])) == Decimal("0.49")
+    assert Decimal(str(data["per_serving_fat"])) == Decimal("0.20")
+    assert Decimal(str(data["per_serving_carbs"])) == Decimal("0.69")
+
+
 def test_owner_only_ingredient_ops(client: TestClient) -> None:
     register_user(client, email="user1@example.com", username="userone")
     token_user1 = login_and_get_token(client, identifier="user1@example.com")
@@ -522,6 +621,28 @@ def test_owner_only_ingredient_ops(client: TestClient) -> None:
     foreign_delete = client.delete(
         f"/recipes/{recipe_id}/ingredients/{ingredient_id}",
         headers=auth_headers(token_user2),
+    )
+    assert foreign_delete.status_code == 404, foreign_delete.text
+
+
+def test_owner_only_recipe_update_delete(client: TestClient) -> None:
+    register_user(client, email="owner-recipe@example.com", username="ownerrecipe")
+    owner_token = login_and_get_token(client, identifier="owner-recipe@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Owner only recipe")
+
+    register_user(client, email="other-recipe@example.com", username="otherrecipe")
+    other_token = login_and_get_token(client, identifier="other-recipe@example.com")
+
+    foreign_patch = client.patch(
+        f"/recipes/{recipe['id']}",
+        headers=auth_headers(other_token),
+        json={"name": "Hacked"},
+    )
+    assert foreign_patch.status_code == 404, foreign_patch.text
+
+    foreign_delete = client.delete(
+        f"/recipes/{recipe['id']}",
+        headers=auth_headers(other_token),
     )
     assert foreign_delete.status_code == 404, foreign_delete.text
 

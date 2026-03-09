@@ -423,14 +423,12 @@ export function RecipeDetailsPage() {
   }, []);
 
   useEffect(() => {
-    if (!canEditIngredients) return;
-
     for (const row of visibleIngredientRows) {
       if (row.mode === "serving" && row.food_id) {
         void ensureFoodServingsLoaded(row.food_id);
       }
     }
-  }, [canEditIngredients, ensureFoodServingsLoaded, visibleIngredientRows]);
+  }, [ensureFoodServingsLoaded, visibleIngredientRows]);
 
   const ingredientDeleteTarget = useMemo(
     () => ingredientRows.find((row) => row.localId === ingredientDeleteTargetLocalId) ?? null,
@@ -1046,7 +1044,15 @@ export function RecipeDetailsPage() {
                     <li key={row.localId} className="ingredients-readonly-row">
                       <span>
                         {ingredientLabel(row)}
-                        {row.mode === "serving" && row.serving_id ? ` · порция #${row.serving_id} × ${row.multiplier || "1"}` : ""}
+                        {row.mode === "serving" && row.serving_id
+                          ? (() => {
+                              const serving = row.food_id
+                                ? (servingsCache.get(row.food_id) ?? []).find((item) => item.id === row.serving_id)
+                                : null;
+                              const servingName = serving?.name ?? `порция #${row.serving_id}`;
+                              return ` · ${servingName} × ${row.multiplier || "1"}`;
+                            })()
+                          : ""}
                       </span>
                       <b>{formatMetric(row.grams)} г</b>
                     </li>
