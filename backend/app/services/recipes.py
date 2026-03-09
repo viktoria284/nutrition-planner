@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.enums import FoodSource, FoodStatus
+from app.models.foods import FoodServing
 from app.models.recipe import Recipe, RecipeIngredient, RecipeReport
 from app.schemas.recipes import (
     RecipeCreate,
@@ -31,6 +32,10 @@ class RecipeIngredientNotFoundError(ValueError):
 
 
 class RecipeIngredientFoodNotFoundError(ValueError):
+    pass
+
+
+class RecipeIngredientServingMismatchError(ValueError):
     pass
 
 
@@ -64,6 +69,30 @@ class RecipeWithdrawConflictError(ValueError):
 
 def _quantize_nutrient(value: Decimal) -> Decimal:
     return value.quantize(NUTRIENT_QUANT, rounding=ROUND_HALF_UP)
+
+
+def _resolve_ingredient_measurement(
+    db: Session,
+    *,
+    food_id: int,
+    grams: Decimal | None,
+    serving_id: int | None,
+    multiplier: Decimal | None,
+) -> tuple[Decimal, int | None, Decimal | None]:
+    if grams is not None:
+        return grams, None, None
+
+    if serving_id is None or multiplier is None:
+        raise RecipeIngredientServingMismatchError("Provide grams or serving with multiplier")
+
+    serving = db.execute(
+        select(FoodServing).where(FoodServing.id == serving_id)
+    ).scalar_one_or_none()
+    if not serving or serving.food_id != food_id:
+        raise RecipeIngredientServingMismatchError("Serving does not match selected food")
+
+    resolved_grams = _quantize_nutrient(serving.grams * multiplier)
+    return resolved_grams, serving.id, multiplier
 
 
 def ensure_recipe_editable(recipe: Recipe) -> None:
@@ -223,10 +252,20 @@ def add_ingredient(
     if not food:
         raise RecipeIngredientFoodNotFoundError("Food not found")
 
+    grams, serving_id, multiplier = _resolve_ingredient_measurement(
+        db,
+        food_id=data.food_id,
+        grams=data.grams,
+        serving_id=data.serving_id,
+        multiplier=data.multiplier,
+    )
+
     ingredient = RecipeIngredient(
         recipe_id=recipe.id,
         food_id=data.food_id,
-        grams=data.grams,
+        grams=grams,
+        serving_id=serving_id,
+        multiplier=multiplier,
     )
     db.add(ingredient)
     db.commit()
@@ -246,13 +285,56 @@ def update_ingredient(
     ingredient = _get_recipe_ingredient_or_404(db, recipe.id, ingredient_id)
 
     update_data = data.model_dump(exclude_unset=True)
+    next_food_id = update_data.get("food_id", ingredient.food_id)
     if "food_id" in update_data:
-        food = get_accessible_food_by_id(db, owner_id, update_data["food_id"])
+        food = get_accessible_food_by_id(db, owner_id, next_food_id)
         if not food:
             raise RecipeIngredientFoodNotFoundError("Food not found")
 
-    for field, value in update_data.items():
-        setattr(ingredient, field, value)
+    next_grams = ingredient.grams
+    next_serving_id = ingredient.serving_id
+    next_multiplier = ingredient.multiplier
+
+    has_explicit_grams = "grams" in update_data and update_data["grams"] is not None
+    has_serving_payload = "serving_id" in update_data or "multiplier" in update_data
+
+    if has_explicit_grams:
+        next_grams = update_data["grams"]
+        next_serving_id = None
+        next_multiplier = None
+    elif has_serving_payload:
+        if "serving_id" in update_data:
+            next_serving_id = update_data["serving_id"]
+        if "multiplier" in update_data:
+            next_multiplier = update_data["multiplier"]
+
+        if next_serving_id is None:
+            if "serving_id" in update_data and update_data["serving_id"] is None:
+                next_serving_id = None
+                next_multiplier = None
+            elif "multiplier" in update_data:
+                raise RecipeIngredientServingMismatchError("Serving must be selected for multiplier mode")
+        else:
+            next_grams, next_serving_id, next_multiplier = _resolve_ingredient_measurement(
+                db,
+                food_id=next_food_id,
+                grams=None,
+                serving_id=next_serving_id,
+                multiplier=next_multiplier,
+            )
+    elif "food_id" in update_data and next_serving_id is not None:
+        next_grams, next_serving_id, next_multiplier = _resolve_ingredient_measurement(
+            db,
+            food_id=next_food_id,
+            grams=None,
+            serving_id=next_serving_id,
+            multiplier=next_multiplier,
+        )
+
+    ingredient.food_id = next_food_id
+    ingredient.grams = next_grams
+    ingredient.serving_id = next_serving_id
+    ingredient.multiplier = next_multiplier
 
     db.commit()
     db.refresh(ingredient)
@@ -401,6 +483,8 @@ def build_recipe_read(recipe: Recipe) -> RecipeRead:
                 "recipe_id": ingredient.recipe_id,
                 "food_id": ingredient.food_id,
                 "grams": ingredient.grams,
+                "serving_id": ingredient.serving_id,
+                "multiplier": ingredient.multiplier,
                 "created_at": ingredient.created_at,
                 "updated_at": ingredient.updated_at,
                 "food": (

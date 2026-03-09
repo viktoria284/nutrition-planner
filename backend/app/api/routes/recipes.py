@@ -18,6 +18,7 @@ from app.services.recipes import (
     RecipeNotEditableError,
     RecipeIngredientFoodNotFoundError,
     RecipeIngredientNotFoundError,
+    RecipeIngredientServingMismatchError,
     RecipeNotFoundError,
     RecipePublishConflictError,
     RecipeReportConflictError,
@@ -191,6 +192,8 @@ def post_recipe_ingredient(
         ingredient = add_ingredient(db, current_user.id, recipe_id, payload)
     except (RecipeNotFoundError, RecipeIngredientFoodNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found") from exc
+    except RecipeIngredientServingMismatchError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except RecipeNotEditableError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RecipeIngredientRead.model_validate(ingredient)
@@ -208,6 +211,8 @@ def patch_recipe_ingredient(
         ingredient = update_ingredient(db, current_user.id, recipe_id, ingredient_id, payload)
     except (RecipeNotFoundError, RecipeIngredientNotFoundError, RecipeIngredientFoodNotFoundError) as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ingredient not found") from exc
+    except RecipeIngredientServingMismatchError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except RecipeNotEditableError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return RecipeIngredientRead.model_validate(ingredient)

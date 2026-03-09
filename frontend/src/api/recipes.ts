@@ -43,7 +43,9 @@ export type RecipeRead = {
 
 export type RecipeIngredientCreate = {
   food_id: number;
-  grams: DecimalValue;
+  grams?: DecimalValue;
+  serving_id?: number;
+  multiplier?: DecimalValue;
 };
 
 export type RecipeIngredientUpdate = Partial<RecipeIngredientCreate>;
@@ -53,6 +55,8 @@ export type RecipeIngredientRead = {
   recipe_id: number;
   food_id: number;
   grams: DecimalValue;
+  serving_id?: number | null;
+  multiplier?: DecimalValue | null;
   food?: {
     id: number;
     name: string;

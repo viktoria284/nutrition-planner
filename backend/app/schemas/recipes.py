@@ -89,17 +89,46 @@ class RecipeUpdate(BaseModel):
 
 class RecipeIngredientCreate(BaseModel):
     food_id: int
-    grams: PositiveDecimal
+    grams: PositiveDecimal | None = None
+    serving_id: int | None = None
+    multiplier: PositiveDecimal | None = None
+
+    @model_validator(mode="after")
+    def validate_measurement_mode(self) -> "RecipeIngredientCreate":
+        has_grams = self.grams is not None
+        has_serving = self.serving_id is not None
+
+        if not has_grams and not has_serving:
+            raise ValueError("provide grams or serving_id")
+
+        if has_serving and self.multiplier is None:
+            raise ValueError("multiplier is required when serving_id is provided")
+
+        return self
 
 
 class RecipeIngredientUpdate(BaseModel):
     food_id: int | None = None
     grams: PositiveDecimal | None = None
+    serving_id: int | None = None
+    multiplier: PositiveDecimal | None = None
 
     @model_validator(mode="after")
     def validate_non_empty_payload(self) -> "RecipeIngredientUpdate":
-        if self.food_id is None and self.grams is None:
+        if len(self.model_fields_set) == 0:
             raise ValueError("at least one field must be provided")
+
+        if "grams" in self.model_fields_set and self.grams is None:
+            raise ValueError("grams must be greater than 0")
+
+        if "serving_id" in self.model_fields_set and self.serving_id is not None and self.multiplier is None:
+            raise ValueError("multiplier is required when serving_id is provided")
+
+        if "multiplier" in self.model_fields_set and self.multiplier is not None:
+            has_serving_context = self.serving_id is not None or "serving_id" not in self.model_fields_set
+            if not has_serving_context:
+                raise ValueError("serving_id is required when multiplier is provided")
+
         return self
 
 
@@ -138,6 +167,8 @@ class RecipeIngredientRead(BaseModel):
     recipe_id: int
     food_id: int
     grams: Decimal
+    serving_id: int | None = None
+    multiplier: Decimal | None = None
     food: RecipeIngredientFoodRead | None = None
     created_at: datetime
     updated_at: datetime

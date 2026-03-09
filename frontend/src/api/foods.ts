@@ -47,6 +47,7 @@ export type FoodServing = {
   created_at?: string;
   updated_at?: string;
 };
+export type FoodServingRead = FoodServing;
 
 export type FoodServingCreatePayload = {
   name: string;
@@ -154,6 +155,10 @@ export async function listServings(foodId: number | string): Promise<FoodServing
     path: `/foods/${foodId}/servings`,
     token: getToken(),
   });
+}
+
+export async function getFoodServings(foodId: number | string): Promise<FoodServingRead[]> {
+  return listServings(foodId);
 }
 
 export async function createServing(

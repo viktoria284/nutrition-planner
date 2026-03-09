@@ -89,6 +89,26 @@ def create_recipe_via_api(
     return response.json()
 
 
+def create_serving_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    food_id: int,
+    name: str,
+    grams: str,
+) -> dict:
+    response = client.post(
+        f"/foods/{food_id}/servings",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "grams": grams,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def test_create_recipe_ok_without_ingredients(client: TestClient) -> None:
     user = register_user(client, email="user1@example.com", username="userone")
     token = login_and_get_token(client, identifier="user1@example.com")
@@ -309,6 +329,134 @@ def test_ingredient_grams_must_be_positive(client: TestClient) -> None:
     )
     assert patch_invalid.status_code == 422, patch_invalid.text
     assert any(err["loc"][-1] == "grams" for err in patch_invalid.json().get("detail", []))
+
+
+def test_add_ingredient_by_serving_calc_grams_and_totals(client: TestClient) -> None:
+    register_user(client, email="serving-user@example.com", username="servinguser")
+    token = login_and_get_token(client, identifier="serving-user@example.com")
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Serving Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="0.00",
+        carbs="10.00",
+    )
+    serving = create_serving_via_api(
+        client,
+        token,
+        food_id=food["id"],
+        name="1 шт",
+        grams="120",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=2)
+
+    add_response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={
+            "food_id": food["id"],
+            "serving_id": serving["id"],
+            "multiplier": "2",
+        },
+    )
+    assert add_response.status_code == 201, add_response.text
+    ingredient = add_response.json()
+    assert Decimal(str(ingredient["grams"])) == Decimal("240.00")
+    assert ingredient["serving_id"] == serving["id"]
+    assert Decimal(str(ingredient["multiplier"])) == Decimal("2.00")
+
+    get_recipe_response = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert get_recipe_response.status_code == 200, get_recipe_response.text
+    data = get_recipe_response.json()
+    assert Decimal(str(data["total_grams"])) == Decimal("240.00")
+    assert Decimal(str(data["total_kcal"])) == Decimal("240.00")
+    assert Decimal(str(data["total_protein"])) == Decimal("24.00")
+    assert Decimal(str(data["total_fat"])) == Decimal("0.00")
+    assert Decimal(str(data["total_carbs"])) == Decimal("24.00")
+    assert Decimal(str(data["per_serving_kcal"])) == Decimal("120.00")
+    assert Decimal(str(data["per_serving_protein"])) == Decimal("12.00")
+    assert Decimal(str(data["per_serving_fat"])) == Decimal("0.00")
+    assert Decimal(str(data["per_serving_carbs"])) == Decimal("12.00")
+
+
+def test_serving_must_match_food(client: TestClient) -> None:
+    register_user(client, email="serving-match@example.com", username="servingmatch")
+    token = login_and_get_token(client, identifier="serving-match@example.com")
+
+    food_a = create_food_via_api(
+        client,
+        token,
+        name="Food A",
+        kcal="100.00",
+        protein="10.00",
+        fat="0.00",
+        carbs="10.00",
+    )
+    food_b = create_food_via_api(
+        client,
+        token,
+        name="Food B",
+        kcal="90.00",
+        protein="9.00",
+        fat="1.00",
+        carbs="8.00",
+    )
+    serving_b = create_serving_via_api(
+        client,
+        token,
+        food_id=food_b["id"],
+        name="1 ложка",
+        grams="30",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=2)
+
+    response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={
+            "food_id": food_a["id"],
+            "serving_id": serving_b["id"],
+            "multiplier": "1",
+        },
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_multiplier_positive(client: TestClient) -> None:
+    register_user(client, email="serving-mult@example.com", username="servingmult")
+    token = login_and_get_token(client, identifier="serving-mult@example.com")
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Food C",
+        kcal="110.00",
+        protein="11.00",
+        fat="2.00",
+        carbs="12.00",
+    )
+    serving = create_serving_via_api(
+        client,
+        token,
+        food_id=food["id"],
+        name="Порция",
+        grams="100",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=1)
+
+    response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={
+            "food_id": food["id"],
+            "serving_id": serving["id"],
+            "multiplier": "0",
+        },
+    )
+    assert response.status_code == 422, response.text
 
 
 def test_owner_only_ingredient_ops(client: TestClient) -> None:
