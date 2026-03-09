@@ -27,6 +27,7 @@ export type RecipeRead = {
   status: RecipeStatus;
   reports_count: number;
   is_listed: boolean;
+  ingredients?: RecipeIngredientRead[];
   total_grams: DecimalValue;
   total_kcal: DecimalValue;
   total_protein: DecimalValue;
@@ -52,6 +53,11 @@ export type RecipeIngredientRead = {
   recipe_id: number;
   food_id: number;
   grams: DecimalValue;
+  food?: {
+    id: number;
+    name: string;
+    brand?: string | null;
+  } | null;
   created_at: string;
   updated_at: string;
 };

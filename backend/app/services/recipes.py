@@ -118,15 +118,16 @@ def get_my_recipe_or_404(
     *,
     include_ingredients: bool = False,
 ) -> Recipe:
-    query = select(Recipe).where(
+    stmt = select(Recipe).where(
         Recipe.id == recipe_id,
         Recipe.owner_user_id == owner_id,
     )
     if include_ingredients:
-        query = query.options(
+        stmt = stmt.options(
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
         )
-    recipe = db.execute(query).scalar_one_or_none()
+    result = db.execute(stmt)
+    recipe = result.scalar_one_or_none()
     if not recipe:
         raise RecipeNotFoundError("Recipe not found")
     return recipe
@@ -139,15 +140,16 @@ def get_owned_recipe_or_none(
     *,
     include_ingredients: bool = False,
 ) -> Recipe | None:
-    query = select(Recipe).where(
+    stmt = select(Recipe).where(
         Recipe.id == recipe_id,
         Recipe.owner_user_id == owner_id,
     )
     if include_ingredients:
-        query = query.options(
+        stmt = stmt.options(
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
         )
-    return db.execute(query).scalar_one_or_none()
+    result = db.execute(stmt)
+    return result.scalar_one_or_none()
 
 
 def get_accessible_recipe_by_id(
@@ -157,13 +159,13 @@ def get_accessible_recipe_by_id(
     *,
     include_ingredients: bool = False,
 ) -> Recipe | None:
-    query = select(Recipe).where(Recipe.id == recipe_id)
+    stmt = select(Recipe).where(Recipe.id == recipe_id)
     if include_ingredients:
-        query = query.options(
+        stmt = stmt.options(
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
         )
 
-    query = query.where(
+    stmt = stmt.where(
         or_(
             Recipe.owner_user_id == user_id,
             and_(
@@ -173,7 +175,8 @@ def get_accessible_recipe_by_id(
             ),
         )
     )
-    return db.execute(query).scalar_one_or_none()
+    result = db.execute(stmt)
+    return result.scalar_one_or_none()
 
 
 def update_my_recipe(db: Session, owner_id: int, recipe_id: int, data: RecipeUpdate) -> Recipe:
@@ -390,6 +393,28 @@ def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:
 
 def build_recipe_read(recipe: Recipe) -> RecipeRead:
     nutrients = calculate_recipe_nutrients(recipe)
+    ingredients_payload = []
+    for ingredient in recipe.ingredients:
+        ingredients_payload.append(
+            {
+                "id": ingredient.id,
+                "recipe_id": ingredient.recipe_id,
+                "food_id": ingredient.food_id,
+                "grams": ingredient.grams,
+                "created_at": ingredient.created_at,
+                "updated_at": ingredient.updated_at,
+                "food": (
+                    {
+                        "id": ingredient.food.id,
+                        "name": ingredient.food.name,
+                        "brand": ingredient.food.brand,
+                    }
+                    if ingredient.food is not None
+                    else None
+                ),
+            }
+        )
+
     return RecipeRead.model_validate(
         {
             "id": recipe.id,
@@ -402,6 +427,7 @@ def build_recipe_read(recipe: Recipe) -> RecipeRead:
             "status": recipe.status,
             "reports_count": recipe.reports_count,
             "is_listed": recipe.is_listed,
+            "ingredients": ingredients_payload,
             "created_at": recipe.created_at,
             "updated_at": recipe.updated_at,
             **nutrients,

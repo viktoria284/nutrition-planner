@@ -48,7 +48,7 @@ export function RecipeCreatePage() {
 
     try {
       const created = await createRecipe(payload);
-      navigate(`/recipes/${created.id}`, { replace: true });
+      navigate(`/recipes/${created.id}#ingredients`, { replace: true });
     } catch (err) {
       setErrors({
         form: [err instanceof Error ? err.message : "Не удалось создать рецепт."],

@@ -1,16 +1,24 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { type FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
+import { useAuth } from "../auth/useAuth";
 import {
+  addIngredient,
+  deleteIngredient,
   deleteRecipe,
   getRecipe,
   publishRecipe,
   reportRecipe,
+  updateIngredient,
   withdrawRecipe,
   type MealType,
+  type RecipeIngredientRead,
+  type RecipeIngredientUpdate,
   type RecipeRead,
 } from "../api/recipes";
 import { Alert } from "../components/Alert";
+import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { getCurrentUserIdFromJwt } from "../utils/auth";
 import "./RecipesPage.css";
 
@@ -34,6 +42,23 @@ type ReportFormErrors = {
   reason?: string;
   comment?: string;
   form?: string;
+};
+
+type IngredientRowErrors = {
+  food?: string;
+  grams?: string;
+};
+
+type IngredientRow = {
+  localId: string;
+  id?: number;
+  food_id?: number;
+  food: FoodSearchOption | null;
+  grams: string;
+  initialFoodId?: number;
+  initialGrams?: number | null;
+  markedForDelete?: boolean;
+  errors?: IngredientRowErrors;
 };
 
 const REPORT_REASON_OPTIONS = ["Неверные данные", "Дубликат", "Спам/мусор", "Оскорбительный контент", "Другое"] as const;
@@ -70,6 +95,53 @@ function formatMetric(value: string | number): string {
   if (!Number.isFinite(numeric)) return "0";
   if (Number.isInteger(numeric)) return String(numeric);
   return numeric.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function createLocalId(): string {
+  return `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function toFoodSearchOption(ingredient: RecipeIngredientRead): FoodSearchOption | null {
+  if (!ingredient.food) return null;
+  return {
+    id: ingredient.food.id,
+    name: ingredient.food.name,
+    brand: ingredient.food.brand ?? null,
+  };
+}
+
+function buildIngredientRows(ingredients?: RecipeIngredientRead[]): IngredientRow[] {
+  if (!Array.isArray(ingredients) || ingredients.length === 0) return [];
+
+  return ingredients.map((ingredient) => {
+    const initialGramsValue = Number(ingredient.grams);
+    return {
+      localId: createLocalId(),
+      id: ingredient.id,
+      food_id: ingredient.food_id,
+      food: toFoodSearchOption(ingredient),
+      grams: String(ingredient.grams),
+      initialFoodId: ingredient.food_id,
+      initialGrams: Number.isFinite(initialGramsValue) ? initialGramsValue : null,
+    };
+  });
+}
+
+function isBlankNewRow(row: IngredientRow): boolean {
+  return !row.id && !row.food_id && row.grams.trim() === "";
+}
+
+function sameNumericValue(left: number | null | undefined, right: number): boolean {
+  if (left === null || left === undefined) return false;
+  return Math.abs(left - right) < 0.000001;
+}
+
+function ingredientLabel(row: IngredientRow): string {
+  if (row.food) {
+    return row.food.brand ? `${row.food.name} — ${row.food.brand}` : row.food.name;
+  }
+  if (row.food_id !== undefined) return `Продукт #${row.food_id}`;
+  return "Продукт не выбран";
 }
 
 function validateReportForm(form: ReportForm): { errors: ReportFormErrors; payload: { reason: string; comment?: string } | null } {
@@ -134,8 +206,12 @@ function ConfirmModal({
 
 export function RecipeDetailsPage() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const currentUserId = getCurrentUserIdFromJwt();
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? getCurrentUserIdFromJwt();
+  const ingredientsAnchorRef = useRef<HTMLElement | null>(null);
+  const hasScrolledToIngredientsRef = useRef(false);
 
   const [recipe, setRecipe] = useState<RecipeRead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -161,10 +237,21 @@ export function RecipeDetailsPage() {
   const [reportForm, setReportForm] = useState<ReportForm>(EMPTY_REPORT_FORM);
   const [reportErrors, setReportErrors] = useState<ReportFormErrors>({});
 
+  const [ingredientRows, setIngredientRows] = useState<IngredientRow[]>([]);
+  const [ingredientsSaving, setIngredientsSaving] = useState(false);
+  const [ingredientsError, setIngredientsError] = useState<string | null>(null);
+  const [ingredientsSuccess, setIngredientsSuccess] = useState(false);
+
+  const applyRecipePayload = useCallback((payload: RecipeRead) => {
+    setRecipe(payload);
+    setIngredientRows(buildIngredientRows(payload.ingredients));
+  }, []);
+
   const loadRecipe = useCallback(async () => {
     const recipeId = Number(id);
     if (!id || !Number.isInteger(recipeId) || recipeId < 1) {
       setRecipe(null);
+      setIngredientRows([]);
       setError("Некорректный идентификатор рецепта.");
       setLoading(false);
       return;
@@ -175,9 +262,10 @@ export function RecipeDetailsPage() {
 
     try {
       const item = await getRecipe(recipeId);
-      setRecipe(item);
+      applyRecipePayload(item);
     } catch (err) {
       setRecipe(null);
+      setIngredientRows([]);
       if (err instanceof ApiError && err.status === 404) {
         setError("Рецепт не найден.");
       } else {
@@ -186,7 +274,7 @@ export function RecipeDetailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, applyRecipePayload]);
 
   useEffect(() => {
     void loadRecipe();
@@ -194,38 +282,33 @@ export function RecipeDetailsPage() {
 
   useEffect(() => {
     if (!reportSuccess) return undefined;
-
-    const timeoutId = window.setTimeout(() => {
-      setReportSuccess(false);
-    }, 2600);
-
+    const timeoutId = window.setTimeout(() => setReportSuccess(false), 2600);
     return () => window.clearTimeout(timeoutId);
   }, [reportSuccess]);
 
   useEffect(() => {
     if (!publishSuccess) return undefined;
-
-    const timeoutId = window.setTimeout(() => {
-      setPublishSuccess(false);
-    }, 2600);
-
+    const timeoutId = window.setTimeout(() => setPublishSuccess(false), 2600);
     return () => window.clearTimeout(timeoutId);
   }, [publishSuccess]);
 
   useEffect(() => {
     if (!withdrawSuccess) return undefined;
-
-    const timeoutId = window.setTimeout(() => {
-      setWithdrawSuccess(false);
-    }, 2600);
-
+    const timeoutId = window.setTimeout(() => setWithdrawSuccess(false), 2600);
     return () => window.clearTimeout(timeoutId);
   }, [withdrawSuccess]);
+
+  useEffect(() => {
+    if (!ingredientsSuccess) return undefined;
+    const timeoutId = window.setTimeout(() => setIngredientsSuccess(false), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [ingredientsSuccess]);
 
   const isOwner = Boolean(recipe && currentUserId !== null && recipe.owner_user_id === currentUserId);
   const canEditRecipe = Boolean(recipe && isOwner && recipe.source === "private" && recipe.status === "draft");
   const canPublishRecipe = canEditRecipe;
   const canDeleteRecipe = canEditRecipe;
+  const canEditIngredients = isOwner;
   const canWithdrawRecipe = Boolean(
     recipe && isOwner && recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
   );
@@ -233,6 +316,19 @@ export function RecipeDetailsPage() {
     recipe && !isOwner && recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
   );
   const showModerationBanner = Boolean(recipe && isOwner && recipe.status === "pending" && !recipe.is_listed);
+
+  useEffect(() => {
+    hasScrolledToIngredientsRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (location.hash !== "#ingredients") return;
+    if (loading || !recipe) return;
+    if (hasScrolledToIngredientsRef.current) return;
+
+    hasScrolledToIngredientsRef.current = true;
+    ingredientsAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loading, recipe, location.hash]);
 
   const totalMetrics = useMemo(() => {
     if (!recipe) return [];
@@ -250,6 +346,140 @@ export function RecipeDetailsPage() {
     }));
   }, [recipe]);
 
+  const visibleIngredientRows = useMemo(
+    () => ingredientRows.filter((row) => !row.markedForDelete),
+    [ingredientRows],
+  );
+
+  const updateIngredientRow = (localId: string, updater: (row: IngredientRow) => IngredientRow) => {
+    setIngredientRows((prev) =>
+      prev.map((row) => {
+        if (row.localId !== localId) return row;
+        return updater(row);
+      }),
+    );
+    setIngredientsError(null);
+    setIngredientsSuccess(false);
+  };
+
+  const addIngredientRow = () => {
+    if (!canEditIngredients || ingredientsSaving) return;
+    setIngredientRows((prev) => [...prev, { localId: createLocalId(), food: null, grams: "" }]);
+    setIngredientsError(null);
+    setIngredientsSuccess(false);
+  };
+
+  const removeIngredientRow = (localId: string) => {
+    if (!canEditIngredients || ingredientsSaving) return;
+
+    setIngredientRows((prev) => {
+      const target = prev.find((row) => row.localId === localId);
+      if (!target) return prev;
+
+      if (target.id) {
+        return prev.map((row) => (row.localId === localId ? { ...row, markedForDelete: true, errors: {} } : row));
+      }
+      return prev.filter((row) => row.localId !== localId);
+    });
+
+    setIngredientsError(null);
+    setIngredientsSuccess(false);
+  };
+
+  const onIngredientFoodChange = (localId: string, food: FoodItem | null) => {
+    updateIngredientRow(localId, (row) => ({
+      ...row,
+      food: food
+        ? {
+            id: food.id,
+            name: food.name,
+            brand: food.brand ?? null,
+          }
+        : null,
+      food_id: food?.id,
+      errors: { ...row.errors, food: undefined },
+    }));
+  };
+
+  const onIngredientGramsChange = (localId: string, value: string) => {
+    updateIngredientRow(localId, (row) => ({
+      ...row,
+      grams: value,
+      errors: { ...row.errors, grams: undefined },
+    }));
+  };
+
+  const onSaveIngredients = async () => {
+    if (!recipe || ingredientsSaving || !canEditIngredients) return;
+
+    setIngredientsError(null);
+    setIngredientsSuccess(false);
+
+    let hasValidationErrors = false;
+    const validatedRows = ingredientRows.map((row) => {
+      if (row.markedForDelete) return { ...row, errors: {} };
+      if (isBlankNewRow(row)) return { ...row, errors: {} };
+
+      const errors: IngredientRowErrors = {};
+      const gramsRaw = row.grams.trim();
+      const grams = Number(gramsRaw);
+
+      if (!row.food_id) errors.food = "Выберите продукт.";
+      if (!gramsRaw || !Number.isFinite(grams) || grams <= 0) errors.grams = "Введите число > 0.";
+
+      if (errors.food || errors.grams) hasValidationErrors = true;
+      return { ...row, errors };
+    });
+
+    setIngredientRows(validatedRows);
+
+    if (hasValidationErrors) {
+      setIngredientsError("Исправьте ошибки в строках ингредиентов.");
+      return;
+    }
+
+    setIngredientsSaving(true);
+
+    try {
+      for (const row of validatedRows) {
+        if (row.markedForDelete && row.id) {
+          await deleteIngredient(recipe.id, row.id);
+        }
+      }
+
+      for (const row of validatedRows) {
+        if (row.markedForDelete || isBlankNewRow(row)) continue;
+        if (!row.food_id) continue;
+
+        const grams = Number(row.grams.trim());
+
+        if (row.id) {
+          const changedFood = row.food_id !== row.initialFoodId;
+          const changedGrams = !sameNumericValue(row.initialGrams, grams);
+
+          if (!changedFood && !changedGrams) continue;
+
+          const payload: RecipeIngredientUpdate = {};
+          if (changedFood) payload.food_id = row.food_id;
+          if (changedGrams) payload.grams = grams;
+
+          await updateIngredient(recipe.id, row.id, payload);
+          continue;
+        }
+
+        await addIngredient(recipe.id, { food_id: row.food_id, grams });
+      }
+
+      const refreshed = await getRecipe(recipe.id);
+      applyRecipePayload(refreshed);
+      setIngredientsSuccess(true);
+    } catch (err) {
+      setIngredientsError(err instanceof Error ? err.message : "Не удалось сохранить ингредиенты.");
+    } finally {
+      setIngredientsSaving(false);
+    }
+  };
+
   const onPublish = async () => {
     if (!recipe || publishing) return;
 
@@ -259,7 +489,7 @@ export function RecipeDetailsPage() {
 
     try {
       const updated = await publishRecipe(recipe.id);
-      setRecipe(updated);
+      applyRecipePayload(updated);
       setPublishSuccess(true);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -328,7 +558,7 @@ export function RecipeDetailsPage() {
 
     try {
       const updated = await withdrawRecipe(recipe.id);
-      setRecipe(updated);
+      applyRecipePayload(updated);
       setWithdrawSuccess(true);
       setWithdrawModalOpen(false);
     } catch (err) {
@@ -390,7 +620,7 @@ export function RecipeDetailsPage() {
 
     try {
       const updated = await reportRecipe(recipe.id, payload);
-      setRecipe(updated);
+      applyRecipePayload(updated);
       setReportModalOpen(false);
       setReportForm(EMPTY_REPORT_FORM);
       setReportSuccess(true);
@@ -451,7 +681,7 @@ export function RecipeDetailsPage() {
                           type="button"
                           className="btn btn-primary"
                           onClick={() => void onPublish()}
-                          disabled={publishing || deleting || withdrawing}
+                          disabled={publishing || deleting || withdrawing || ingredientsSaving}
                         >
                           {publishing ? "Публикация..." : "Опубликовать"}
                         </button>
@@ -461,7 +691,7 @@ export function RecipeDetailsPage() {
                           type="button"
                           className="btn btn-secondary"
                           onClick={() => navigate(`/recipes/${recipe.id}/edit`)}
-                          disabled={publishing || deleting || withdrawing}
+                          disabled={publishing || deleting || withdrawing || ingredientsSaving}
                         >
                           Редактировать
                         </button>
@@ -471,7 +701,7 @@ export function RecipeDetailsPage() {
                           type="button"
                           className="btn btn-subtle"
                           onClick={openDeleteModal}
-                          disabled={publishing || deleting || withdrawing}
+                          disabled={publishing || deleting || withdrawing || ingredientsSaving}
                         >
                           {deleting ? "Удаляем..." : "Удалить"}
                         </button>
@@ -481,7 +711,7 @@ export function RecipeDetailsPage() {
                           type="button"
                           className="btn btn-subtle"
                           onClick={openWithdrawModal}
-                          disabled={publishing || deleting || withdrawing}
+                          disabled={publishing || deleting || withdrawing || ingredientsSaving}
                         >
                           {withdrawing ? "Отзываем..." : "Отозвать"}
                         </button>
@@ -521,6 +751,86 @@ export function RecipeDetailsPage() {
                   ))}
                 </div>
               </div>
+            </article>
+
+            <article id="ingredients" ref={ingredientsAnchorRef} className="recipe-card">
+              <div className="ingredients-head">
+                <h3 className="recipe-metrics-title">Ингредиенты</h3>
+                {canEditIngredients && (
+                  <div className="ingredients-head-actions">
+                    <button type="button" className="btn btn-secondary" onClick={addIngredientRow} disabled={ingredientsSaving}>
+                      Добавить ингредиент
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={() => void onSaveIngredients()} disabled={ingredientsSaving}>
+                      {ingredientsSaving ? "Сохраняем..." : "Сохранить ингредиенты"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {ingredientsError && (
+                <div className="recipes-form-summary form-error-summary is-error" role="alert">
+                  <p className="recipes-form-error-item">{ingredientsError}</p>
+                </div>
+              )}
+              {ingredientsSuccess && <p className="recipes-inline-success">Ингредиенты сохранены.</p>}
+
+              {visibleIngredientRows.length === 0 && <p className="recipes-note">Ингредиентов пока нет</p>}
+              {canEditIngredients && visibleIngredientRows.length === 0 && (
+                <p className="recipes-note">Добавьте ингредиенты, чтобы увидеть расчёт КБЖУ.</p>
+              )}
+
+              {visibleIngredientRows.length > 0 && canEditIngredients && (
+                <ul className="ingredients-edit-list">
+                  {visibleIngredientRows.map((row) => (
+                    <li key={row.localId} className="ingredients-edit-row">
+                      <div className="ingredients-row-field">
+                        <FoodSearchSelect
+                          value={row.food}
+                          onChange={(food) => onIngredientFoodChange(row.localId, food)}
+                          placeholder="Выберите продукт"
+                          disabled={ingredientsSaving}
+                        />
+                        <div className="ingredients-error-slot">{row.errors?.food && <p className="recipes-field-error">{row.errors.food}</p>}</div>
+                      </div>
+
+                      <div className="ingredients-row-field">
+                        <input
+                          className={`recipes-field-input ${row.errors?.grams ? "is-invalid" : ""}`}
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          value={row.grams}
+                          onChange={(e) => onIngredientGramsChange(row.localId, e.target.value)}
+                          placeholder="Граммы"
+                          disabled={ingredientsSaving}
+                        />
+                        <div className="ingredients-error-slot">{row.errors?.grams && <p className="recipes-field-error">{row.errors.grams}</p>}</div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="btn btn-subtle ingredients-delete-btn"
+                        onClick={() => removeIngredientRow(row.localId)}
+                        disabled={ingredientsSaving}
+                      >
+                        Удалить
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {visibleIngredientRows.length > 0 && !canEditIngredients && (
+                <ul className="ingredients-readonly-list">
+                  {visibleIngredientRows.map((row) => (
+                    <li key={row.localId} className="ingredients-readonly-row">
+                      <span>{ingredientLabel(row)}</span>
+                      <b>{formatMetric(row.grams)} г</b>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </article>
 
             <section className="recipe-metrics-grid" aria-label="Пищевая ценность">

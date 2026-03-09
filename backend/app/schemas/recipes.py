@@ -124,11 +124,21 @@ class RecipeReportCreate(BaseModel):
         return normalized or None
 
 
+class RecipeIngredientFoodRead(BaseModel):
+    id: int
+    name: str
+    brand: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
 class RecipeIngredientRead(BaseModel):
     id: int
     recipe_id: int
     food_id: int
     grams: Decimal
+    food: RecipeIngredientFoodRead | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -147,6 +157,7 @@ class RecipeRead(BaseModel):
     status: FoodStatus
     reports_count: int
     is_listed: bool
+    ingredients: list[RecipeIngredientRead] = Field(default_factory=list)
     total_grams: Decimal
     total_kcal: Decimal
     total_protein: Decimal

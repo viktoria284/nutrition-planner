@@ -246,6 +246,9 @@ def test_recipe_nutrients_calc_two_ingredients(client: TestClient) -> None:
     get_recipe_response = client.get(f"/recipes/{recipe_id}", headers=auth_headers(token))
     assert get_recipe_response.status_code == 200, get_recipe_response.text
     data = get_recipe_response.json()
+    ingredients = data.get("ingredients") or []
+    assert len(ingredients) == 2
+    assert {item["food_id"] for item in ingredients} == {food_a["id"], food_b["id"]}
 
     assert Decimal(str(data["total_grams"])) == Decimal("200.00")
     assert Decimal(str(data["total_kcal"])) == Decimal("250.00")

@@ -452,6 +452,61 @@
   line-height: 1.35;
 }
 
+.ingredients-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.ingredients-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ingredients-edit-list,
+.ingredients-readonly-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.ingredients-edit-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(130px, 180px) auto;
+  align-items: flex-start;
+}
+
+.ingredients-row-field {
+  min-width: 0;
+  display: grid;
+}
+
+.ingredients-error-slot {
+  min-height: 18px;
+  padding-top: 4px;
+}
+
+.ingredients-delete-btn {
+  min-width: 96px;
+  align-self: start;
+}
+
+.ingredients-readonly-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fbfbfb;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+}
+
 .recipes-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -536,5 +591,25 @@
 
   .recipes-modal-actions .btn {
     flex: 1;
+  }
+
+  .ingredients-head {
+    flex-direction: column;
+  }
+
+  .ingredients-head-actions {
+    width: 100%;
+  }
+
+  .ingredients-head-actions .btn {
+    flex: 1;
+  }
+
+  .ingredients-edit-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ingredients-delete-btn {
+    width: 100%;
   }
 }

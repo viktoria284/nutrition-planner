@@ -3,15 +3,17 @@ import { searchFoods, type FoodItem } from "../api/foods";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import "./FoodSearchSelect.css";
 
+export type FoodSearchOption = Pick<FoodItem, "id" | "name" | "brand">;
+
 type FoodSearchSelectProps = {
-  value?: FoodItem | null;
+  value?: FoodSearchOption | null;
   onChange: (food: FoodItem | null) => void;
   placeholder?: string;
   disabled?: boolean;
   allowCreate?: boolean;
 };
 
-function formatFoodLabel(food: FoodItem): string {
+function formatFoodLabel(food: FoodSearchOption): string {
   return food.brand ? `${food.name} — ${food.brand}` : food.name;
 }
 
