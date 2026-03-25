@@ -77,6 +77,51 @@ def create_recipe_via_api(
     return response.json()
 
 
+def create_food_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    name: str,
+    kcal: str,
+    protein: str,
+    fat: str,
+    carbs: str,
+) -> dict:
+    response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "kcal": kcal,
+            "protein": protein,
+            "fat": fat,
+            "carbs": carbs,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def add_ingredient_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    recipe_id: int,
+    food_id: int,
+    grams: str,
+) -> dict:
+    response = client.post(
+        f"/recipes/{recipe_id}/ingredients",
+        headers=auth_headers(token),
+        json={
+            "food_id": food_id,
+            "grams": grams,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def publish_recipe_via_api(client: TestClient, token: str, recipe_id: int) -> dict:
     response = client.post(
         f"/recipes/{recipe_id}/publish",
@@ -169,6 +214,172 @@ def test_post_plan_rejects_meals_per_day_below_min(
     )
     assert response.status_code == 422, response.text
     assert any(err["loc"][-1] == "meals_per_day" for err in response.json().get("detail", []))
+
+
+def test_get_plan_day_totals_with_two_slots_and_multiplier(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_totals_main@example.com",
+        username="plans_totals_main",
+    )
+
+    food_a = create_food_via_api(
+        client,
+        token,
+        name="Totals Food A",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="20.00",
+    )
+    food_b = create_food_via_api(
+        client,
+        token,
+        name="Totals Food B",
+        kcal="50.00",
+        protein="5.00",
+        fat="2.00",
+        carbs="8.00",
+    )
+
+    recipe_a = create_recipe_via_api(client, token, name="Totals Recipe A", servings_count=1)
+    recipe_b = create_recipe_via_api(client, token, name="Totals Recipe B", servings_count=1)
+    add_ingredient_via_api(client, token, recipe_id=recipe_a["id"], food_id=food_a["id"], grams="100")
+    add_ingredient_via_api(client, token, recipe_id=recipe_b["id"], food_id=food_b["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    first_slot_id = plan["slots"][0]["id"]
+    second_slot_id = plan["slots"][1]["id"]
+
+    patch_first = client.patch(
+        f"/plans/{plan['id']}/slots/{first_slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe_a["id"], "servings_multiplier": "1.5"},
+    )
+    assert patch_first.status_code == 200, patch_first.text
+
+    patch_second = client.patch(
+        f"/plans/{plan['id']}/slots/{second_slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe_b["id"]},
+    )
+    assert patch_second.status_code == 200, patch_second.text
+
+    response = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert len(payload["days"]) == 1
+
+    day = payload["days"][0]
+    assert day["date"] == "2026-03-24"
+    assert [slot["slot_index"] for slot in day["slots"]] == [0, 1]
+
+    totals = day["totals"]
+    assert Decimal(str(totals["kcal"])) == Decimal("200.00")
+    assert Decimal(str(totals["protein"])) == Decimal("20.00")
+    assert Decimal(str(totals["fat"])) == Decimal("9.50")
+    assert Decimal(str(totals["carbs"])) == Decimal("38.00")
+
+
+def test_get_plan_day_totals_empty_or_null_recipe_slots_are_zero(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_totals_empty@example.com",
+        username="plans_totals_empty",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Totals Food Empty",
+        kcal="80.00",
+        protein="8.00",
+        fat="4.00",
+        carbs="16.00",
+    )
+    recipe = create_recipe_via_api(client, token, name="Totals Recipe Empty", servings_count=1)
+    add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    set_recipe = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe["id"]},
+    )
+    assert set_recipe.status_code == 200, set_recipe.text
+
+    with_recipe = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert with_recipe.status_code == 200, with_recipe.text
+    with_recipe_totals = with_recipe.json()["days"][0]["totals"]
+    assert Decimal(str(with_recipe_totals["kcal"])) == Decimal("80.00")
+    assert Decimal(str(with_recipe_totals["protein"])) == Decimal("8.00")
+    assert Decimal(str(with_recipe_totals["fat"])) == Decimal("4.00")
+    assert Decimal(str(with_recipe_totals["carbs"])) == Decimal("16.00")
+
+    clear_recipe = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": None},
+    )
+    assert clear_recipe.status_code == 200, clear_recipe.text
+
+    without_recipe = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert without_recipe.status_code == 200, without_recipe.text
+    day = without_recipe.json()["days"][0]
+    totals = day["totals"]
+    assert Decimal(str(totals["kcal"])) == Decimal("0.00")
+    assert Decimal(str(totals["protein"])) == Decimal("0.00")
+    assert Decimal(str(totals["fat"])) == Decimal("0.00")
+    assert Decimal(str(totals["carbs"])) == Decimal("0.00")
+    assert day["slots"][0]["recipe_id"] is None
+
+
+def test_get_plan_day_totals_rounding_is_stable(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_totals_rounding@example.com",
+        username="plans_totals_rounding",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Totals Food Rounding",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="2.50",
+    )
+    recipe = create_recipe_via_api(client, token, name="Totals Recipe Rounding", servings_count=1)
+    add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+    set_recipe = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe["id"], "servings_multiplier": "1.333"},
+    )
+    assert set_recipe.status_code == 200, set_recipe.text
+
+    response = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    totals = response.json()["days"][0]["totals"]
+    assert Decimal(str(totals["kcal"])) == Decimal("133.30")
+    assert Decimal(str(totals["protein"])) == Decimal("13.33")
+    assert Decimal(str(totals["fat"])) == Decimal("6.67")
+    assert Decimal(str(totals["carbs"])) == Decimal("3.33")
 
 
 def test_get_plan_owner_only(

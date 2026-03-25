@@ -49,6 +49,19 @@ class PlanSlotRead(BaseModel):
         from_attributes = True
 
 
+class NutritionTotalsRead(BaseModel):
+    kcal: Decimal
+    protein: Decimal
+    fat: Decimal
+    carbs: Decimal
+
+
+class PlanDayRead(BaseModel):
+    date: date
+    totals: NutritionTotalsRead
+    slots: list[PlanSlotRead]
+
+
 class PlanRead(BaseModel):
     id: int
     owner_user_id: int
@@ -57,6 +70,7 @@ class PlanRead(BaseModel):
     meals_per_day: int
     title: str | None
     slots: list[PlanSlotRead]
+    days: list[PlanDayRead]
     created_at: datetime
     updated_at: datetime
 
