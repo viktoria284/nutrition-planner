@@ -1,0 +1,390 @@
+from decimal import Decimal
+
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.models.user import User
+from app.services.security import create_access_token
+
+
+def create_user_with_token(
+    db_session_factory: sessionmaker[Session],
+    *,
+    email: str,
+    username: str,
+) -> tuple[User, str]:
+    db_session = db_session_factory()
+    try:
+        user = User(
+            email=email,
+            username=username,
+            hashed_password="test_hashed_password",
+        )
+        db_session.add(user)
+        db_session.commit()
+        db_session.refresh(user)
+    finally:
+        db_session.close()
+
+    token = create_access_token(str(user.id))
+    return user, token
+
+
+def auth_headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def create_plan_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    start_date: str = "2026-03-24",
+    days_count: int = 3,
+    meals_per_day: int = 3,
+    title: str | None = "Тестовый план",
+) -> dict:
+    response = client.post(
+        "/plans",
+        headers=auth_headers(token),
+        json={
+            "start_date": start_date,
+            "days_count": days_count,
+            "meals_per_day": meals_per_day,
+            "title": title,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def create_recipe_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    name: str = "Тестовый рецепт",
+    servings_count: int = 2,
+) -> dict:
+    response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "servings_count": servings_count,
+            "meal_types": ["breakfast"],
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def publish_recipe_via_api(client: TestClient, token: str, recipe_id: int) -> dict:
+    response = client.post(
+        f"/recipes/{recipe_id}/publish",
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_get_plans_returns_only_current_user_plans(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    user1, token_user1 = create_user_with_token(
+        db_session_factory,
+        email="plans_user1@example.com",
+        username="plans_user1",
+    )
+    _user2, token_user2 = create_user_with_token(
+        db_session_factory,
+        email="plans_user2@example.com",
+        username="plans_user2",
+    )
+
+    plan_user1 = create_plan_via_api(client, token_user1, title="User 1 Plan")
+    plan_user2 = create_plan_via_api(client, token_user2, title="User 2 Plan")
+
+    response = client.get("/plans", headers=auth_headers(token_user1))
+    assert response.status_code == 200, response.text
+
+    plans = response.json()
+    returned_ids = {plan["id"] for plan in plans}
+    assert plan_user1["id"] in returned_ids
+    assert plan_user2["id"] not in returned_ids
+    assert all(plan["owner_user_id"] == user1.id for plan in plans)
+
+
+def test_post_plan_creates_expected_slots(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_create@example.com",
+        username="plans_create",
+    )
+    plan = create_plan_via_api(
+        client,
+        token,
+        start_date="2026-03-24",
+        days_count=3,
+        meals_per_day=4,
+    )
+    slots = plan["slots"]
+
+    assert len(slots) == 12
+
+    pairs = [(slot["day_date"], slot["slot_index"]) for slot in slots]
+    assert pairs == sorted(pairs)
+
+    expected_dates = ["2026-03-24", "2026-03-25", "2026-03-26"]
+    for day_date in expected_dates:
+        day_slots = [slot for slot in slots if slot["day_date"] == day_date]
+        assert len(day_slots) == 4
+        assert [slot["slot_index"] for slot in day_slots] == [0, 1, 2, 3]
+        assert all(slot["recipe_id"] is None for slot in day_slots)
+        assert all(Decimal(str(slot["servings_multiplier"])) == Decimal("1") for slot in day_slots)
+        assert all(slot["pinned"] is False for slot in day_slots)
+
+
+def test_post_plan_rejects_meals_per_day_below_min(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_invalid_meals@example.com",
+        username="plans_invalid_meals",
+    )
+
+    response = client.post(
+        "/plans",
+        headers=auth_headers(token),
+        json={
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 1,
+            "title": "invalid",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert any(err["loc"][-1] == "meals_per_day" for err in response.json().get("detail", []))
+
+
+def test_get_plan_owner_only(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="plans_get_owner@example.com",
+        username="plans_get_owner",
+    )
+    _other, token_other = create_user_with_token(
+        db_session_factory,
+        email="plans_get_other@example.com",
+        username="plans_get_other",
+    )
+
+    plan = create_plan_via_api(client, token_owner)
+
+    own_response = client.get(f"/plans/{plan['id']}", headers=auth_headers(token_owner))
+    assert own_response.status_code == 200, own_response.text
+    assert own_response.json()["id"] == plan["id"]
+
+    foreign_response = client.get(f"/plans/{plan['id']}", headers=auth_headers(token_other))
+    assert foreign_response.status_code == 404, foreign_response.text
+
+
+def test_delete_plan_owner_only(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="plans_del_owner@example.com",
+        username="plans_del_owner",
+    )
+    _other, token_other = create_user_with_token(
+        db_session_factory,
+        email="plans_del_other@example.com",
+        username="plans_del_other",
+    )
+
+    plan = create_plan_via_api(client, token_owner)
+
+    foreign_delete = client.delete(f"/plans/{plan['id']}", headers=auth_headers(token_other))
+    assert foreign_delete.status_code == 404, foreign_delete.text
+
+    own_delete = client.delete(f"/plans/{plan['id']}", headers=auth_headers(token_owner))
+    assert own_delete.status_code == 204, own_delete.text
+
+    get_after_delete = client.get(f"/plans/{plan['id']}", headers=auth_headers(token_owner))
+    assert get_after_delete.status_code == 404, get_after_delete.text
+
+
+def test_patch_plan_slot_updates_recipe_multiplier_and_pinned(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="plans_patch_owner@example.com",
+        username="plans_patch_owner",
+    )
+
+    plan = create_plan_via_api(client, token_owner, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    recipe = create_recipe_via_api(client, token_owner, name="Owner recipe")
+
+    set_recipe_response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"recipe_id": recipe["id"]},
+    )
+    assert set_recipe_response.status_code == 200, set_recipe_response.text
+    assert set_recipe_response.json()["recipe_id"] == recipe["id"]
+
+    set_multiplier_response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"servings_multiplier": "1.75"},
+    )
+    assert set_multiplier_response.status_code == 200, set_multiplier_response.text
+    assert Decimal(str(set_multiplier_response.json()["servings_multiplier"])) == Decimal("1.75")
+
+    set_pinned_response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"pinned": True},
+    )
+    assert set_pinned_response.status_code == 200, set_pinned_response.text
+    assert set_pinned_response.json()["pinned"] is True
+
+    clear_recipe_response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"recipe_id": None},
+    )
+    assert clear_recipe_response.status_code == 200, clear_recipe_response.text
+    assert clear_recipe_response.json()["recipe_id"] is None
+
+
+def test_patch_plan_slot_disallows_foreign_private_recipe(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="plans_foreign_owner@example.com",
+        username="plans_foreign_owner",
+    )
+    _other, token_other = create_user_with_token(
+        db_session_factory,
+        email="plans_foreign_other@example.com",
+        username="plans_foreign_other",
+    )
+
+    foreign_private_recipe = create_recipe_via_api(client, token_other, name="Foreign private recipe")
+    plan = create_plan_via_api(client, token_owner, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"recipe_id": foreign_private_recipe["id"]},
+    )
+    assert response.status_code == 404, response.text
+
+
+def test_patch_plan_slot_allows_foreign_published_recipe(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="plans_pub_owner@example.com",
+        username="plans_pub_owner",
+    )
+    _other, token_other = create_user_with_token(
+        db_session_factory,
+        email="plans_pub_other@example.com",
+        username="plans_pub_other",
+    )
+
+    foreign_recipe = create_recipe_via_api(client, token_other, name="Foreign publishable recipe")
+    published_recipe = publish_recipe_via_api(client, token_other, foreign_recipe["id"])
+
+    plan = create_plan_via_api(client, token_owner, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"recipe_id": published_recipe["id"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["recipe_id"] == published_recipe["id"]
+
+
+def test_patch_plan_slot_foreign_plan_or_slot_returns_404(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="plans_404_owner@example.com",
+        username="plans_404_owner",
+    )
+    _other, token_other = create_user_with_token(
+        db_session_factory,
+        email="plans_404_other@example.com",
+        username="plans_404_other",
+    )
+
+    owner_plan = create_plan_via_api(client, token_owner, days_count=1, meals_per_day=2)
+    other_plan = create_plan_via_api(client, token_other, days_count=1, meals_per_day=2)
+    other_slot_id = other_plan["slots"][0]["id"]
+
+    foreign_plan_response = client.patch(
+        f"/plans/{other_plan['id']}/slots/{other_slot_id}",
+        headers=auth_headers(token_owner),
+        json={"pinned": True},
+    )
+    assert foreign_plan_response.status_code == 404, foreign_plan_response.text
+
+    foreign_slot_response = client.patch(
+        f"/plans/{owner_plan['id']}/slots/{other_slot_id}",
+        headers=auth_headers(token_owner),
+        json={"pinned": True},
+    )
+    assert foreign_slot_response.status_code == 404, foreign_slot_response.text
+
+
+def test_patch_plan_slot_servings_multiplier_validation(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_validation@example.com",
+        username="plans_validation",
+    )
+
+    plan = create_plan_via_api(client, token, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    zero_response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"servings_multiplier": "0"},
+    )
+    assert zero_response.status_code == 422, zero_response.text
+
+    negative_response = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"servings_multiplier": "-1"},
+    )
+    assert negative_response.status_code == 422, negative_response.text

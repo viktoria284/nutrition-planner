@@ -1,0 +1,78 @@
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Annotated
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+PositiveDecimal = Annotated[Decimal, Field(gt=0)]
+
+
+class PlanCreate(BaseModel):
+    start_date: date
+    days_count: Annotated[int, Field(ge=1, le=7)]
+    meals_per_day: Annotated[int, Field(ge=2, le=6)]
+    title: Annotated[str, Field(max_length=120)] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class PlanSlotUpdate(BaseModel):
+    recipe_id: Annotated[int, Field(ge=1)] | None = None
+    servings_multiplier: PositiveDecimal | None = None
+    pinned: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_non_empty_payload(self) -> "PlanSlotUpdate":
+        if len(self.model_fields_set) == 0:
+            raise ValueError("at least one field must be provided")
+        return self
+
+
+class PlanSlotRead(BaseModel):
+    id: int
+    plan_id: int
+    day_date: date
+    slot_index: int
+    recipe_id: int | None
+    servings_multiplier: Decimal
+    pinned: bool
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PlanRead(BaseModel):
+    id: int
+    owner_user_id: int
+    start_date: date
+    days_count: int
+    meals_per_day: int
+    title: str | None
+    slots: list[PlanSlotRead]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PlanListItem(BaseModel):
+    id: int
+    owner_user_id: int
+    start_date: date
+    days_count: int
+    meals_per_day: int
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
