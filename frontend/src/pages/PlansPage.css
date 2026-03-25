@@ -1,0 +1,590 @@
+.plans-page {
+  padding: 28px 24px 40px;
+}
+
+.plans-shell {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 14px;
+}
+
+.plans-shell-wide {
+  width: min(1180px, 100%);
+}
+
+.plans-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.plans-head-main {
+  min-width: 0;
+}
+
+.plans-title {
+  margin: 0;
+  font-family: "Rubik", "Source Sans 3", sans-serif;
+  font-size: clamp(1.5rem, 1.8vw, 2rem);
+  font-weight: 600;
+}
+
+.plans-subtitle {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+}
+
+.plans-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.plans-note {
+  margin: 0;
+  color: var(--text-soft);
+  min-height: 24px;
+}
+
+.plans-error-block {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+
+.plans-empty-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+.plans-empty-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.plans-empty-subtitle {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.plans-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.plan-list-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 14px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plan-list-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.plan-list-title {
+  margin: 0;
+  font-weight: 700;
+}
+
+.plan-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+}
+
+.plan-list-actions {
+  flex-shrink: 0;
+}
+
+.plans-form {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.plans-form-summary.form-error-summary.is-error {
+  border: 1px solid rgba(var(--danger-rgb), 0.35);
+  border-radius: var(--radius-md);
+  background: rgba(var(--danger-rgb), 0.08);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.plans-form-error-item {
+  margin: 0;
+  color: var(--danger);
+  line-height: 1.35;
+  font-size: 0.9rem;
+}
+
+.plans-field {
+  display: grid;
+  gap: 6px;
+}
+
+.plans-field-label {
+  font-size: 0.93rem;
+  font-weight: 600;
+}
+
+.plans-field-input {
+  width: 100%;
+  height: 42px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  padding: 0 12px;
+}
+
+.plans-field-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.plans-field-input.is-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(var(--danger-rgb), 0.12);
+}
+
+.plans-field-error-slot {
+  min-height: 18px;
+}
+
+.plans-field-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.84rem;
+  line-height: 1.3;
+}
+
+.plans-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.plan-calendar-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px;
+}
+
+.plan-calendar-scroll {
+  overflow-x: auto;
+}
+
+.plan-calendar-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.plan-calendar-table th,
+.plan-calendar-table td {
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  padding: 10px;
+  background: var(--surface);
+}
+
+.plan-calendar-table thead th {
+  background: #fafafa;
+  font-weight: 700;
+  text-align: left;
+}
+
+.plan-calendar-table tr th:first-child,
+.plan-calendar-table tr td:first-child {
+  border-left: 1px solid var(--border);
+}
+
+.plan-calendar-table thead tr:first-child th {
+  border-top: 1px solid var(--border);
+}
+
+.plan-sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fafafa;
+  min-width: 120px;
+}
+
+.plan-day-head {
+  display: grid;
+  gap: 4px;
+}
+
+.plan-day-date {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.plan-totals-cell {
+  background: #fbfffb;
+}
+
+.plan-day-totals {
+  display: grid;
+  gap: 3px;
+}
+
+.plan-day-totals-item {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+}
+
+.plan-slot-cell {
+  display: grid;
+  gap: 5px;
+  min-height: 84px;
+  align-content: start;
+}
+
+.plan-slot-main {
+  margin: 0;
+  font-weight: 600;
+}
+
+.plan-slot-empty {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.plan-slot-meta {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.86rem;
+}
+
+.plan-slot-badge {
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-dark);
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.plan-slot-trigger {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fcfcfc;
+  padding: 8px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.plan-slot-trigger:hover {
+  border-color: rgba(var(--primary-rgb), 0.35);
+  background: #f9fdf9;
+}
+
+.plan-slot-trigger:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.35);
+  outline-offset: 2px;
+}
+
+.plans-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(16, 16, 16, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.plans-modal {
+  width: min(620px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.plans-modal-head {
+  display: grid;
+  gap: 4px;
+}
+
+.plans-modal-title {
+  margin: 0;
+  font-family: "Rubik", "Source Sans 3", sans-serif;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.plans-modal-subtitle {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.92rem;
+}
+
+.plans-modal-form {
+  display: grid;
+  gap: 12px;
+}
+
+.plans-field-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.plan-recipe-picker {
+  position: relative;
+  display: grid;
+  gap: 6px;
+}
+
+.plan-recipe-picker-input-wrap {
+  position: relative;
+}
+
+.plan-recipe-picker-input {
+  padding-right: 12px;
+}
+
+.plan-recipe-picker-selected {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.83rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-recipe-picker-dropdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 70;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 8px 20px rgba(18, 18, 18, 0.1);
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.plan-recipe-picker-note {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: var(--text-soft);
+}
+
+.plan-recipe-picker-error {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: var(--danger);
+}
+
+.plan-recipe-picker-empty {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+.plan-recipe-picker-create-link {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin: 0 10px;
+  color: var(--primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.plan-recipe-picker-create-link:hover {
+  text-decoration: underline;
+}
+
+.plan-recipe-picker-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.plan-recipe-picker-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.plan-recipe-picker-item {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-main);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+}
+
+.plan-recipe-picker-item:hover {
+  background: #f8f8f8;
+  border-color: var(--border);
+}
+
+.plan-recipe-picker-item.is-selected {
+  border-color: rgba(var(--primary-rgb), 0.35);
+  background: rgba(var(--primary-rgb), 0.08);
+}
+
+.plan-recipe-picker-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-recipe-picker-item-name {
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-recipe-picker-source {
+  border: 1px solid rgba(var(--primary-rgb), 0.28);
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary-dark);
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.plan-recipe-picker-item-secondary {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-recipe-picker-open-link {
+  align-self: center;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.plan-recipe-picker-open-link:hover {
+  border-color: rgba(var(--primary-rgb), 0.35);
+  color: var(--primary-dark);
+}
+
+.plans-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.plans-checkbox-row input {
+  margin: 0;
+}
+
+.plans-modal-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+@media (max-width: 860px) {
+  .plans-page {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .plans-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .plans-head-actions {
+    justify-content: flex-start;
+  }
+
+  .plan-list-item {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .plan-list-actions {
+    width: 100%;
+  }
+
+  .plan-list-actions .btn {
+    width: 100%;
+  }
+
+  .plans-modal-actions {
+    justify-content: stretch;
+  }
+
+  .plans-modal-actions .btn {
+    width: 100%;
+  }
+}

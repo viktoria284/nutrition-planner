@@ -10,6 +10,9 @@ import { RecipeEditPage } from "./pages/RecipeEditPage";
 import { ShoppingPage } from "./pages/ShoppingPage";
 import { FoodsPage } from "./pages/FoodsPage";
 import { FoodDetailsPage } from "./pages/FoodDetailsPage";
+import { PlanCreatePage } from "./pages/PlanCreatePage";
+import { PlanDetailsPage } from "./pages/PlanDetailsPage";
+import { PlansListPage } from "./pages/PlansListPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Navbar } from "./components/Navbar";
 import { ProfilesProvider } from "./context/ProfilesContext";
@@ -76,6 +79,30 @@ export default function App() {
               element={
                 <RequireAuth>
                   <ShoppingPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/plans"
+              element={
+                <RequireAuth>
+                  <PlansListPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/plans/new"
+              element={
+                <RequireAuth>
+                  <PlanCreatePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/plans/:id"
+              element={
+                <RequireAuth>
+                  <PlanDetailsPage />
                 </RequireAuth>
               }
             />

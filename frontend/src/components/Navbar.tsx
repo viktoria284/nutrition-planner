@@ -34,6 +34,9 @@ export function Navbar() {
               <NavLink to="/shopping" className={navClass}>
                 Покупки
               </NavLink>
+              <NavLink to="/plans" className={navClass}>
+                Планы
+              </NavLink>
             </nav>
 
             <nav className="topbar-nav" aria-label="Пользовательское меню">
