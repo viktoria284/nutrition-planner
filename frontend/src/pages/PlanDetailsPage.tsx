@@ -159,6 +159,11 @@ export function PlanDetailsPage() {
             )}
           </div>
           <div className="plans-head-actions">
+            {plan && (
+              <Link to={`/plans/${plan.id}/shopping`} className="btn btn-secondary">
+                Список покупок
+              </Link>
+            )}
             <Link to="/plans" className="btn btn-secondary">
               К списку
             </Link>

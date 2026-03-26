@@ -12,6 +12,7 @@ import { FoodsPage } from "./pages/FoodsPage";
 import { FoodDetailsPage } from "./pages/FoodDetailsPage";
 import { PlanCreatePage } from "./pages/PlanCreatePage";
 import { PlanDetailsPage } from "./pages/PlanDetailsPage";
+import { PlanShoppingPage } from "./pages/PlanShoppingPage";
 import { PlansListPage } from "./pages/PlansListPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Navbar } from "./components/Navbar";
@@ -103,6 +104,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <PlanDetailsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/plans/:id/shopping"
+              element={
+                <RequireAuth>
+                  <PlanShoppingPage />
                 </RequireAuth>
               }
             />
