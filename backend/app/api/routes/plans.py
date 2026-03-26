@@ -4,6 +4,13 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.plan import PlanCreate, PlanListItem, PlanRead, PlanSlotRead, PlanSlotUpdate
+from app.schemas.shopping import (
+    ShoppingListItemRead,
+    ShoppingListRead,
+    ShoppingManualItemCreate,
+    ShoppingManualItemRead,
+    ShoppingOverrideUpdate,
+)
 from app.services.plans import (
     PlanNotFoundError,
     PlanSlotNotFoundError,
@@ -15,6 +22,15 @@ from app.services.plans import (
     get_plan_for_user,
     list_plans_for_user,
     update_plan_slot,
+)
+from app.services.shopping import (
+    ShoppingFoodNotFoundError,
+    ShoppingManualItemNotFoundError,
+    ShoppingPlanNotFoundError,
+    create_manual_shopping_item,
+    delete_manual_shopping_item,
+    get_plan_shopping_list,
+    update_shopping_override,
 )
 
 router = APIRouter(prefix="/plans", tags=["plans"])
@@ -82,3 +98,61 @@ def patch_plan_slot(
     except PlanSlotRecipeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
     return PlanSlotRead.model_validate(slot)
+
+
+@router.get("/{plan_id}/shopping-list", response_model=ShoppingListRead)
+def get_plan_shopping(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return get_plan_shopping_list(db, current_user.id, plan_id)
+    except ShoppingPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+
+
+@router.patch("/{plan_id}/shopping-list/{food_id}", response_model=ShoppingListItemRead)
+def patch_plan_shopping_item(
+    plan_id: int,
+    food_id: int,
+    payload: ShoppingOverrideUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return update_shopping_override(db, current_user.id, plan_id, food_id, payload)
+    except ShoppingPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    except ShoppingFoodNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Shopping item not found") from exc
+
+
+@router.post("/{plan_id}/shopping-list/manual", response_model=ShoppingManualItemRead, status_code=status.HTTP_201_CREATED)
+def post_plan_shopping_manual_item(
+    plan_id: int,
+    payload: ShoppingManualItemCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        manual_item = create_manual_shopping_item(db, current_user.id, plan_id, payload)
+    except ShoppingPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    return ShoppingManualItemRead.model_validate(manual_item)
+
+
+@router.delete("/{plan_id}/shopping-list/manual/{manual_item_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_plan_shopping_manual_item(
+    plan_id: int,
+    manual_item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        delete_manual_shopping_item(db, current_user.id, plan_id, manual_item_id)
+    except ShoppingPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    except ShoppingManualItemNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manual shopping item not found") from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
