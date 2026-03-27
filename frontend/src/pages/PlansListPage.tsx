@@ -11,6 +11,7 @@ function resolvePlansListError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Нужно снова войти в аккаунт.";
     if (err.status === 404) return "Планы не найдены.";
+    if (err.status === 409) return "Не удалось получить список планов из-за конфликта данных.";
   }
   return err instanceof Error ? err.message : "Не удалось загрузить планы.";
 }

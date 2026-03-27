@@ -13,6 +13,7 @@ function resolvePlanDetailsError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Нужно снова войти в аккаунт.";
     if (err.status === 404) return "План не найден.";
+    if (err.status === 409) return "Данные плана в конфликтном состоянии. Попробуйте обновить страницу.";
   }
   return err instanceof Error ? err.message : "Не удалось загрузить план.";
 }

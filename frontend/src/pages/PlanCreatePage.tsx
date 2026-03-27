@@ -109,7 +109,11 @@ export function PlanCreatePage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 422) {
         setErrors({
-          form: [`Проверьте поля формы. ${err.message}`],
+          form: ["Проверьте поля формы: количество дней 1–7, слотов в день 2–6, корректная дата старта."],
+        });
+      } else if (err instanceof ApiError && err.status === 409) {
+        setErrors({
+          form: ["Не удалось создать план из-за конфликта данных. Попробуйте ещё раз."],
         });
       } else {
         setErrors({

@@ -10,6 +10,8 @@ from test_plans_api import (
     create_plan_via_api,
     create_recipe_via_api,
     create_user_with_token,
+    publish_recipe_via_api,
+    withdraw_recipe_via_api,
 )
 
 
@@ -162,6 +164,21 @@ def test_get_shopping_list_handles_empty_and_null_recipe_slots(
     without_recipe = _get_shopping_list(client, token, plan_id=plan["id"])
     computed_without_recipe = [item for item in without_recipe["items"] if item["is_manual"] is False]
     assert computed_without_recipe == []
+
+
+def test_get_shopping_list_empty_plan_returns_empty_items(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="shopping_empty_plan@example.com",
+        username="shopping_empty_plan",
+    )
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    payload = _get_shopping_list(client, token, plan_id=plan["id"])
+    assert payload == {"items": []}
 
 
 def test_shopping_endpoints_owner_only(
@@ -475,6 +492,57 @@ def test_shopping_list_reflects_slot_changes_without_regeneration(
     assert ids_without_recipe == set()
 
 
+def test_shopping_list_recalculates_after_slot_multiplier_update(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="shopping_multiplier_recalc@example.com",
+        username="shopping_multiplier_recalc",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Shopping Multiplier Food",
+        kcal="10.00",
+        protein="1.00",
+        fat="1.00",
+        carbs="1.00",
+    )
+    recipe = create_recipe_via_api(client, token, name="Shopping Multiplier Recipe", servings_count=1)
+    add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={"recipe_id": recipe["id"], "servings_multiplier": "1"},
+    )
+
+    initial = _get_shopping_list(client, token, plan_id=plan["id"])
+    initial_item = next(item for item in initial["items"] if item["is_manual"] is False)
+    assert Decimal(str(initial_item["total_grams"])) == Decimal("100.00")
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={"servings_multiplier": "2.5"},
+    )
+
+    recalculated = _get_shopping_list(client, token, plan_id=plan["id"])
+    recalculated_item = next(item for item in recalculated["items"] if item["is_manual"] is False)
+    assert Decimal(str(recalculated_item["total_grams"])) == Decimal("250.00")
+    assert Decimal(str(recalculated_item["effective_grams"])) == Decimal("250.00")
+
+
 def test_shopping_recompute_remains_stable_with_excluded_override(
     client: TestClient,
     db_session_factory: sessionmaker[Session],
@@ -532,6 +600,68 @@ def test_shopping_recompute_remains_stable_with_excluded_override(
     hidden_a_again = _get_shopping_list(client, token, plan_id=plan["id"])
     ids_hidden_a_again = {item["food_id"] for item in hidden_a_again["items"] if item["is_manual"] is False}
     assert ids_hidden_a_again == set()
+
+
+def test_withdrawn_recipe_after_selected_does_not_break_plan_shopping_owner_only(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _plan_owner, token_owner = create_user_with_token(
+        db_session_factory,
+        email="shopping_withdrawn_owner@example.com",
+        username="shopping_withdrawn_owner",
+    )
+    _recipe_owner, token_recipe_owner = create_user_with_token(
+        db_session_factory,
+        email="shopping_withdrawn_recipe_owner@example.com",
+        username="shopping_withdrawn_recipe_owner",
+    )
+    _other_user, token_other = create_user_with_token(
+        db_session_factory,
+        email="shopping_withdrawn_other@example.com",
+        username="shopping_withdrawn_other",
+    )
+
+    food = create_food_via_api(
+        client,
+        token_recipe_owner,
+        name="Withdrawn Scenario Food",
+        kcal="10.00",
+        protein="1.00",
+        fat="1.00",
+        carbs="1.00",
+    )
+    recipe = create_recipe_via_api(client, token_recipe_owner, name="Withdrawn Scenario Recipe", servings_count=1)
+    add_ingredient_via_api(client, token_recipe_owner, recipe_id=recipe["id"], food_id=food["id"], grams="120")
+    published = publish_recipe_via_api(client, token_recipe_owner, recipe["id"])
+
+    plan = create_plan_via_api(client, token_owner, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+    set_recipe = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token_owner),
+        json={"recipe_id": published["id"]},
+    )
+    assert set_recipe.status_code == 200, set_recipe.text
+
+    withdrawn = withdraw_recipe_via_api(client, token_recipe_owner, recipe["id"])
+    assert withdrawn["is_listed"] is False
+
+    owner_plan = client.get(f"/plans/{plan['id']}", headers=auth_headers(token_owner))
+    assert owner_plan.status_code == 200, owner_plan.text
+    assert owner_plan.json()["days"][0]["slots"][0]["recipe_id"] == recipe["id"]
+
+    owner_shopping = client.get(f"/plans/{plan['id']}/shopping-list", headers=auth_headers(token_owner))
+    assert owner_shopping.status_code == 200, owner_shopping.text
+    computed_owner = [item for item in owner_shopping.json()["items"] if item["is_manual"] is False]
+    assert len(computed_owner) == 1
+    assert Decimal(str(computed_owner[0]["total_grams"])) == Decimal("120.00")
+
+    foreign_plan = client.get(f"/plans/{plan['id']}", headers=auth_headers(token_other))
+    assert foreign_plan.status_code == 404, foreign_plan.text
+
+    foreign_shopping = client.get(f"/plans/{plan['id']}/shopping-list", headers=auth_headers(token_other))
+    assert foreign_shopping.status_code == 404, foreign_shopping.text
 
 
 def test_shopping_list_decimal_rounding_is_stable(

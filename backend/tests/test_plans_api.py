@@ -131,6 +131,15 @@ def publish_recipe_via_api(client: TestClient, token: str, recipe_id: int) -> di
     return response.json()
 
 
+def withdraw_recipe_via_api(client: TestClient, token: str, recipe_id: int) -> dict:
+    response = client.post(
+        f"/recipes/{recipe_id}/withdraw",
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
 def test_get_plans_returns_only_current_user_plans(
     client: TestClient,
     db_session_factory: sessionmaker[Session],
@@ -380,6 +389,85 @@ def test_get_plan_day_totals_rounding_is_stable(
     assert Decimal(str(totals["protein"])) == Decimal("13.33")
     assert Decimal(str(totals["fat"])) == Decimal("6.67")
     assert Decimal(str(totals["carbs"])) == Decimal("3.33")
+
+
+def test_get_plan_day_totals_recalculate_after_multiplier_update(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_totals_recalc@example.com",
+        username="plans_totals_recalc",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Totals Recalc Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="20.00",
+    )
+    recipe = create_recipe_via_api(client, token, name="Totals Recalc Recipe", servings_count=1)
+    add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    initial_set = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe["id"], "servings_multiplier": "1"},
+    )
+    assert initial_set.status_code == 200, initial_set.text
+
+    initial_get = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert initial_get.status_code == 200, initial_get.text
+    initial_totals = initial_get.json()["days"][0]["totals"]
+    assert Decimal(str(initial_totals["kcal"])) == Decimal("100.00")
+    assert Decimal(str(initial_totals["protein"])) == Decimal("10.00")
+
+    update_multiplier = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"servings_multiplier": "2.5"},
+    )
+    assert update_multiplier.status_code == 200, update_multiplier.text
+
+    recalculated_get = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert recalculated_get.status_code == 200, recalculated_get.text
+    recalculated_totals = recalculated_get.json()["days"][0]["totals"]
+    assert Decimal(str(recalculated_totals["kcal"])) == Decimal("250.00")
+    assert Decimal(str(recalculated_totals["protein"])) == Decimal("25.00")
+    assert Decimal(str(recalculated_totals["fat"])) == Decimal("12.50")
+    assert Decimal(str(recalculated_totals["carbs"])) == Decimal("50.00")
+
+
+def test_get_plan_empty_plan_day_totals_are_zero(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_empty_scenario@example.com",
+        username="plans_empty_scenario",
+    )
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    response = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+
+    payload = response.json()
+    assert len(payload["days"]) == 1
+    assert len(payload["days"][0]["slots"]) == 2
+
+    totals = payload["days"][0]["totals"]
+    assert Decimal(str(totals["kcal"])) == Decimal("0.00")
+    assert Decimal(str(totals["protein"])) == Decimal("0.00")
+    assert Decimal(str(totals["fat"])) == Decimal("0.00")
+    assert Decimal(str(totals["carbs"])) == Decimal("0.00")
 
 
 def test_get_plan_owner_only(

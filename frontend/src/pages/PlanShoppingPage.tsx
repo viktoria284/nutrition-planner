@@ -23,6 +23,7 @@ function resolvePageLoadError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Нужно снова войти в аккаунт.";
     if (err.status === 404) return "План не найден.";
+    if (err.status === 409) return "Не удалось загрузить список из-за конфликта данных. Попробуйте обновить страницу.";
   }
   return err instanceof Error ? err.message : "Не удалось загрузить список покупок.";
 }
@@ -32,6 +33,7 @@ function resolveItemActionError(err: unknown): string {
     if (err.status === 401) return "Нужно снова войти в аккаунт.";
     if (err.status === 404) return "Позиция не найдена. Обновите список.";
     if (err.status === 422) return "Проверьте введённые данные.";
+    if (err.status === 409) return "Конфликт сохранения. Обновите список и повторите попытку.";
   }
   return err instanceof Error ? err.message : "Не удалось сохранить изменения.";
 }
@@ -41,6 +43,7 @@ function resolveManualActionError(err: unknown): string {
     if (err.status === 401) return "Нужно снова войти в аккаунт.";
     if (err.status === 404) return "План или позиция не найдены.";
     if (err.status === 422) return "Проверьте поля формы.";
+    if (err.status === 409) return "Конфликт сохранения. Обновите список и повторите попытку.";
   }
   return err instanceof Error ? err.message : "Не удалось выполнить действие.";
 }
@@ -394,6 +397,7 @@ export function PlanShoppingPage() {
                         <button
                           type="button"
                           className="btn btn-secondary plan-shopping-inline-btn"
+                          disabled={deletingManual || manualToDelete?.id === item.id}
                           onClick={() => {
                             setDeleteManualError(null);
                             setManualToDelete(item);
