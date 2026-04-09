@@ -22,6 +22,28 @@ class PlanCreate(BaseModel):
         return normalized or None
 
 
+class PlanAutogenerateRequest(BaseModel):
+    start_date: date
+    days_count: Annotated[int, Field(ge=1, le=7)]
+    meals_per_day: Annotated[int, Field(ge=2, le=6)]
+    use_public_recipes: bool = True
+    excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+
+
+class ReplacePlanSlotRequest(BaseModel):
+    excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    use_public_recipes: bool = True
+    avoid_current_recipe: bool = True
+
+
+class RegeneratePlanDayRequest(BaseModel):
+    excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    use_public_recipes: bool = True
+
+
 class PlanSlotUpdate(BaseModel):
     recipe_id: Annotated[int, Field(ge=1)] | None = None
     servings_multiplier: PositiveDecimal | None = None
@@ -76,6 +98,10 @@ class PlanRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PlanAutogenerateResponse(PlanRead):
+    pass
 
 
 class PlanListItem(BaseModel):

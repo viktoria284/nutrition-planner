@@ -63,6 +63,7 @@ def create_recipe_via_api(
     *,
     name: str = "Тестовый рецепт",
     servings_count: int = 2,
+    meal_types: list[str] | None = None,
 ) -> dict:
     response = client.post(
         "/recipes",
@@ -70,7 +71,7 @@ def create_recipe_via_api(
         json={
             "name": name,
             "servings_count": servings_count,
-            "meal_types": ["breakfast"],
+            "meal_types": meal_types or ["breakfast"],
         },
     )
     assert response.status_code == 201, response.text

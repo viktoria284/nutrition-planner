@@ -48,5 +48,5 @@ def db_session_factory() -> sessionmaker[Session]:
 
 @pytest.fixture
 def client() -> Generator[TestClient, None, None]:
-    with TestClient(app) as test_client:
+    with TestClient(app, backend_options={"use_uvloop": True}) as test_client:
         yield test_client
