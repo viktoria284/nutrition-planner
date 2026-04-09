@@ -74,7 +74,7 @@ export function PlanDetailsPage() {
     setRecipesLoading(true);
     setRecipesError(null);
     try {
-      const items = await listRecipes();
+      const items = await listRecipes({ includePublic: true });
       setRecipes(items);
       setRecipeNamesById((prev) => {
         const next = { ...prev };

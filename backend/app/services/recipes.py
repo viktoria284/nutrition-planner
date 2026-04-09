@@ -7,8 +7,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.enums import FoodSource, FoodStatus
-from app.models.foods import FoodServing
+from app.models.foods import FoodItem, FoodServing
 from app.models.recipe import Recipe, RecipeIngredient, RecipeReport
+from app.models.user import User
 from app.schemas.recipes import (
     RecipeCreate,
     RecipeIngredientCreate,
@@ -17,10 +18,145 @@ from app.schemas.recipes import (
     RecipeReportCreate,
     RecipeUpdate,
 )
-from app.services.foods import get_accessible_food_by_id
+from app.services.foods import get_accessible_food_by_id, seed_verified_foods
 
 NUTRIENT_QUANT = Decimal("0.01")
 HUNDRED_GRAMS = Decimal("100")
+DEMO_RECIPES_SYSTEM_EMAIL = "demo-recipes@nutrition-planner.local"
+DEMO_RECIPES_SYSTEM_USERNAME = "demo_recipes"
+DEMO_RECIPES_SYSTEM_DISPLAY_NAME = "Demo Recipes"
+DEMO_RECIPES_SYSTEM_HASH = "seed_demo_recipes_user_hash"
+DEMO_MEAL_TYPES = ("breakfast", "lunch", "dinner", "snack")
+DEMO_PUBLIC_RECIPES = [
+    {
+        "name": "Овсянка с бананом",
+        "description": "Овсяные хлопья на молоке с бананом",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "ingredients": [
+            ("Овсяные хлопья", "60"),
+            ("Молоко 2.5%", "200"),
+            ("Банан", "100"),
+        ],
+    },
+    {
+        "name": "Омлет с сыром и томатом",
+        "description": "Яичный омлет с сыром и помидорами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "ingredients": [
+            ("Яйцо куриное", "120"),
+            ("Сыр твердый", "20"),
+            ("Помидор", "80"),
+        ],
+    },
+    {
+        "name": "Творог с яблоком",
+        "description": "Творог с нарезанным яблоком",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "ingredients": [
+            ("Творог 5%", "180"),
+            ("Яблоко", "120"),
+        ],
+    },
+    {
+        "name": "Курица с рисом",
+        "description": "Куриная грудка с рисом и томатом",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "ingredients": [
+            ("Куриная грудка", "170"),
+            ("Рис отварной", "180"),
+            ("Помидор", "100"),
+        ],
+    },
+    {
+        "name": "Индейка с гречкой",
+        "description": "Филе индейки с гречкой и брокколи",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "ingredients": [
+            ("Индейка филе", "170"),
+            ("Гречка отварная", "180"),
+            ("Брокколи", "120"),
+        ],
+    },
+    {
+        "name": "Тунец с пастой",
+        "description": "Тунец с отварными макаронами и огурцом",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "ingredients": [
+            ("Тунец консервированный", "140"),
+            ("Макароны отварные", "180"),
+            ("Огурец", "120"),
+        ],
+    },
+    {
+        "name": "Лосось с картофелем",
+        "description": "Лосось, картофель и брокколи",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "ingredients": [
+            ("Лосось", "160"),
+            ("Картофель отварной", "200"),
+            ("Брокколи", "120"),
+        ],
+    },
+    {
+        "name": "Говядина с капустой",
+        "description": "Постная говядина с тушёной капустой",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "ingredients": [
+            ("Говядина постная", "170"),
+            ("Капуста белокочанная", "170"),
+            ("Морковь", "70"),
+        ],
+    },
+    {
+        "name": "Индейка с овощами",
+        "description": "Филе индейки с томатом и огурцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "ingredients": [
+            ("Индейка филе", "170"),
+            ("Помидор", "120"),
+            ("Огурец", "120"),
+        ],
+    },
+    {
+        "name": "Йогурт с бананом",
+        "description": "Греческий йогурт с бананом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "ingredients": [
+            ("Йогурт греческий", "180"),
+            ("Банан", "100"),
+        ],
+    },
+    {
+        "name": "Кефир с апельсином",
+        "description": "Стакан кефира и апельсин",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "ingredients": [
+            ("Кефир 1%", "250"),
+            ("Апельсин", "140"),
+        ],
+    },
+    {
+        "name": "Тост с арахисовой пастой",
+        "description": "Цельнозерновой тост с арахисовой пастой",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "ingredients": [
+            ("Хлеб цельнозерновой", "70"),
+            ("Арахисовая паста", "30"),
+        ],
+    },
+]
 
 
 class RecipeNotFoundError(ValueError):
@@ -118,6 +254,24 @@ def create_recipe(db: Session, owner_id: int, data: RecipeCreate) -> Recipe:
     return recipe
 
 
+def build_accessible_recipes_condition(
+    *,
+    user_id: int,
+    include_public: bool,
+):
+    if not include_public:
+        return Recipe.owner_user_id == user_id
+
+    return or_(
+        Recipe.owner_user_id == user_id,
+        and_(
+            Recipe.source == FoodSource.community,
+            Recipe.status == FoodStatus.approved,
+            Recipe.is_listed.is_(True),
+        ),
+    )
+
+
 def list_my_recipes(
     db: Session,
     owner_id: int,
@@ -138,6 +292,34 @@ def list_my_recipes(
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
         )
     return db.execute(query).scalars().all()
+
+
+def list_accessible_recipes(
+    db: Session,
+    user_id: int,
+    *,
+    include_public: bool,
+    limit: int = 50,
+    offset: int = 0,
+    include_ingredients: bool = False,
+) -> list[Recipe]:
+    stmt = (
+        select(Recipe)
+        .where(
+            build_accessible_recipes_condition(
+                user_id=user_id,
+                include_public=include_public,
+            )
+        )
+        .order_by(Recipe.updated_at.desc(), Recipe.id.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    if include_ingredients:
+        stmt = stmt.options(
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+        )
+    return db.execute(stmt).scalars().all()
 
 
 def get_my_recipe_or_404(
@@ -195,13 +377,9 @@ def get_accessible_recipe_by_id(
         )
 
     stmt = stmt.where(
-        or_(
-            Recipe.owner_user_id == user_id,
-            and_(
-                Recipe.source == FoodSource.community,
-                Recipe.status == FoodStatus.approved,
-                Recipe.is_listed.is_(True),
-            ),
+        build_accessible_recipes_condition(
+            user_id=user_id,
+            include_public=True,
         )
     )
     result = db.execute(stmt)
@@ -434,6 +612,128 @@ def report_recipe(
     db.commit()
     db.refresh(recipe)
     return recipe
+
+
+def _get_or_create_demo_recipes_user(db: Session) -> User:
+    user = db.execute(
+        select(User).where(
+            or_(
+                User.email == DEMO_RECIPES_SYSTEM_EMAIL,
+                User.username == DEMO_RECIPES_SYSTEM_USERNAME,
+            )
+        )
+    ).scalar_one_or_none()
+    if user is not None:
+        return user
+
+    user = User(
+        email=DEMO_RECIPES_SYSTEM_EMAIL,
+        username=DEMO_RECIPES_SYSTEM_USERNAME,
+        display_name=DEMO_RECIPES_SYSTEM_DISPLAY_NAME,
+        hashed_password=DEMO_RECIPES_SYSTEM_HASH,
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
+def _get_verified_foods_by_name(db: Session, *, names: list[str]) -> dict[str, FoodItem]:
+    foods = db.execute(
+        select(FoodItem).where(
+            FoodItem.source == FoodSource.verified,
+            FoodItem.name.in_(names),
+        )
+    ).scalars().all()
+
+    foods_by_name: dict[str, FoodItem] = {}
+    for food in foods:
+        foods_by_name.setdefault(food.name, food)
+    return foods_by_name
+
+
+def seed_demo_public_recipes(
+    db: Session,
+    *,
+    replace_demo: bool = False,
+) -> dict[str, int]:
+    created_verified_foods = seed_verified_foods(db)
+    demo_user = _get_or_create_demo_recipes_user(db)
+
+    existing_demo_recipes: list[Recipe] = []
+    if replace_demo:
+        recipes_for_demo_user = db.execute(
+            select(Recipe).where(Recipe.owner_user_id == demo_user.id)
+        ).scalars().all()
+        for recipe in recipes_for_demo_user:
+            db.delete(recipe)
+        db.flush()
+    else:
+        demo_names = [item["name"] for item in DEMO_PUBLIC_RECIPES]
+        existing_demo_recipes = db.execute(
+            select(Recipe).where(
+                Recipe.owner_user_id == demo_user.id,
+                Recipe.name.in_(demo_names),
+            )
+        ).scalars().all()
+
+    existing_by_name = {recipe.name: recipe for recipe in existing_demo_recipes}
+
+    required_food_names = sorted(
+        {food_name for recipe in DEMO_PUBLIC_RECIPES for food_name, _grams in recipe["ingredients"]}
+    )
+    verified_foods_by_name = _get_verified_foods_by_name(db, names=required_food_names)
+    missing_foods = [name for name in required_food_names if name not in verified_foods_by_name]
+    if missing_foods:
+        raise ValueError(f"Missing verified foods for demo recipes: {', '.join(missing_foods)}")
+
+    created_recipes = 0
+    skipped_recipes = 0
+    for payload in DEMO_PUBLIC_RECIPES:
+        if payload["name"] in existing_by_name:
+            skipped_recipes += 1
+            continue
+
+        recipe = Recipe(
+            owner_user_id=demo_user.id,
+            name=payload["name"],
+            description=payload["description"],
+            servings_count=payload["servings_count"],
+            meal_types=payload["meal_types"],
+            source=FoodSource.community,
+            status=FoodStatus.approved,
+            is_listed=True,
+            reports_count=0,
+        )
+        db.add(recipe)
+        db.flush()
+
+        for food_name, grams in payload["ingredients"]:
+            db.add(
+                RecipeIngredient(
+                    recipe_id=recipe.id,
+                    food_id=verified_foods_by_name[food_name].id,
+                    grams=Decimal(grams),
+                    serving_id=None,
+                    multiplier=None,
+                )
+            )
+
+        created_recipes += 1
+
+    db.commit()
+
+    meal_type_distribution = {meal_type: 0 for meal_type in DEMO_MEAL_TYPES}
+    for recipe in DEMO_PUBLIC_RECIPES:
+        for meal_type in recipe["meal_types"]:
+            meal_type_distribution[meal_type] += 1
+
+    return {
+        "created_recipes": created_recipes,
+        "skipped_recipes": skipped_recipes,
+        "total_demo_recipes": len(DEMO_PUBLIC_RECIPES),
+        "created_verified_foods": int(created_verified_foods),
+        **meal_type_distribution,
+    }
 
 
 def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:

@@ -1102,6 +1102,85 @@ def test_regenerate_day_for_foreign_plan_returns_404(
     assert response.status_code == 404, response.text
 
 
+def test_regenerate_day_uses_public_recipes_only_when_enabled(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="regen_public_owner@example.com",
+        username="regen_public_owner",
+    )
+    _other, other_token = create_user_with_token(
+        db_session_factory,
+        email="regen_public_other@example.com",
+        username="regen_public_other",
+    )
+
+    owner_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Regen Public Owner Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="20.00",
+    )
+    other_food = create_food_via_api(
+        client,
+        other_token,
+        name="Regen Public Other Food",
+        kcal="120.00",
+        protein="12.00",
+        fat="6.00",
+        carbs="18.00",
+    )
+
+    owner_breakfast = _create_recipe_with_ingredient(
+        client, owner_token, name="Regen Public Owner Breakfast", meal_types=["breakfast"], food_id=owner_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, owner_token, name="Regen Public Owner Dinner", meal_types=["dinner"], food_id=owner_food["id"]
+    )
+
+    public_breakfast = _create_recipe_with_ingredient(
+        client, other_token, name="Regen Public Shared Breakfast", meal_types=["breakfast"], food_id=other_food["id"]
+    )
+    publish_recipe_via_api(client, other_token, public_breakfast["id"])
+
+    plan = _post_autogenerate_plan(
+        client,
+        owner_token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    private_only_response = _regenerate_day(
+        client,
+        owner_token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={"use_public_recipes": False, "excluded_recipe_ids": [owner_breakfast["id"]]},
+    )
+    assert private_only_response.status_code == 422, private_only_response.text
+
+    public_enabled_response = _regenerate_day(
+        client,
+        owner_token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={"use_public_recipes": True, "excluded_recipe_ids": [owner_breakfast["id"]]},
+    )
+    assert public_enabled_response.status_code == 200, public_enabled_response.text
+    breakfast_after = _find_slot(public_enabled_response.json(), day_date="2026-03-24", slot_index=0)["recipe_id"]
+    assert breakfast_after == public_breakfast["id"]
+
+
 def test_regenerate_day_out_of_plan_range_returns_422(
     client: TestClient,
     db_session_factory: sessionmaker[Session],

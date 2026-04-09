@@ -182,7 +182,7 @@ export function EditPlanSlotModal({
               onChange={setSelectedRecipeId}
             />
             <div className="plans-field-hint">
-              Селектор показывает рецепты, доступные через текущий recipes API.
+              Показываются ваши рецепты и публичные опубликованные рецепты.
             </div>
           </label>
 

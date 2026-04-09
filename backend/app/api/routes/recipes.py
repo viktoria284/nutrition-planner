@@ -33,7 +33,7 @@ from app.services.recipes import (
     delete_my_recipe,
     get_accessible_recipe_by_id,
     get_my_recipe_or_404,
-    list_my_recipes,
+    list_accessible_recipes,
     publish_recipe,
     report_recipe,
     update_ingredient,
@@ -48,12 +48,14 @@ router = APIRouter(prefix="/recipes", tags=["recipes"])
 def get_recipes(
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    include_public: bool = Query(default=False),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    recipes = list_my_recipes(
+    recipes = list_accessible_recipes(
         db,
         current_user.id,
+        include_public=include_public,
         limit=limit,
         offset=offset,
         include_ingredients=True,

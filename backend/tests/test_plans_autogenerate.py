@@ -8,6 +8,7 @@ from test_plans_api import (
     create_recipe_via_api,
     create_user_with_token,
     publish_recipe_via_api,
+    withdraw_recipe_via_api,
 )
 
 MEAL_SEQUENCE_BY_MEALS_PER_DAY = {
@@ -620,3 +621,77 @@ def test_autogenerate_access_and_public_visibility_rules(
     )
     assert breakfast_recipe_id == other_public_breakfast["id"]
     assert breakfast_recipe_id != other_private_breakfast["id"]
+
+
+def test_autogenerate_does_not_use_withdrawn_public_recipe(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_withdrawn_owner@example.com",
+        username="autoplan_withdrawn_owner",
+    )
+    _other, other_token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_withdrawn_other@example.com",
+        username="autoplan_withdrawn_other",
+    )
+
+    owner_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Autoplan Withdrawn Owner Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="20.00",
+    )
+    other_food = create_food_via_api(
+        client,
+        other_token,
+        name="Autoplan Withdrawn Other Food",
+        kcal="120.00",
+        protein="12.00",
+        fat="6.00",
+        carbs="18.00",
+    )
+
+    owner_breakfast = _create_recipe_with_ingredient(
+        client,
+        owner_token,
+        name="Autoplan Withdrawn Owner Breakfast",
+        meal_types=["breakfast"],
+        food_id=owner_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        owner_token,
+        name="Autoplan Withdrawn Owner Dinner",
+        meal_types=["dinner"],
+        food_id=owner_food["id"],
+    )
+
+    withdrawn_candidate = _create_recipe_with_ingredient(
+        client,
+        other_token,
+        name="Autoplan Withdrawn Public Breakfast",
+        meal_types=["breakfast"],
+        food_id=other_food["id"],
+    )
+    publish_recipe_via_api(client, other_token, withdrawn_candidate["id"])
+    withdraw_recipe_via_api(client, other_token, withdrawn_candidate["id"])
+
+    response = _post_autogenerate_plan(
+        client,
+        owner_token,
+        {
+            "start_date": "2026-03-27",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [owner_breakfast["id"]],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 422, response.text

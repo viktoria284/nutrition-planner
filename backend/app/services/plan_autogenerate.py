@@ -4,10 +4,9 @@ from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.enums import FoodSource, FoodStatus
 from app.models.plan import Plan
 from app.models.plan_slot import PlanSlot
 from app.models.recipe import Recipe, RecipeIngredient
@@ -16,6 +15,7 @@ from app.schemas.plan import (
     RegeneratePlanDayRequest,
     ReplacePlanSlotRequest,
 )
+from app.services.recipes import build_accessible_recipes_condition
 
 MEAL_TYPE_SEQUENCE_BY_MEALS_PER_DAY: dict[int, list[str]] = {
     2: ["breakfast", "dinner"],
@@ -66,19 +66,13 @@ def get_accessible_recipe_candidates(
         select(Recipe)
         .options(selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food))
         .where(
-            or_(
-                Recipe.owner_user_id == user_id,
-                and_(
-                    Recipe.source == FoodSource.community,
-                    Recipe.status == FoodStatus.approved,
-                    Recipe.is_listed.is_(True),
-                ),
+            build_accessible_recipes_condition(
+                user_id=user_id,
+                include_public=use_public_recipes,
             )
         )
         .order_by(Recipe.id.asc())
     )
-    if not use_public_recipes:
-        stmt = stmt.where(Recipe.owner_user_id == user_id)
     if excluded_recipe_ids_set:
         stmt = stmt.where(Recipe.id.notin_(sorted(excluded_recipe_ids_set)))
 

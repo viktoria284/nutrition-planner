@@ -683,6 +683,96 @@ def test_non_owner_can_get_only_published(client: TestClient) -> None:
     assert published_get.status_code == 200, published_get.text
 
 
+def test_recipe_list_include_public_shows_approved_and_listed_public_recipes(
+    client: TestClient,
+) -> None:
+    register_user(client, email="list-owner@example.com", username="listowner")
+    owner_token = login_and_get_token(client, identifier="list-owner@example.com")
+    register_user(client, email="list-viewer@example.com", username="listviewer")
+    viewer_token = login_and_get_token(client, identifier="list-viewer@example.com")
+
+    own_recipe = create_recipe_via_api(client, viewer_token, name="Viewer Own Recipe")
+    _private_recipe = create_recipe_via_api(client, owner_token, name="Owner Private Recipe")
+    public_recipe = create_recipe_via_api(client, owner_token, name="Owner Public Recipe")
+    publish_response = client.post(
+        f"/recipes/{public_recipe['id']}/publish",
+        headers=auth_headers(owner_token),
+    )
+    assert publish_response.status_code == 200, publish_response.text
+
+    default_list_response = client.get("/recipes", headers=auth_headers(viewer_token))
+    assert default_list_response.status_code == 200, default_list_response.text
+    default_ids = {item["id"] for item in default_list_response.json()}
+    assert own_recipe["id"] in default_ids
+    assert public_recipe["id"] not in default_ids
+
+    include_public_response = client.get(
+        "/recipes?include_public=true",
+        headers=auth_headers(viewer_token),
+    )
+    assert include_public_response.status_code == 200, include_public_response.text
+    include_public_ids = {item["id"] for item in include_public_response.json()}
+    assert own_recipe["id"] in include_public_ids
+    assert public_recipe["id"] in include_public_ids
+
+
+def test_recipe_list_include_public_hides_foreign_private_recipes(
+    client: TestClient,
+) -> None:
+    register_user(client, email="list-private-owner@example.com", username="listprivateowner")
+    owner_token = login_and_get_token(client, identifier="list-private-owner@example.com")
+    register_user(client, email="list-private-viewer@example.com", username="listprivateviewer")
+    viewer_token = login_and_get_token(client, identifier="list-private-viewer@example.com")
+
+    private_recipe = create_recipe_via_api(client, owner_token, name="Hidden Private Recipe")
+
+    response = client.get(
+        "/recipes?include_public=true",
+        headers=auth_headers(viewer_token),
+    )
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert private_recipe["id"] not in ids
+
+
+def test_recipe_list_include_public_hides_withdrawn_recipes(
+    client: TestClient,
+) -> None:
+    register_user(client, email="list-withdraw-owner@example.com", username="listwithdrawowner")
+    owner_token = login_and_get_token(client, identifier="list-withdraw-owner@example.com")
+    register_user(client, email="list-withdraw-viewer@example.com", username="listwithdrawviewer")
+    viewer_token = login_and_get_token(client, identifier="list-withdraw-viewer@example.com")
+
+    active_public_recipe = create_recipe_via_api(client, owner_token, name="Active Public Recipe")
+    withdraw_recipe = create_recipe_via_api(client, owner_token, name="Withdrawn Public Recipe")
+
+    active_publish_response = client.post(
+        f"/recipes/{active_public_recipe['id']}/publish",
+        headers=auth_headers(owner_token),
+    )
+    assert active_publish_response.status_code == 200, active_publish_response.text
+
+    withdraw_publish_response = client.post(
+        f"/recipes/{withdraw_recipe['id']}/publish",
+        headers=auth_headers(owner_token),
+    )
+    assert withdraw_publish_response.status_code == 200, withdraw_publish_response.text
+    withdraw_response = client.post(
+        f"/recipes/{withdraw_recipe['id']}/withdraw",
+        headers=auth_headers(owner_token),
+    )
+    assert withdraw_response.status_code == 200, withdraw_response.text
+
+    response = client.get(
+        "/recipes?include_public=true",
+        headers=auth_headers(viewer_token),
+    )
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert active_public_recipe["id"] in ids
+    assert withdraw_recipe["id"] not in ids
+
+
 def test_self_report_400(client: TestClient) -> None:
     register_user(client, email="owner@example.com", username="owner")
     owner_token = login_and_get_token(client, identifier="owner@example.com")

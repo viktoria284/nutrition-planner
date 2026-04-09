@@ -71,6 +71,10 @@ export type RecipeReportPayload = {
   comment?: string | null;
 };
 
+export type ListRecipesOptions = {
+  includePublic?: boolean;
+};
+
 function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -109,11 +113,16 @@ async function requestWithApiError<T>(request: Promise<T>): Promise<T> {
   }
 }
 
-export async function listRecipes(): Promise<RecipeRead[]> {
+export async function listRecipes(options: ListRecipesOptions = {}): Promise<RecipeRead[]> {
+  const params = new URLSearchParams();
+  if (options.includePublic) {
+    params.set("include_public", "true");
+  }
+  const suffix = params.toString();
   return requestWithApiError(
     apiRequest<RecipeRead[]>({
       method: "GET",
-      path: "/recipes",
+      path: suffix ? `/recipes?${suffix}` : "/recipes",
       token: getToken(),
     }),
   );
