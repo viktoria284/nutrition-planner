@@ -14,6 +14,7 @@ import { PlanCreatePage } from "./pages/PlanCreatePage";
 import { PlanDetailsPage } from "./pages/PlanDetailsPage";
 import { PlanShoppingPage } from "./pages/PlanShoppingPage";
 import { PlansListPage } from "./pages/PlansListPage";
+import { PlansAutogeneratePage } from "./pages/PlansAutogeneratePage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Navbar } from "./components/Navbar";
 import { ProfilesProvider } from "./context/ProfilesContext";
@@ -96,6 +97,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <PlanCreatePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/plans/autogenerate"
+              element={
+                <RequireAuth>
+                  <PlansAutogeneratePage />
                 </RequireAuth>
               }
             />

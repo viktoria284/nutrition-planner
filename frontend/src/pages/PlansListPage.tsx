@@ -47,13 +47,16 @@ export function PlansListPage() {
         <header className="plans-head">
           <div className="plans-head-main">
             <h1 className="plans-title">Планы питания</h1>
-            <p className="plans-subtitle">Создавайте планы и открывайте календарную раскладку по дням.</p>
+            <p className="plans-subtitle">Создавайте планы вручную или генерируйте автоматически по параметрам.</p>
           </div>
           <div className="plans-head-actions">
             <button type="button" className="btn btn-secondary" onClick={() => void loadPlans()} disabled={loading}>
               Обновить
             </button>
-            <Link to="/plans/new" className="btn btn-primary">
+            <Link to="/plans/autogenerate" className="btn btn-primary">
+              Автоплан
+            </Link>
+            <Link to="/plans/new" className="btn btn-secondary">
               Создать план
             </Link>
           </div>
@@ -74,7 +77,10 @@ export function PlansListPage() {
           <article className="plans-empty-card">
             <p className="plans-empty-title">Планов пока нет</p>
             <p className="plans-empty-subtitle">Создайте первый план, чтобы увидеть календарь по дням.</p>
-            <Link to="/plans/new" className="btn btn-primary">
+            <Link to="/plans/autogenerate" className="btn btn-primary">
+              Сгенерировать автоматически
+            </Link>
+            <Link to="/plans/new" className="btn btn-secondary">
               Создать план
             </Link>
           </article>

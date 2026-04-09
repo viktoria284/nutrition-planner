@@ -56,6 +56,15 @@ export type PlanCreatePayload = {
   title?: string;
 };
 
+export type PlanAutogeneratePayload = {
+  start_date: string;
+  days_count: number;
+  meals_per_day: number;
+  use_public_recipes: boolean;
+  excluded_recipe_ids?: number[];
+  excluded_food_ids?: number[];
+};
+
 export type PlanSlotPatchPayload = {
   recipe_id?: number | null;
   servings_multiplier?: DecimalString;

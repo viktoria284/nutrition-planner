@@ -1,4 +1,10 @@
-import type { PlanCreatePayload, PlanListItem, PlanRead, PlanSlotPatchPayload } from "../types/plan";
+import type {
+  PlanAutogeneratePayload,
+  PlanCreatePayload,
+  PlanListItem,
+  PlanRead,
+  PlanSlotPatchPayload,
+} from "../types/plan";
 import { ApiError, apiRequest } from "./http";
 
 const TOKEN_KEY = "access_token";
@@ -14,6 +20,17 @@ function normalizeCreatePayload(payload: PlanCreatePayload): PlanCreatePayload {
     days_count: payload.days_count,
     meals_per_day: payload.meals_per_day,
     ...(title ? { title } : {}),
+  };
+}
+
+function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAutogeneratePayload {
+  return {
+    start_date: payload.start_date,
+    days_count: payload.days_count,
+    meals_per_day: payload.meals_per_day,
+    use_public_recipes: payload.use_public_recipes,
+    excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
+    excluded_food_ids: payload.excluded_food_ids ?? [],
   };
 }
 
@@ -43,6 +60,17 @@ export async function createPlan(payload: PlanCreatePayload): Promise<PlanRead> 
       path: "/plans",
       token: getToken(),
       body: normalizeCreatePayload(payload),
+    }),
+  );
+}
+
+export async function autogeneratePlan(payload: PlanAutogeneratePayload): Promise<PlanRead> {
+  return requestWithApiError(
+    apiRequest<PlanRead>({
+      method: "POST",
+      path: "/plans/autogenerate",
+      token: getToken(),
+      body: normalizeAutogeneratePayload(payload),
     }),
   );
 }
