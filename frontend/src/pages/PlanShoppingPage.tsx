@@ -432,6 +432,7 @@ export function PlanShoppingPage() {
         message={manualToDelete ? `Позиция «${manualToDelete.name}» будет удалена.` : ""}
         confirmText="Удалить"
         loading={deletingManual}
+        loadingText="Удаляем..."
         errorText={deleteManualError}
         onClose={() => {
           if (deletingManual) return;

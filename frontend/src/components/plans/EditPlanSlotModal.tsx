@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ApiError } from "../../api/http";
-import { updatePlanSlot } from "../../api/plans";
+import { replacePlanSlot, updatePlanSlot } from "../../api/plans";
 import type { RecipeRead } from "../../api/recipes";
 import { FormErrorSummary } from "../FormErrorSummary";
 import type { PlanSlot } from "../../types/plan";
@@ -27,6 +27,15 @@ function toFriendlySaveError(err: unknown): string {
     if (err.status === 401) return "Сессия истекла. Войдите снова.";
   }
   return err instanceof Error ? err.message : "Не удалось сохранить слот.";
+}
+
+function toFriendlyReplaceError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "Нужно войти в систему.";
+    if (err.status === 404) return "План или слот не найден.";
+    if (err.status === 422) return "Не удалось подобрать замену для этого слота.";
+  }
+  return "Не удалось подобрать замену для этого слота.";
 }
 
 function normalizeMultiplier(raw: string): { value: string | null; error?: string } {
@@ -57,8 +66,9 @@ export function EditPlanSlotModal({
   const [selectedRecipeId, setSelectedRecipeId] = useState<number | null>(null);
   const [multiplier, setMultiplier] = useState("1");
   const [pinned, setPinned] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [busyAction, setBusyAction] = useState<"save" | "clear" | "replace" | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
+  const isBusy = busyAction !== null;
 
   useEffect(() => {
     if (!isOpen || !slot) return;
@@ -66,7 +76,7 @@ export function EditPlanSlotModal({
     setMultiplier(slot.recipe_id === null ? "1" : formatDecimal(slot.servings_multiplier));
     setPinned(slot.pinned);
     setFormErrors([]);
-    setSaving(false);
+    setBusyAction(null);
   }, [isOpen, slot]);
 
   const recipeOptions = useMemo<RecipePickerOption[]>(() => {
@@ -113,7 +123,7 @@ export function EditPlanSlotModal({
       return;
     }
 
-    setSaving(true);
+    setBusyAction("save");
     setFormErrors([]);
 
     try {
@@ -127,14 +137,14 @@ export function EditPlanSlotModal({
     } catch (err) {
       setFormErrors([toFriendlySaveError(err)]);
     } finally {
-      setSaving(false);
+      setBusyAction(null);
     }
   };
 
   const onClearRecipe = async () => {
     if (!slot || planId === null) return;
 
-    setSaving(true);
+    setBusyAction("clear");
     setFormErrors([]);
     try {
       await updatePlanSlot(planId, slot.id, { recipe_id: null });
@@ -143,7 +153,25 @@ export function EditPlanSlotModal({
     } catch (err) {
       setFormErrors([toFriendlySaveError(err)]);
     } finally {
-      setSaving(false);
+      setBusyAction(null);
+    }
+  };
+
+  const onReplaceRecipe = async () => {
+    if (!slot || planId === null) return;
+
+    setBusyAction("replace");
+    setFormErrors([]);
+    try {
+      await replacePlanSlot(planId, slot.id, {
+        use_public_recipes: true,
+      });
+      await onSaved();
+      onClose();
+    } catch (err) {
+      setFormErrors([toFriendlyReplaceError(err)]);
+    } finally {
+      setBusyAction(null);
     }
   };
 
@@ -154,7 +182,7 @@ export function EditPlanSlotModal({
       className="plans-modal-backdrop"
       role="presentation"
       onClick={(event) => {
-        if (saving) return;
+        if (isBusy) return;
         if (event.target === event.currentTarget) onClose();
       }}
     >
@@ -178,12 +206,13 @@ export function EditPlanSlotModal({
               options={recipeOptions}
               loading={recipesLoading}
               error={recipesError}
-              disabled={saving}
+              disabled={isBusy}
               onChange={setSelectedRecipeId}
             />
             <div className="plans-field-hint">
-              Показываются ваши рецепты и публичные опубликованные рецепты.
+              Для ручной замены можно выбрать любой доступный рецепт.
             </div>
+            <div className="plans-field-hint">Показываются ваши рецепты и публичные опубликованные рецепты.</div>
           </label>
 
           <label className="plans-field" htmlFor="slot-multiplier">
@@ -196,7 +225,7 @@ export function EditPlanSlotModal({
               value={multiplier}
               onChange={(event) => setMultiplier(event.target.value)}
               placeholder="Например, 1.25"
-              disabled={saving}
+              disabled={isBusy}
             />
           </label>
 
@@ -206,20 +235,23 @@ export function EditPlanSlotModal({
               type="checkbox"
               checked={pinned}
               onChange={(event) => setPinned(event.target.checked)}
-              disabled={saving}
+              disabled={isBusy}
             />
             <span>Закрепить слот</span>
           </label>
 
           <div className="plans-modal-actions">
-            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={saving}>
+            <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isBusy}>
               Отмена
             </button>
-            <button type="button" className="btn btn-secondary" onClick={() => void onClearRecipe()} disabled={saving || selectedRecipeId === null}>
+            <button type="button" className="btn btn-secondary" onClick={() => void onReplaceRecipe()} disabled={isBusy}>
+              {busyAction === "replace" ? "Подбираем..." : "Заменить блюдо"}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={() => void onClearRecipe()} disabled={isBusy || selectedRecipeId === null}>
               Снять рецепт
             </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
-              {saving ? "Сохранение..." : "Сохранить"}
+            <button type="submit" className="btn btn-primary" disabled={isBusy}>
+              {busyAction === "save" ? "Сохранение..." : "Сохранить"}
             </button>
           </div>
         </form>

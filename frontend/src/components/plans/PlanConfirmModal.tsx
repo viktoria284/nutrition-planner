@@ -4,8 +4,10 @@ type PlanConfirmModalProps = {
   open: boolean;
   title: string;
   message: string;
+  hintText?: string | null;
   confirmText: string;
   loading: boolean;
+  loadingText?: string;
   errorText?: string | null;
   onClose: () => void;
   onConfirm: () => void;
@@ -15,8 +17,10 @@ export function PlanConfirmModal({
   open,
   title,
   message,
+  hintText = null,
   confirmText,
   loading,
+  loadingText = "Выполняем...",
   errorText = null,
   onClose,
   onConfirm,
@@ -36,6 +40,7 @@ export function PlanConfirmModal({
         <header className="plans-modal-head">
           <h2 className="plans-modal-title">{title}</h2>
           <p className="plans-modal-subtitle">{message}</p>
+          {hintText && <p className="plans-field-hint">{hintText}</p>}
         </header>
 
         {errorText && <Alert text={errorText} />}
@@ -45,7 +50,7 @@ export function PlanConfirmModal({
             Отмена
           </button>
           <button type="button" className="btn btn-primary" onClick={onConfirm} disabled={loading}>
-            {loading ? "Удаляем..." : confirmText}
+            {loading ? loadingText : confirmText}
           </button>
         </div>
       </div>

@@ -65,6 +65,19 @@ export type PlanAutogeneratePayload = {
   excluded_food_ids?: number[];
 };
 
+export type PlanReplaceSlotPayload = {
+  use_public_recipes: boolean;
+  excluded_recipe_ids?: number[];
+  excluded_food_ids?: number[];
+  avoid_current_recipe?: boolean;
+};
+
+export type PlanRegenerateDayPayload = {
+  use_public_recipes: boolean;
+  excluded_recipe_ids?: number[];
+  excluded_food_ids?: number[];
+};
+
 export type PlanSlotPatchPayload = {
   recipe_id?: number | null;
   servings_multiplier?: DecimalString;

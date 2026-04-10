@@ -2,7 +2,9 @@ import type {
   PlanAutogeneratePayload,
   PlanCreatePayload,
   PlanListItem,
+  PlanRegenerateDayPayload,
   PlanRead,
+  PlanReplaceSlotPayload,
   PlanSlotPatchPayload,
 } from "../types/plan";
 import { ApiError, apiRequest } from "./http";
@@ -28,6 +30,23 @@ function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAut
     start_date: payload.start_date,
     days_count: payload.days_count,
     meals_per_day: payload.meals_per_day,
+    use_public_recipes: payload.use_public_recipes,
+    excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
+    excluded_food_ids: payload.excluded_food_ids ?? [],
+  };
+}
+
+function normalizeReplaceSlotPayload(payload: PlanReplaceSlotPayload): PlanReplaceSlotPayload {
+  return {
+    use_public_recipes: payload.use_public_recipes,
+    excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
+    excluded_food_ids: payload.excluded_food_ids ?? [],
+    avoid_current_recipe: payload.avoid_current_recipe ?? true,
+  };
+}
+
+function normalizeRegenerateDayPayload(payload: PlanRegenerateDayPayload): PlanRegenerateDayPayload {
+  return {
     use_public_recipes: payload.use_public_recipes,
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
@@ -106,6 +125,36 @@ export async function updatePlanSlot(
       path: `/plans/${planId}/slots/${slotId}`,
       token: getToken(),
       body: payload,
+    }),
+  );
+}
+
+export async function replacePlanSlot(
+  planId: number | string,
+  slotId: number | string,
+  payload: PlanReplaceSlotPayload,
+): Promise<PlanRead> {
+  return requestWithApiError(
+    apiRequest<PlanRead>({
+      method: "POST",
+      path: `/plans/${planId}/slots/${slotId}/replace`,
+      token: getToken(),
+      body: normalizeReplaceSlotPayload(payload),
+    }),
+  );
+}
+
+export async function regeneratePlanDay(
+  planId: number | string,
+  dayDate: string,
+  payload: PlanRegenerateDayPayload,
+): Promise<PlanRead> {
+  return requestWithApiError(
+    apiRequest<PlanRead>({
+      method: "POST",
+      path: `/plans/${planId}/days/${dayDate}/regenerate`,
+      token: getToken(),
+      body: normalizeRegenerateDayPayload(payload),
     }),
   );
 }

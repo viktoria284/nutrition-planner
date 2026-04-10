@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError } from "../api/http";
-import { getPlan } from "../api/plans";
+import { getPlan, regeneratePlanDay } from "../api/plans";
 import { getRecipe, listRecipes, type RecipeRead } from "../api/recipes";
 import { EditPlanSlotModal } from "../components/plans/EditPlanSlotModal";
+import { PlanConfirmModal } from "../components/plans/PlanConfirmModal";
 import { Alert } from "../components/Alert";
 import type { PlanDay, PlanRead, PlanSlot } from "../types/plan";
 import { formatDecimal, formatPlanDate, planTitleWithFallback } from "./plans";
@@ -28,6 +29,23 @@ function findSlotByIndex(slots: PlanSlot[], slotIndex: number): PlanSlot | null 
   return slot ?? null;
 }
 
+function resolveRegenerateDayError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "Нужно войти в систему.";
+    if (err.status === 404) return "План или слот не найден.";
+    if (err.status === 422) return "Недостаточно рецептов для перегенерации дня.";
+  }
+  return "Не удалось перегенерировать день. Попробуйте ещё раз.";
+}
+
+function buildDaySlotsSignature(day: PlanDay): string {
+  return day.slots
+    .slice()
+    .sort((left, right) => left.slot_index - right.slot_index)
+    .map((slot) => `${slot.slot_index}:${slot.recipe_id ?? "null"}:${slot.servings_multiplier}:${slot.pinned ? 1 : 0}`)
+    .join("|");
+}
+
 export function PlanDetailsPage() {
   const { id } = useParams<{ id: string }>();
 
@@ -42,6 +60,10 @@ export function PlanDetailsPage() {
   const [recipeNamesById, setRecipeNamesById] = useState<Record<number, string>>({});
 
   const [editingSlot, setEditingSlot] = useState<PlanSlot | null>(null);
+  const [dayToRegenerate, setDayToRegenerate] = useState<PlanDay | null>(null);
+  const [regeneratingDay, setRegeneratingDay] = useState(false);
+  const [regenerateDayError, setRegenerateDayError] = useState<string | null>(null);
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
 
   const loadPlan = useCallback(async () => {
     if (!id) {
@@ -102,6 +124,13 @@ export function PlanDetailsPage() {
   }, [plan]);
 
   useEffect(() => {
+    if (!plan) {
+      setDayToRegenerate(null);
+      setRegenerateDayError(null);
+    }
+  }, [plan]);
+
+  useEffect(() => {
     if (!plan) return;
 
     const recipeIds = Array.from(
@@ -147,6 +176,34 @@ export function PlanDetailsPage() {
   const canShowCalendar = !error && !isNotFound && plan !== null;
   const initialLoading = loading && !plan;
 
+  const handleRegenerateDay = useCallback(async () => {
+    if (!plan || !dayToRegenerate) return;
+
+    setRegeneratingDay(true);
+    setRegenerateDayError(null);
+    setPageNotice(null);
+
+    const currentDay = plan.days.find((day) => day.date === dayToRegenerate.date) ?? null;
+
+    try {
+      const updatedPlan = await regeneratePlanDay(plan.id, dayToRegenerate.date, {
+        use_public_recipes: true,
+      });
+      const updatedDay = updatedPlan.days.find((day) => day.date === dayToRegenerate.date) ?? null;
+      const unchanged = Boolean(currentDay && updatedDay && buildDaySlotsSignature(currentDay) === buildDaySlotsSignature(updatedDay));
+
+      await loadPlan();
+      if (unchanged) {
+        setPageNotice("День обновлён: изменения не потребовались.");
+      }
+      setDayToRegenerate(null);
+    } catch (err) {
+      setRegenerateDayError(resolveRegenerateDayError(err));
+    } finally {
+      setRegeneratingDay(false);
+    }
+  }, [dayToRegenerate, loadPlan, plan]);
+
   return (
     <section className="plans-page">
       <div className="plans-shell plans-shell-wide">
@@ -174,6 +231,7 @@ export function PlanDetailsPage() {
         {initialLoading && <p className="plans-note">Загрузка плана...</p>}
         {!initialLoading && loading && <p className="plans-note">Обновление данных...</p>}
         {recipesError && <p className="plans-note">{recipesError}</p>}
+        {pageNotice && <p className="plans-note">{pageNotice}</p>}
 
         {!loading && error && (
           <div className="plans-error-block">
@@ -196,6 +254,9 @@ export function PlanDetailsPage() {
 
         {canShowCalendar && (
           <div className="plan-calendar-card">
+            <p className="plans-note plan-calendar-note">
+              Закреплённые слоты отмечены бейджем и не меняются при перегенерации дня.
+            </p>
             <div className="plan-calendar-scroll">
               <table className="plan-calendar-table" aria-label="Календарь плана">
                 <thead>
@@ -205,6 +266,18 @@ export function PlanDetailsPage() {
                       <th key={day.date}>
                         <div className="plan-day-head">
                           <p className="plan-day-date">{formatPlanDate(day.date)}</p>
+                          <button
+                            type="button"
+                            className="btn btn-secondary plan-day-regenerate-btn"
+                            onClick={() => {
+                              setDayToRegenerate(day);
+                              setRegenerateDayError(null);
+                              setPageNotice(null);
+                            }}
+                            disabled={loading || regeneratingDay}
+                          >
+                            Перегенерировать
+                          </button>
                         </div>
                       </th>
                     ))}
@@ -263,6 +336,29 @@ export function PlanDetailsPage() {
         onClose={() => setEditingSlot(null)}
         onSaved={loadPlan}
       />
+
+      <PlanConfirmModal
+        open={dayToRegenerate !== null}
+        title="Перегенерировать день"
+        message={
+          dayToRegenerate
+            ? `Будут заново подобраны рецепты на ${formatPlanDate(dayToRegenerate.date)}.`
+            : ""
+        }
+        hintText="Закреплённые слоты останутся без изменений."
+        confirmText="Перегенерировать"
+        loading={regeneratingDay}
+        loadingText="Перегенерируем..."
+        errorText={regenerateDayError}
+        onClose={() => {
+          if (regeneratingDay) return;
+          setRegenerateDayError(null);
+          setDayToRegenerate(null);
+        }}
+        onConfirm={() => {
+          void handleRegenerateDay();
+        }}
+      />
     </section>
   );
 }
@@ -302,7 +398,7 @@ function SlotCell({
 
         <p className="plan-slot-meta">x{formatDecimal(slot.servings_multiplier)}</p>
 
-        {slot.pinned && <span className="plan-slot-badge">Pinned</span>}
+        {slot.pinned && <span className="plan-slot-badge">Закреплён</span>}
       </div>
     </button>
   );

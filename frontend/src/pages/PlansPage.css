@@ -242,12 +242,30 @@
 
 .plan-day-head {
   display: grid;
-  gap: 4px;
+  gap: 2px;
 }
 
 .plan-day-date {
   margin: 0;
   font-size: 0.92rem;
+}
+
+.plan-day-regenerate-btn {
+  height: auto;
+  min-height: 24px;
+  width: auto;
+  max-width: 100%;
+  justify-self: start;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  border-radius: 8px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.plan-calendar-note {
+  margin-bottom: 10px;
 }
 
 .plan-totals-cell {
