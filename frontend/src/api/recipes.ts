@@ -128,6 +128,13 @@ export async function listRecipes(options: ListRecipesOptions = {}): Promise<Rec
   );
 }
 
+export async function listPublicRecipes(): Promise<RecipeRead[]> {
+  const items = await listRecipes({ includePublic: true });
+  return items.filter(
+    (recipe) => recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
+  );
+}
+
 export async function createRecipe(payload: RecipeCreate): Promise<RecipeRead> {
   return requestWithApiError(
     apiRequest<RecipeRead>({

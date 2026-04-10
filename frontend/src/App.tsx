@@ -4,6 +4,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { PlannerPage } from "./pages/PlannerPage";
 import { RecipesListPage } from "./pages/RecipesListPage";
+import { PublicRecipesPage } from "./pages/PublicRecipesPage";
 import { RecipeCreatePage } from "./pages/RecipeCreatePage";
 import { RecipeDetailsPage } from "./pages/RecipeDetailsPage";
 import { RecipeEditPage } from "./pages/RecipeEditPage";
@@ -49,6 +50,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <RecipesListPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/recipes/public"
+              element={
+                <RequireAuth>
+                  <PublicRecipesPage />
                 </RequireAuth>
               }
             />

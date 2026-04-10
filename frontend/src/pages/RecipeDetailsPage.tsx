@@ -791,6 +791,9 @@ export function RecipeDetailsPage() {
             <Link to="/recipes" className="btn btn-secondary">
               Назад к списку
             </Link>
+            <Link to="/recipes/public" className="btn btn-secondary">
+              Публичные рецепты
+            </Link>
           </div>
         </header>
 

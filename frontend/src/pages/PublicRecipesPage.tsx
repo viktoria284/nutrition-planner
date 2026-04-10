@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
-import { listRecipes, type MealType, type RecipeRead } from "../api/recipes";
+import { listPublicRecipes, type MealType, type RecipeRead } from "../api/recipes";
 import { Alert } from "../components/Alert";
 import "./RecipesPage.css";
 
@@ -19,6 +19,14 @@ const MEAL_TYPE_LABELS: Record<MealType, string> = {
   snack: "Перекус",
 };
 
+function resolvePublicRecipesError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "Нужно войти в систему.";
+    if (err.status === 404) return "Публичные рецепты не найдены.";
+  }
+  return err instanceof Error ? err.message : "Не удалось загрузить публичные рецепты.";
+}
+
 function formatMetric(value: string | number): string {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "0";
@@ -26,40 +34,22 @@ function formatMetric(value: string | number): string {
   return numeric.toFixed(2).replace(/\.?0+$/, "");
 }
 
-function resolveApiError(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    if (err.status === 404) return "Не найдено или нет доступа";
-    if (err.status === 409) return "Конфликт: действие уже выполнено или недопустимо в текущем состоянии";
-    if (err.status === 422) return "Проверьте корректность полей";
-    if (err.status === 400) return "Некорректный запрос";
-  }
-  return fallback;
-}
-
-type RecipesLocationState = {
-  flashMessage?: string;
-};
-
-export function RecipesListPage() {
-  const location = useLocation();
-  const navigate = useNavigate();
-
+export function PublicRecipesPage() {
   const [recipes, setRecipes] = useState<RecipeRead[]>([]);
+  const [query, setQuery] = useState("");
   const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [flashMessage, setFlashMessage] = useState<string | null>(null);
 
   const loadRecipes = useCallback(async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const items = await listRecipes();
+      const items = await listPublicRecipes();
       setRecipes(items);
     } catch (err) {
       setRecipes([]);
-      setError(resolveApiError(err, "Не удалось загрузить рецепты."));
+      setError(resolvePublicRecipesError(err));
     } finally {
       setLoading(false);
     }
@@ -69,28 +59,16 @@ export function RecipesListPage() {
     void loadRecipes();
   }, [loadRecipes]);
 
-  useEffect(() => {
-    const state = (location.state as RecipesLocationState | null) ?? null;
-    if (!state?.flashMessage) return;
-
-    setFlashMessage(state.flashMessage);
-    navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, navigate]);
-
-  useEffect(() => {
-    if (!flashMessage) return undefined;
-
-    const timeoutId = window.setTimeout(() => {
-      setFlashMessage(null);
-    }, 3000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [flashMessage]);
-
   const filteredRecipes = useMemo(() => {
-    if (selectedMealTypes.length === 0) return recipes;
-    return recipes.filter((recipe) => recipe.meal_types.some((type) => selectedMealTypes.includes(type)));
-  }, [recipes, selectedMealTypes]);
+    const normalized = query.trim().toLowerCase();
+    return recipes.filter((recipe) => {
+      const matchesQuery = !normalized || recipe.name.toLowerCase().includes(normalized);
+      const matchesMealTypes =
+        selectedMealTypes.length === 0 ||
+        recipe.meal_types.some((mealType) => selectedMealTypes.includes(mealType));
+      return matchesQuery && matchesMealTypes;
+    });
+  }, [query, recipes, selectedMealTypes]);
 
   const toggleMealFilter = (mealType: MealType) => {
     setSelectedMealTypes((prev) =>
@@ -98,7 +76,10 @@ export function RecipesListPage() {
     );
   };
 
-  const resetFilters = () => setSelectedMealTypes([]);
+  const resetFilters = () => {
+    setQuery("");
+    setSelectedMealTypes([]);
+  };
 
   const isEmpty = !loading && !error && recipes.length === 0;
   const isFilterEmpty = !loading && !error && recipes.length > 0 && filteredRecipes.length === 0;
@@ -108,25 +89,29 @@ export function RecipesListPage() {
       <div className="recipes-shell">
         <header className="recipes-head">
           <div className="recipes-head-main">
-            <h1 className="recipes-title">Рецепты</h1>
-            <p className="recipes-subtitle">Список ваших рецептов и быстрый переход к карточке.</p>
+            <h1 className="recipes-title">Публичные рецепты</h1>
+            <p className="recipes-subtitle">Публичный каталог для просмотра и использования в автоплане.</p>
           </div>
 
           <div className="recipes-head-actions">
             <button type="button" className="btn btn-secondary" onClick={() => void loadRecipes()} disabled={loading}>
               Обновить
             </button>
-            <Link to="/recipes/public" className="btn btn-secondary">
-              Публичные рецепты
-            </Link>
-            <Link to="/recipes/new" className="btn btn-primary">
-              Создать рецепт
+            <Link to="/recipes" className="btn btn-secondary">
+              Мои рецепты
             </Link>
           </div>
         </header>
 
-        <section className="recipes-filter-card" aria-label="Фильтр по типу приёма пищи">
-          <p className="recipes-filter-label">Тип приёма пищи</p>
+        <section className="recipes-filter-card" aria-label="Поиск публичных рецептов">
+          <p className="recipes-filter-label">Поиск по названию</p>
+          <input
+            className="recipes-field-input"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Например, Овсянка"
+          />
           <div className="recipes-filter-items">
             {MEAL_TYPE_OPTIONS.map((item) => {
               const checked = selectedMealTypes.includes(item.value);
@@ -134,10 +119,10 @@ export function RecipesListPage() {
                 <label
                   key={item.value}
                   className={`recipes-filter-chip ${checked ? "is-active" : ""}`}
-                  htmlFor={`filter-${item.value}`}
+                  htmlFor={`public-filter-${item.value}`}
                 >
                   <input
-                    id={`filter-${item.value}`}
+                    id={`public-filter-${item.value}`}
                     type="checkbox"
                     checked={checked}
                     onChange={() => toggleMealFilter(item.value)}
@@ -148,13 +133,16 @@ export function RecipesListPage() {
             })}
           </div>
           <div>
-            <button type="button" className="btn btn-secondary" onClick={resetFilters} disabled={!selectedMealTypes.length}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={resetFilters}
+              disabled={!query.trim() && selectedMealTypes.length === 0}
+            >
               Сбросить фильтр
             </button>
           </div>
         </section>
-
-        {flashMessage && <p className="recipes-inline-success">{flashMessage}</p>}
 
         {loading && <p className="recipes-note">Загрузка...</p>}
 
@@ -169,18 +157,18 @@ export function RecipesListPage() {
 
         {isEmpty && (
           <article className="recipes-empty-card">
-            <p className="recipes-empty-title">Рецептов пока нет</p>
-            <p className="recipes-empty-subtitle">Создайте первый рецепт, чтобы увидеть его в списке.</p>
-            <Link to="/recipes/new" className="btn btn-primary">
-              Создать рецепт
-            </Link>
+            <p className="recipes-empty-title">Публичные рецепты пока недоступны</p>
+            <p className="recipes-empty-subtitle">Попробуйте обновить список позже.</p>
+            <button type="button" className="btn btn-secondary" onClick={() => void loadRecipes()}>
+              Обновить
+            </button>
           </article>
         )}
 
         {isFilterEmpty && (
           <article className="recipes-empty-card">
-            <p className="recipes-empty-title">По выбранным фильтрам ничего не найдено</p>
-            <p className="recipes-empty-subtitle">Сбросьте фильтр или выберите другой тип приёма пищи.</p>
+            <p className="recipes-empty-title">По выбранным параметрам ничего не найдено</p>
+            <p className="recipes-empty-subtitle">Измените поиск или фильтр по типу приёма пищи.</p>
             <button type="button" className="btn btn-secondary" onClick={resetFilters}>
               Сбросить фильтр
             </button>
@@ -206,7 +194,7 @@ export function RecipesListPage() {
                         {MEAL_TYPE_LABELS[mealType]}
                       </span>
                     ))}
-                    <span className="recipe-row-kcal">{formatMetric(recipe.total_kcal)} ккал</span>
+                    <span className="recipe-row-kcal">{formatMetric(recipe.per_serving_kcal)} ккал/порц.</span>
                   </div>
                 </Link>
               </li>
