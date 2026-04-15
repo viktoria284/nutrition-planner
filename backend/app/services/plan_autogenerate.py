@@ -97,9 +97,11 @@ CALORIE_PENALTY_WEIGHT = Decimal("120")
 MACRO_PENALTY_WEIGHT = Decimal("28")
 PROTEIN_OVERSHOOT_WEIGHT = Decimal("220")
 FAT_OVERSHOOT_WEIGHT = Decimal("90")
+FAT_UNDERSHOOT_WEIGHT = Decimal("145")
 CARBS_UNDERSHOOT_WEIGHT = Decimal("180")
 REMAINING_BALANCE_WEIGHT = Decimal("130")
 MACRO_PROFILE_PENALTY_WEIGHT = Decimal("140")
+FAT_PROFILE_PENALTY_WEIGHT = Decimal("120")
 REPEAT_USAGE_PENALTY = Decimal("18")
 REPEAT_SAME_SLOT_BY_DISTANCE: dict[int, Decimal] = {
     1: Decimal("120"),
@@ -117,6 +119,11 @@ PROTEIN_DENSE_MULTIPLIER_THRESHOLD = Decimal("1.50")
 PROTEIN_DENSE_PER_SERVING_THRESHOLD = Decimal("35")
 LOW_CARB_PER_SERVING_THRESHOLD = Decimal("22")
 PROTEIN_DENSE_MULTIPLIER_CAP = Decimal("1.50")
+DRY_LOW_FAT_SHARE_THRESHOLD = Decimal("0.16")
+FAT_FRIENDLY_SHARE_THRESHOLD = Decimal("0.28")
+FAT_FRIENDLY_FAT_GRAMS_THRESHOLD = Decimal("12")
+REPEAT_PENALTY_CAP_FLOOR = Decimal("85")
+REPEAT_PENALTY_CAP_BY_MACRO_FIT_FACTOR = Decimal("0.45")
 LOW_FEASIBILITY_KCAL_GAP_RATIO = Decimal("0.18")
 LOW_FEASIBILITY_CARBS_GAP_RATIO = Decimal("0.20")
 LOW_FEASIBILITY_FAT_GAP_RATIO = Decimal("0.20")
@@ -500,6 +507,16 @@ def is_fat_heavy(nutrients: dict[str, Decimal]) -> bool:
     return fat_share >= Decimal("0.42")
 
 
+def is_fat_friendly(nutrients: dict[str, Decimal]) -> bool:
+    _protein_share, fat_share, _carbs_share = _macro_energy_shares(nutrients)
+    return fat_share >= FAT_FRIENDLY_SHARE_THRESHOLD and nutrients["fat"] >= FAT_FRIENDLY_FAT_GRAMS_THRESHOLD
+
+
+def is_dry_low_fat_candidate(nutrients: dict[str, Decimal]) -> bool:
+    protein_share, fat_share, _carbs_share = _macro_energy_shares(nutrients)
+    return fat_share <= DRY_LOW_FAT_SHARE_THRESHOLD and nutrients["fat"] <= Decimal("8") and protein_share >= Decimal("0.26")
+
+
 def is_balanced_macro_profile(nutrients: dict[str, Decimal]) -> bool:
     protein_share, fat_share, carbs_share = _macro_energy_shares(nutrients)
     return (
@@ -699,6 +716,10 @@ def _score_recipe_candidate(
         _overshoot_ratio(projected_day_fat, targets.fat),
         weight=FAT_OVERSHOOT_WEIGHT,
     )
+    fat_undershoot_penalty = _piecewise_penalty(
+        _undershoot_ratio(projected_day_fat, targets.fat),
+        weight=FAT_UNDERSHOOT_WEIGHT,
+    )
     carbs_undershoot_penalty = _piecewise_penalty(
         _undershoot_ratio(projected_day_carbs, targets.carbs),
         weight=CARBS_UNDERSHOOT_WEIGHT,
@@ -714,6 +735,16 @@ def _score_recipe_candidate(
                 (remaining_carbs_needed - expected_remaining_carbs) / expected_remaining_carbs,
                 weight=REMAINING_BALANCE_WEIGHT,
             )
+    if targets.fat is not None and targets.fat > 0 and remaining_weight > 0:
+        remaining_fat_needed = max(Decimal("0"), targets.fat - projected_day_fat)
+        expected_remaining_fat = targets.fat * remaining_weight
+        if remaining_fat_needed > expected_remaining_fat:
+            remaining_balance_penalty += _piecewise_penalty(
+                (remaining_fat_needed - expected_remaining_fat) / expected_remaining_fat,
+                weight=REMAINING_BALANCE_WEIGHT * Decimal("0.9"),
+                mild_ratio=Decimal("0.08"),
+                sharp_ratio=Decimal("0.22"),
+            )
     if targets.protein is not None and targets.protein > 0 and remaining_weight > 0:
         remaining_protein_budget = max(Decimal("0"), targets.protein - projected_day_protein)
         expected_remaining_protein = targets.protein * remaining_weight
@@ -728,6 +759,7 @@ def _score_recipe_candidate(
 
     macro_profile_penalty = Decimal("0")
     carbs_so_far_deficit_ratio = _undershoot_ratio(projected_day_carbs, expected_carbs)
+    fat_so_far_deficit_ratio = _undershoot_ratio(projected_day_fat, expected_fat)
     protein_overshoot_ratio = _overshoot_ratio(projected_day_protein, targets.protein)
     if carbs_so_far_deficit_ratio > Decimal("0.10"):
         if is_protein_heavy(nutrients) and not is_carb_heavy(nutrients):
@@ -740,6 +772,15 @@ def _score_recipe_candidate(
         macro_profile_penalty += protein_overshoot_ratio * MACRO_PROFILE_PENALTY_WEIGHT * Decimal("1.6")
     if is_fat_heavy(nutrients) and _overshoot_ratio(projected_day_fat, targets.fat) > Decimal("0.05"):
         macro_profile_penalty += _overshoot_ratio(projected_day_fat, targets.fat) * MACRO_PROFILE_PENALTY_WEIGHT
+    if fat_so_far_deficit_ratio > Decimal("0.10"):
+        if is_dry_low_fat_candidate(nutrients):
+            macro_profile_penalty += fat_so_far_deficit_ratio * FAT_PROFILE_PENALTY_WEIGHT * Decimal("1.7")
+        elif is_fat_friendly(nutrients):
+            macro_profile_penalty += fat_so_far_deficit_ratio * FAT_PROFILE_PENALTY_WEIGHT * Decimal("0.35")
+        elif is_balanced_macro_profile(nutrients):
+            macro_profile_penalty += fat_so_far_deficit_ratio * FAT_PROFILE_PENALTY_WEIGHT * Decimal("0.55")
+        else:
+            macro_profile_penalty += fat_so_far_deficit_ratio * FAT_PROFILE_PENALTY_WEIGHT
 
     guardrail_penalty = Decimal("0")
     if (
@@ -779,6 +820,7 @@ def _score_recipe_candidate(
         cumulative_macro_penalty
         + protein_overshoot_penalty
         + fat_overshoot_penalty
+        + fat_undershoot_penalty
         + carbs_undershoot_penalty
         + remaining_balance_penalty
         + macro_profile_penalty
@@ -789,13 +831,18 @@ def _score_recipe_candidate(
     if expected_meal_type not in _normalize_recipe_meal_types(recipe):
         slot_penalty = SLOT_MISMATCH_PENALTY
 
-    repeat_penalty = _calculate_repeat_penalty(
+    raw_repeat_penalty = _calculate_repeat_penalty(
         recipe_id=recipe.id,
         slot_index=slot_index,
         day_date=day_date,
         recipe_usage_counts=recipe_usage_counts,
         slot_recipe_dates=slot_recipe_dates,
     )
+    repeat_penalty_cap = max(
+        REPEAT_PENALTY_CAP_FLOOR,
+        (calorie_penalty + macro_penalty) * REPEAT_PENALTY_CAP_BY_MACRO_FIT_FACTOR,
+    )
+    repeat_penalty = min(raw_repeat_penalty, repeat_penalty_cap)
 
     return RecipeScore(
         total_score=calorie_penalty + macro_penalty + slot_penalty + repeat_penalty,

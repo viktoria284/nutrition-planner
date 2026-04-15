@@ -421,6 +421,249 @@ def test_autogenerate_high_target_with_5_meals_is_feasible_with_seeded_pool(
     plan = response.json()
     assert len(plan["slots"]) == 5
     assert Decimal(str(plan["days"][0]["totals"]["kcal"])) >= Decimal("2600")
+    assert Decimal(str(plan["days"][0]["totals"]["fat"])) >= Decimal("70")
+
+
+def test_autogenerate_medium_profile_with_seeded_pool_stays_acceptable(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_medium_seeded_profile@example.com",
+        username="autoplan_medium_seeded_profile",
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Seeded medium profile",
+        target_kcal=2000,
+        target_protein=120,
+        target_fat=70,
+        target_carbs=230,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 3,
+            "meals_per_day": 3,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    assert len(plan["days"]) == 3
+
+    for day in plan["days"]:
+        day_kcal = Decimal(str(day["totals"]["kcal"]))
+        day_fat = Decimal(str(day["totals"]["fat"]))
+        assert day_kcal >= Decimal("1400")
+        assert day_kcal <= Decimal("2600")
+        assert day_fat >= Decimal("40")
+
+
+def test_autogenerate_prefers_fat_friendly_candidate_when_fats_lagging(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_fat_lag_prefers_fat_friendly@example.com",
+        username="autoplan_fat_lag_prefers_fat_friendly",
+    )
+
+    breakfast_food = create_food_via_api(
+        client,
+        token,
+        name="Fat Lag Breakfast Food",
+        kcal="240.00",
+        protein="12.00",
+        fat="3.00",
+        carbs="40.00",
+    )
+    lunch_dry_food = create_food_via_api(
+        client,
+        token,
+        name="Fat Lag Dry Lunch Food",
+        kcal="500.00",
+        protein="40.00",
+        fat="5.00",
+        carbs="55.00",
+    )
+    lunch_fat_friendly_food = create_food_via_api(
+        client,
+        token,
+        name="Fat Lag Fat Friendly Lunch Food",
+        kcal="500.00",
+        protein="30.00",
+        fat="20.00",
+        carbs="50.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Fat Lag Dinner Food",
+        kcal="760.00",
+        protein="35.00",
+        fat="18.00",
+        carbs="92.00",
+    )
+
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fat Lag Breakfast",
+        meal_types=["breakfast"],
+        food_id=breakfast_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fat Lag Dry Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_dry_food["id"],
+    )
+    fat_friendly_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fat Lag Fat Friendly Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_fat_friendly_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fat Lag Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Fat lag profile",
+        target_kcal=2200,
+        target_protein=130,
+        target_fat=85,
+        target_carbs=250,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 3,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    lunch_slot = next(slot for slot in plan["slots"] if slot["slot_index"] == 1)
+    assert lunch_slot["recipe_id"] == fat_friendly_lunch["id"]
+
+
+def test_autogenerate_late_plan_macro_fit_can_beat_repeat_penalty(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_late_plan_macro_fit_over_repeat@example.com",
+        username="autoplan_late_plan_macro_fit_over_repeat",
+    )
+
+    lunch_dry_food = create_food_via_api(
+        client,
+        token,
+        name="Late Plan Dry Lunch Food",
+        kcal="620.00",
+        protein="55.00",
+        fat="4.00",
+        carbs="25.00",
+    )
+    lunch_balanced_food = create_food_via_api(
+        client,
+        token,
+        name="Late Plan Balanced Lunch Food",
+        kcal="620.00",
+        protein="30.00",
+        fat="22.00",
+        carbs="70.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Late Plan Dinner Food",
+        kcal="900.00",
+        protein="35.00",
+        fat="30.00",
+        carbs="95.00",
+    )
+
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Late Plan Dry Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_dry_food["id"],
+    )
+    balanced_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Late Plan Balanced Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_balanced_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Late Plan Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Late plan profile",
+        target_kcal=2200,
+        target_protein=140,
+        target_fat=85,
+        target_carbs=280,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 5,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    sorted_slots = sorted(plan["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"]))
+    last_day_lunch = next(slot for slot in reversed(sorted_slots) if slot["slot_index"] == 0)
+    assert last_day_lunch["recipe_id"] == balanced_lunch["id"]
 
 
 def test_autogenerate_high_kcal_profile_can_pick_multiplier_above_one(
