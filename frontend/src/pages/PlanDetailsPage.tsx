@@ -46,6 +46,24 @@ function buildDaySlotsSignature(day: PlanDay): string {
     .join("|");
 }
 
+function buildPlanTargetSummary(plan: PlanRead): string {
+  const parts: string[] = [];
+  if (plan.target_kcal !== null) {
+    parts.push(`${plan.target_kcal} ккал`);
+  }
+  if (plan.target_protein !== null) {
+    parts.push(`Б ${plan.target_protein}`);
+  }
+  if (plan.target_fat !== null) {
+    parts.push(`Ж ${plan.target_fat}`);
+  }
+  if (plan.target_carbs !== null) {
+    parts.push(`У ${plan.target_carbs}`);
+  }
+  if (parts.length === 0) return "Не задана";
+  return parts.join(" / ");
+}
+
 export function PlanDetailsPage() {
   const { id } = useParams<{ id: string }>();
 
@@ -211,9 +229,18 @@ export function PlanDetailsPage() {
           <div className="plans-head-main">
             <h1 className="plans-title">{plan ? planTitleWithFallback(plan.title, plan.start_date) : "План"}</h1>
             {plan && (
-              <p className="plans-subtitle">
-                Старт: {formatPlanDate(plan.start_date)} · Дней: {plan.days_count} · Слотов в день: {plan.meals_per_day}
-              </p>
+              <>
+                <p className="plans-subtitle">
+                  Старт: {formatPlanDate(plan.start_date)} · Дней: {plan.days_count} · Слотов в день: {plan.meals_per_day}
+                </p>
+                <p className="plan-profile-summary">
+                  Профиль: {plan.profile_name ?? (plan.profile_id ? `#${plan.profile_id}` : "не указан")}
+                </p>
+                <p className="plan-profile-summary">Цель: {buildPlanTargetSummary(plan)}</p>
+                <p className="plan-profile-hint">
+                  План привязан к этому профилю. Смена активного профиля сверху не меняет уже созданный план.
+                </p>
+              </>
             )}
           </div>
           <div className="plans-head-actions">
@@ -397,6 +424,12 @@ function SlotCell({
         )}
 
         <p className="plan-slot-meta">x{formatDecimal(slot.servings_multiplier)}</p>
+        <div className="plan-slot-nutrition">
+          <span>Ккал: {formatDecimal(slot.slot_kcal)}</span>
+          <span>Б: {formatDecimal(slot.slot_protein)}</span>
+          <span>Ж: {formatDecimal(slot.slot_fat)}</span>
+          <span>У: {formatDecimal(slot.slot_carbs)}</span>
+        </div>
 
         {slot.pinned && <span className="plan-slot-badge">Закреплён</span>}
       </div>

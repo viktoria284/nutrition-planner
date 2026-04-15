@@ -17,10 +17,19 @@ class Plan(Base):
         nullable=False,
         index=True,
     )
+    profile_id: Mapped[int | None] = mapped_column(
+        ForeignKey("profiles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     days_count: Mapped[int] = mapped_column(Integer, nullable=False)
     meals_per_day: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    target_kcal: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_protein: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_fat: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_carbs: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -40,6 +49,7 @@ class Plan(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    profile: Mapped["Profile | None"] = relationship("Profile")
 
     __table_args__ = (
         CheckConstraint("days_count BETWEEN 1 AND 7", name="ck_plans_days_count_between_1_7"),

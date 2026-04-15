@@ -57,6 +57,37 @@ def _sort_slots(slots: list[PlanSlot]) -> list[PlanSlot]:
     )
 
 
+def _build_slot_payload(
+    slot: PlanSlot,
+    *,
+    recipe_per_serving_cache: dict[int, dict[str, Decimal]],
+) -> dict:
+    totals = _zero_nutrition_totals()
+    if slot.recipe_id is not None:
+        recipe_totals = recipe_per_serving_cache.get(slot.recipe_id)
+        if recipe_totals:
+            totals["kcal"] = recipe_totals["kcal"] * slot.servings_multiplier
+            totals["protein"] = recipe_totals["protein"] * slot.servings_multiplier
+            totals["fat"] = recipe_totals["fat"] * slot.servings_multiplier
+            totals["carbs"] = recipe_totals["carbs"] * slot.servings_multiplier
+
+    return {
+        "id": slot.id,
+        "plan_id": slot.plan_id,
+        "day_date": slot.day_date,
+        "slot_index": slot.slot_index,
+        "recipe_id": slot.recipe_id,
+        "servings_multiplier": slot.servings_multiplier,
+        "slot_kcal": _quantize_nutrient(totals["kcal"]),
+        "slot_protein": _quantize_nutrient(totals["protein"]),
+        "slot_fat": _quantize_nutrient(totals["fat"]),
+        "slot_carbs": _quantize_nutrient(totals["carbs"]),
+        "pinned": slot.pinned,
+        "created_at": slot.created_at,
+        "updated_at": slot.updated_at,
+    }
+
+
 def _get_plan_or_404(db: Session, user_id: int, plan_id: int, *, with_slots: bool = False) -> Plan:
     stmt = select(Plan).where(
         Plan.id == plan_id,
@@ -64,6 +95,7 @@ def _get_plan_or_404(db: Session, user_id: int, plan_id: int, *, with_slots: boo
     )
     if with_slots:
         stmt = stmt.options(
+            selectinload(Plan.profile),
             selectinload(Plan.slots)
             .selectinload(PlanSlot.recipe)
             .selectinload(Recipe.ingredients)
@@ -96,6 +128,11 @@ def build_plan_read(plan: Plan) -> PlanRead:
             "carbs": nutrients["per_serving_carbs"],
         }
 
+    slot_payload_by_id = {
+        slot.id: _build_slot_payload(slot, recipe_per_serving_cache=recipe_per_serving_cache)
+        for slot in sorted_slots
+    }
+
     days_payload: list[PlanDayRead] = []
     for day_date in sorted(day_buckets):
         day_slots = _sort_slots(day_buckets[day_date])
@@ -123,7 +160,7 @@ def build_plan_read(plan: Plan) -> PlanRead:
                             "carbs": _quantize_nutrient(totals["carbs"]),
                         }
                     ),
-                    "slots": [PlanSlotRead.model_validate(slot) for slot in day_slots],
+                    "slots": [PlanSlotRead.model_validate(slot_payload_by_id[slot.id]) for slot in day_slots],
                 }
             )
         )
@@ -132,15 +169,36 @@ def build_plan_read(plan: Plan) -> PlanRead:
         {
             "id": plan.id,
             "owner_user_id": plan.owner_user_id,
+            "profile_id": plan.profile_id,
+            "profile_name": plan.profile.name if plan.profile is not None else None,
             "start_date": plan.start_date,
             "days_count": plan.days_count,
             "meals_per_day": plan.meals_per_day,
             "title": plan.title,
+            "target_kcal": plan.target_kcal,
+            "target_protein": plan.target_protein,
+            "target_fat": plan.target_fat,
+            "target_carbs": plan.target_carbs,
             "created_at": plan.created_at,
             "updated_at": plan.updated_at,
-            "slots": [PlanSlotRead.model_validate(slot) for slot in sorted_slots],
+            "slots": [PlanSlotRead.model_validate(slot_payload_by_id[slot.id]) for slot in sorted_slots],
             "days": days_payload,
         }
+    )
+
+
+def build_plan_slot_read(slot: PlanSlot) -> PlanSlotRead:
+    recipe_per_serving_cache: dict[int, dict[str, Decimal]] = {}
+    if slot.recipe_id is not None and slot.recipe is not None:
+        nutrients = calculate_recipe_nutrients(slot.recipe)
+        recipe_per_serving_cache[slot.recipe_id] = {
+            "kcal": nutrients["per_serving_kcal"],
+            "protein": nutrients["per_serving_protein"],
+            "fat": nutrients["per_serving_fat"],
+            "carbs": nutrients["per_serving_carbs"],
+        }
+    return PlanSlotRead.model_validate(
+        _build_slot_payload(slot, recipe_per_serving_cache=recipe_per_serving_cache)
     )
 
 
@@ -234,5 +292,13 @@ def update_plan_slot(
         slot.pinned = update_data["pinned"]
 
     db.commit()
-    db.refresh(slot)
-    return slot
+    refreshed_slot = db.execute(
+        select(PlanSlot)
+        .where(PlanSlot.id == slot.id)
+        .options(
+            selectinload(PlanSlot.recipe)
+            .selectinload(Recipe.ingredients)
+            .selectinload(RecipeIngredient.food)
+        )
+    ).scalar_one()
+    return refreshed_slot

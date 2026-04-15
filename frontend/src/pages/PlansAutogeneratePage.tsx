@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/http";
 import { autogeneratePlan } from "../api/plans";
 import { FormErrorSummary } from "../components/FormErrorSummary";
+import { useProfiles } from "../context/ProfilesContext";
 import type { PlanAutogeneratePayload } from "../types/plan";
 import "./PlansPage.css";
 
@@ -10,6 +11,7 @@ type PlanAutogenerateFormState = {
   start_date: string;
   days_count: string;
   meals_per_day: string;
+  profile_id: string;
   use_public_recipes: boolean;
 };
 
@@ -17,6 +19,7 @@ type PlanAutogenerateFormErrors = {
   start_date?: string;
   days_count?: string;
   meals_per_day?: string;
+  profile_id?: string;
   form: string[];
 };
 
@@ -59,6 +62,12 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
     errors.form.push("Слотов в день должно быть от 2 до 6.");
   }
 
+  const profileId = Number(form.profile_id);
+  if (!Number.isInteger(profileId) || profileId < 1) {
+    errors.profile_id = "Выберите профиль.";
+    errors.form.push("Нужно выбрать профиль для автоплана.");
+  }
+
   if (errors.form.length > 0) {
     return { payload: null, errors };
   }
@@ -68,6 +77,7 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
       start_date: dateValue,
       days_count: daysCount,
       meals_per_day: mealsPerDay,
+      profile_id: profileId,
       use_public_recipes: form.use_public_recipes,
       excluded_recipe_ids: [],
       excluded_food_ids: [],
@@ -87,18 +97,20 @@ function tryBuildNotEnoughRecipesHint(detail: string): string | null {
 }
 
 function mapAutogenerateError(err: unknown): string[] {
-  if (err instanceof ApiError) {
-    if (err.status === 401) return ["Нужно войти в систему."];
-    if (err.status === 422) {
-      const detailRaw = typeof err.payload?.detail === "string" ? err.payload.detail.trim() : "";
-      if (detailRaw.toLowerCase().includes("not enough recipes")) {
-        const detailHint = tryBuildNotEnoughRecipesHint(detailRaw);
-        return detailHint
-          ? ["Недостаточно рецептов для выбранных параметров.", detailHint]
-          : ["Недостаточно рецептов для выбранных параметров."];
+    if (err instanceof ApiError) {
+      if (err.status === 401) return ["Нужно войти в систему."];
+      if (err.status === 404) return ["Выбранный профиль недоступен. Выберите другой профиль и попробуйте снова."];
+      if (err.status === 422) {
+        const detailRaw = typeof err.payload?.detail === "string" ? err.payload.detail.trim() : "";
+        if (detailRaw.toLowerCase().includes("not enough recipes")) {
+          const detailHint = tryBuildNotEnoughRecipesHint(detailRaw);
+          return detailHint
+            ? ["Недостаточно рецептов для выбранных параметров.", detailHint]
+            : ["Недостаточно рецептов для выбранных параметров."];
+        }
+        if (detailRaw) return [detailRaw];
+        return ["Проверьте параметры автоплана и повторите попытку."];
       }
-      return ["Проверьте параметры автоплана и повторите попытку."];
-    }
     if (err.status === 0) return ["Не удалось сгенерировать план. Попробуйте ещё раз."];
     return ["Не удалось сгенерировать план. Попробуйте ещё раз."];
   }
@@ -107,19 +119,33 @@ function mapAutogenerateError(err: unknown): string[] {
 
 export function PlansAutogeneratePage() {
   const navigate = useNavigate();
+  const { profiles, activeProfileId, loading: loadingProfiles } = useProfiles();
   const initialDate = useMemo(() => toTodayIsoDate(), []);
 
   const [form, setForm] = useState<PlanAutogenerateFormState>({
     start_date: initialDate,
     days_count: "7",
     meals_per_day: "3",
+    profile_id: activeProfileId ? String(activeProfileId) : "",
     use_public_recipes: true,
   });
   const [errors, setErrors] = useState<PlanAutogenerateFormErrors>({ form: [] });
   const [saving, setSaving] = useState(false);
 
+  const profileOptions = useMemo(() => profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+  })), [profiles]);
+
+  useEffect(() => {
+    if (form.profile_id) return;
+    if (activeProfileId) {
+      setForm((prev) => ({ ...prev, profile_id: String(activeProfileId) }));
+    }
+  }, [activeProfileId, form.profile_id]);
+
   const updateTextField = (
-    field: "start_date" | "days_count" | "meals_per_day",
+    field: "start_date" | "days_count" | "meals_per_day" | "profile_id",
     value: string,
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -223,6 +249,27 @@ export function PlansAutogeneratePage() {
             />
             <div className="plans-field-error-slot" aria-live="polite">
               {errors.meals_per_day && <p className="plans-field-error">{errors.meals_per_day}</p>}
+            </div>
+          </label>
+
+          <label className="plans-field" htmlFor="autoplan-profile">
+            <span className="plans-field-label">Профиль</span>
+            <select
+              id="autoplan-profile"
+              className={`plans-field-input ${errors.profile_id ? "is-invalid" : ""}`}
+              value={form.profile_id}
+              onChange={(event) => updateTextField("profile_id", event.target.value)}
+              disabled={saving || loadingProfiles || profileOptions.length === 0}
+            >
+              <option value="">{loadingProfiles ? "Загрузка профилей..." : "Выберите профиль"}</option>
+              {profileOptions.map((profile) => (
+                <option key={profile.id} value={String(profile.id)}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+            <div className="plans-field-error-slot" aria-live="polite">
+              {errors.profile_id && <p className="plans-field-error">{errors.profile_id}</p>}
             </div>
           </label>
 

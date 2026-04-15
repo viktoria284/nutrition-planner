@@ -36,6 +36,18 @@
   color: var(--text-soft);
 }
 
+.plan-profile-summary {
+  margin: 4px 0 0;
+  color: var(--text-main);
+  font-size: 0.92rem;
+}
+
+.plan-profile-hint {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
 .plans-head-actions {
   display: flex;
   flex-wrap: wrap;
@@ -304,6 +316,13 @@
   margin: 0;
   color: var(--text-soft);
   font-size: 0.86rem;
+}
+
+.plan-slot-nutrition {
+  display: grid;
+  gap: 2px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
 }
 
 .plan-slot-badge {

@@ -14,6 +14,10 @@ export type PlanSlot = {
   slot_index: number;
   recipe_id: number | null;
   servings_multiplier: DecimalString;
+  slot_kcal: DecimalString;
+  slot_protein: DecimalString;
+  slot_fat: DecimalString;
+  slot_carbs: DecimalString;
   pinned: boolean;
   created_at: string;
   updated_at: string;
@@ -39,10 +43,16 @@ export type PlanListItem = {
 export type PlanRead = {
   id: number;
   owner_user_id: number;
+  profile_id: number | null;
+  profile_name: string | null;
   start_date: string;
   days_count: number;
   meals_per_day: number;
   title: string | null;
+  target_kcal: number | null;
+  target_protein: number | null;
+  target_fat: number | null;
+  target_carbs: number | null;
   slots: PlanSlot[];
   days: PlanDay[];
   created_at: string;
@@ -60,6 +70,7 @@ export type PlanAutogeneratePayload = {
   start_date: string;
   days_count: number;
   meals_per_day: number;
+  profile_id?: number;
   use_public_recipes: boolean;
   excluded_recipe_ids?: number[];
   excluded_food_ids?: number[];

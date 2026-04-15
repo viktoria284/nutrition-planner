@@ -26,6 +26,7 @@ class PlanAutogenerateRequest(BaseModel):
     start_date: date
     days_count: Annotated[int, Field(ge=1, le=7)]
     meals_per_day: Annotated[int, Field(ge=2, le=6)]
+    profile_id: Annotated[int, Field(ge=1)] | None = None
     use_public_recipes: bool = True
     excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
@@ -63,6 +64,10 @@ class PlanSlotRead(BaseModel):
     slot_index: int
     recipe_id: int | None
     servings_multiplier: Decimal
+    slot_kcal: Decimal
+    slot_protein: Decimal
+    slot_fat: Decimal
+    slot_carbs: Decimal
     pinned: bool
     created_at: datetime
     updated_at: datetime
@@ -87,10 +92,16 @@ class PlanDayRead(BaseModel):
 class PlanRead(BaseModel):
     id: int
     owner_user_id: int
+    profile_id: int | None
+    profile_name: str | None
     start_date: date
     days_count: int
     meals_per_day: int
     title: str | None
+    target_kcal: int | None
+    target_protein: int | None
+    target_fat: int | None
+    target_carbs: int | None
     slots: list[PlanSlotRead]
     days: list[PlanDayRead]
     created_at: datetime
@@ -107,10 +118,15 @@ class PlanAutogenerateResponse(PlanRead):
 class PlanListItem(BaseModel):
     id: int
     owner_user_id: int
+    profile_id: int | None
     start_date: date
     days_count: int
     meals_per_day: int
     title: str | None
+    target_kcal: int | None
+    target_protein: int | None
+    target_fat: int | None
+    target_carbs: int | None
     created_at: datetime
     updated_at: datetime
 

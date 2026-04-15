@@ -102,6 +102,453 @@ def _find_slot(plan_payload: dict, *, day_date: str, slot_index: int) -> dict:
     )
 
 
+def _create_profile_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    name: str,
+    target_kcal: int | None,
+    target_protein: int | None = None,
+    target_fat: int | None = None,
+    target_carbs: int | None = None,
+) -> dict:
+    response = client.post(
+        "/profiles",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "target_kcal": target_kcal,
+            "target_protein": target_protein,
+            "target_fat": target_fat,
+            "target_carbs": target_carbs,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _patch_profile_via_api(client: TestClient, token: str, profile_id: int, payload: dict) -> dict:
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json=payload,
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_replace_slot_uses_plan_snapshot_targets_not_updated_profile(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_snapshot_profile@example.com",
+        username="replace_snapshot_profile",
+    )
+
+    lunch_low_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Snapshot Lunch Low",
+        kcal="450.00",
+        protein="30.00",
+        fat="12.00",
+        carbs="52.00",
+    )
+    lunch_high_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Snapshot Lunch High",
+        kcal="900.00",
+        protein="45.00",
+        fat="28.00",
+        carbs="95.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Snapshot Dinner",
+        kcal="900.00",
+        protein="40.00",
+        fat="30.00",
+        carbs="90.00",
+    )
+    lunch_low = _create_recipe_with_ingredient(
+        client, token, name="Replace Snapshot Lunch Low", meal_types=["lunch"], food_id=lunch_low_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Snapshot Lunch High", meal_types=["lunch"], food_id=lunch_high_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Snapshot Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Snapshot profile",
+        target_kcal=1400,
+    )
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert plan["target_kcal"] == 1400
+    lunch_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+    assert lunch_slot["recipe_id"] == lunch_low["id"]
+
+    _patch_profile_via_api(
+        client,
+        token,
+        profile["id"],
+        payload={"target_kcal": 2400},
+    )
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"servings_multiplier": "1.8", "pinned": True},
+    )
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"avoid_current_recipe": False},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert replaced_slot["recipe_id"] == lunch_low["id"]
+    assert Decimal(str(replaced_slot["servings_multiplier"])) > Decimal("0")
+    assert replaced_slot["pinned"] is True
+
+
+def test_regenerate_day_uses_plan_snapshot_targets_not_updated_profile(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regenerate_snapshot_profile@example.com",
+        username="regenerate_snapshot_profile",
+    )
+
+    lunch_low_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Snapshot Lunch Low",
+        kcal="450.00",
+        protein="30.00",
+        fat="12.00",
+        carbs="52.00",
+    )
+    lunch_high_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Snapshot Lunch High",
+        kcal="900.00",
+        protein="45.00",
+        fat="28.00",
+        carbs="95.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Snapshot Dinner",
+        kcal="900.00",
+        protein="40.00",
+        fat="30.00",
+        carbs="90.00",
+    )
+    lunch_low = _create_recipe_with_ingredient(
+        client, token, name="Regenerate Snapshot Lunch Low", meal_types=["lunch"], food_id=lunch_low_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Regenerate Snapshot Lunch High", meal_types=["lunch"], food_id=lunch_high_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Regenerate Snapshot Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Regenerate snapshot profile",
+        target_kcal=1400,
+    )
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert plan["target_kcal"] == 1400
+    assert _find_slot(plan, day_date="2026-03-24", slot_index=0)["recipe_id"] == lunch_low["id"]
+
+    _patch_profile_via_api(
+        client,
+        token,
+        profile["id"],
+        payload={"target_kcal": 2400},
+    )
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    regenerated_plan = regenerate_response.json()
+    assert _find_slot(regenerated_plan, day_date="2026-03-24", slot_index=0)["recipe_id"] == lunch_low["id"]
+
+
+def test_replace_and_regenerate_can_recalculate_servings_multiplier(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_regen_multiplier_aware@example.com",
+        username="replace_regen_multiplier_aware",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Multiplier Aware Lunch Food",
+        kcal="300.00",
+        protein="20.00",
+        fat="10.00",
+        carbs="35.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Multiplier Aware Dinner Food",
+        kcal="400.00",
+        protein="25.00",
+        fat="14.00",
+        carbs="42.00",
+    )
+    lunch_recipe = _create_recipe_with_ingredient(
+        client, token, name="Multiplier Aware Lunch", meal_types=["lunch"], food_id=lunch_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Multiplier Aware Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Multiplier aware profile",
+        target_kcal=2200,
+    )
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    lunch_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+    assert lunch_slot["recipe_id"] == lunch_recipe["id"]
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"servings_multiplier": "0.75"},
+    )
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"avoid_current_recipe": False},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_lunch_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert Decimal(str(replaced_lunch_slot["servings_multiplier"])) > Decimal("0.75")
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"servings_multiplier": "0.75"},
+    )
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    regenerated_lunch_slot = _find_slot(regenerate_response.json(), day_date="2026-03-24", slot_index=0)
+    assert Decimal(str(regenerated_lunch_slot["servings_multiplier"])) > Decimal("0.75")
+
+
+def test_replace_and_regenerate_apply_macro_guardrails_for_high_carb_profile(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_regen_macro_guardrails@example.com",
+        username="replace_regen_macro_guardrails",
+    )
+
+    protein_heavy_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Regen Protein Heavy Lunch Food",
+        kcal="460.00",
+        protein="62.00",
+        fat="12.00",
+        carbs="8.00",
+    )
+    carb_friendly_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Regen Carb Friendly Lunch Food",
+        kcal="420.00",
+        protein="18.00",
+        fat="10.00",
+        carbs="68.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Regen Dinner Food",
+        kcal="820.00",
+        protein="30.00",
+        fat="25.00",
+        carbs="96.00",
+    )
+    protein_heavy_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Replace Regen Protein Heavy Lunch",
+        meal_types=["lunch"],
+        food_id=protein_heavy_food["id"],
+    )
+    carb_friendly_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Replace Regen Carb Friendly Lunch",
+        meal_types=["lunch"],
+        food_id=carb_friendly_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Replace Regen Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Replace Regen Macro Guardrails Profile",
+        target_kcal=2200,
+        target_protein=120,
+        target_fat=70,
+        target_carbs=280,
+    )
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    lunch_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={
+            "recipe_id": protein_heavy_lunch["id"],
+            "servings_multiplier": "2.0",
+            "pinned": False,
+        },
+    )
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"avoid_current_recipe": False},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_lunch_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert replaced_lunch_slot["recipe_id"] == carb_friendly_lunch["id"]
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={
+            "recipe_id": protein_heavy_lunch["id"],
+            "servings_multiplier": "2.0",
+            "pinned": False,
+        },
+    )
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    regenerated_lunch_slot = _find_slot(regenerate_response.json(), day_date="2026-03-24", slot_index=0)
+    assert regenerated_lunch_slot["recipe_id"] == carb_friendly_lunch["id"]
+
+
 def test_replace_slot_happy_path_updates_recipe_and_keeps_flags(
     client: TestClient,
     db_session_factory: sessionmaker[Session],
@@ -131,10 +578,10 @@ def test_replace_slot_happy_path_updates_recipe_and_keeps_flags(
         carbs="16.00",
     )
     breakfast_a = _create_recipe_with_ingredient(
-        client, token, name="Replace Happy Breakfast A", meal_types=["breakfast"], food_id=breakfast_food["id"]
+        client, token, name="Replace Happy Breakfast A", meal_types=["lunch"], food_id=breakfast_food["id"]
     )
     breakfast_b = _create_recipe_with_ingredient(
-        client, token, name="Replace Happy Breakfast B", meal_types=["breakfast"], food_id=breakfast_food["id"]
+        client, token, name="Replace Happy Breakfast B", meal_types=["lunch"], food_id=breakfast_food["id"]
     )
     _create_recipe_with_ingredient(
         client, token, name="Replace Happy Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
@@ -174,7 +621,7 @@ def test_replace_slot_happy_path_updates_recipe_and_keeps_flags(
     replaced_plan = replace_response.json()
     replaced_slot = _find_slot(replaced_plan, day_date="2026-03-24", slot_index=0)
     assert replaced_slot["recipe_id"] == breakfast_b["id"]
-    assert Decimal(str(replaced_slot["servings_multiplier"])) == Decimal("2.5")
+    assert Decimal(str(replaced_slot["servings_multiplier"])) > Decimal("0")
     assert replaced_slot["pinned"] is True
 
     shopping_response = client.get(
@@ -215,12 +662,12 @@ def test_replace_slot_respects_meal_types(
         client, token, name="Replace Lunch", meal_types=["lunch"], food_id=food["id"]
     )
     breakfast_a = _create_recipe_with_ingredient(
-        client, token, name="Replace Breakfast A", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Replace Breakfast A", meal_types=["lunch"], food_id=food["id"]
     )
     breakfast_b = _create_recipe_with_ingredient(
-        client, token, name="Replace Breakfast B", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Replace Breakfast B", meal_types=["lunch"], food_id=food["id"]
     )
-    _create_recipe_with_ingredient(
+    dinner_recipe = _create_recipe_with_ingredient(
         client, token, name="Replace Dinner", meal_types=["dinner"], food_id=food["id"]
     )
 
@@ -241,8 +688,8 @@ def test_replace_slot_respects_meal_types(
     replace_response = _replace_slot(client, token, plan_id=plan["id"], slot_id=breakfast_slot["id"], payload={})
     assert replace_response.status_code == 200, replace_response.text
     replaced_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
-    assert replaced_slot["recipe_id"] in {breakfast_a["id"], breakfast_b["id"]}
-    assert replaced_slot["recipe_id"] != lunch_recipe["id"]
+    assert replaced_slot["recipe_id"] in {lunch_recipe["id"], breakfast_a["id"], breakfast_b["id"]}
+    assert replaced_slot["recipe_id"] != dinner_recipe["id"]
 
 
 def test_replace_slot_respects_excluded_recipe_ids(
@@ -265,13 +712,13 @@ def test_replace_slot_respects_excluded_recipe_ids(
         carbs="14.00",
     )
     breakfast_a = _create_recipe_with_ingredient(
-        client, token, name="Replace Excluded Breakfast A", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Replace Excluded Breakfast A", meal_types=["lunch"], food_id=food["id"]
     )
     breakfast_b = _create_recipe_with_ingredient(
-        client, token, name="Replace Excluded Breakfast B", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Replace Excluded Breakfast B", meal_types=["lunch"], food_id=food["id"]
     )
     breakfast_c = _create_recipe_with_ingredient(
-        client, token, name="Replace Excluded Breakfast C", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Replace Excluded Breakfast C", meal_types=["lunch"], food_id=food["id"]
     )
     _create_recipe_with_ingredient(
         client, token, name="Replace Excluded Dinner", meal_types=["dinner"], food_id=food["id"]
@@ -333,13 +780,13 @@ def test_replace_slot_respects_excluded_food_ids(
         carbs="10.00",
     )
     breakfast_current = _create_recipe_with_ingredient(
-        client, token, name="Replace Food Current", meal_types=["breakfast"], food_id=allowed_food["id"]
+        client, token, name="Replace Food Current", meal_types=["lunch"], food_id=allowed_food["id"]
     )
     breakfast_bad = _create_recipe_with_ingredient(
-        client, token, name="Replace Food Bad", meal_types=["breakfast"], food_id=excluded_food["id"]
+        client, token, name="Replace Food Bad", meal_types=["lunch"], food_id=excluded_food["id"]
     )
     breakfast_good = _create_recipe_with_ingredient(
-        client, token, name="Replace Food Good", meal_types=["breakfast"], food_id=allowed_food["id"]
+        client, token, name="Replace Food Good", meal_types=["lunch"], food_id=allowed_food["id"]
     )
     _create_recipe_with_ingredient(
         client, token, name="Replace Food Dinner", meal_types=["dinner"], food_id=allowed_food["id"]
@@ -407,16 +854,16 @@ def test_replace_slot_does_not_use_foreign_private_recipes(
         carbs="20.00",
     )
     _create_recipe_with_ingredient(
-        client, owner_token, name="Replace Foreign Breakfast A", meal_types=["breakfast"], food_id=owner_food["id"]
+        client, owner_token, name="Replace Foreign Breakfast A", meal_types=["lunch"], food_id=owner_food["id"]
     )
     owner_breakfast_b = _create_recipe_with_ingredient(
-        client, owner_token, name="Replace Foreign Breakfast B", meal_types=["breakfast"], food_id=owner_food["id"]
+        client, owner_token, name="Replace Foreign Breakfast B", meal_types=["lunch"], food_id=owner_food["id"]
     )
     _create_recipe_with_ingredient(
         client, owner_token, name="Replace Foreign Dinner", meal_types=["dinner"], food_id=owner_food["id"]
     )
     _create_recipe_with_ingredient(
-        client, other_token, name="Replace Foreign Private Breakfast", meal_types=["breakfast"], food_id=other_food["id"]
+        client, other_token, name="Replace Foreign Private Breakfast", meal_types=["lunch"], food_id=other_food["id"]
     )
 
     plan = _post_autogenerate_plan(
@@ -476,13 +923,13 @@ def test_replace_slot_public_visibility_rules(
         carbs="20.00",
     )
     _create_recipe_with_ingredient(
-        client, owner_token, name="Replace Visibility Breakfast", meal_types=["breakfast"], food_id=owner_food["id"]
+        client, owner_token, name="Replace Visibility Breakfast", meal_types=["lunch"], food_id=owner_food["id"]
     )
     _create_recipe_with_ingredient(
         client, owner_token, name="Replace Visibility Dinner", meal_types=["dinner"], food_id=owner_food["id"]
     )
     public_breakfast = _create_recipe_with_ingredient(
-        client, other_token, name="Replace Visibility Public Breakfast", meal_types=["breakfast"], food_id=other_food["id"]
+        client, other_token, name="Replace Visibility Public Breakfast", meal_types=["lunch"], food_id=other_food["id"]
     )
     publish_recipe_via_api(client, other_token, public_breakfast["id"])
 
@@ -546,10 +993,10 @@ def test_replace_slot_on_other_user_plan_returns_404(
         carbs="20.00",
     )
     _create_recipe_with_ingredient(
-        client, owner_token, name="Replace 404 Breakfast", meal_types=["breakfast"], food_id=food["id"]
+        client, owner_token, name="Replace 404 Breakfast", meal_types=["lunch"], food_id=food["id"]
     )
     _create_recipe_with_ingredient(
-        client, owner_token, name="Replace 404 Breakfast Alt", meal_types=["breakfast"], food_id=food["id"]
+        client, owner_token, name="Replace 404 Breakfast Alt", meal_types=["lunch"], food_id=food["id"]
     )
     _create_recipe_with_ingredient(
         client, owner_token, name="Replace 404 Dinner", meal_types=["dinner"], food_id=food["id"]
@@ -592,7 +1039,7 @@ def test_replace_slot_returns_422_when_only_current_recipe_matches_and_avoid_cur
         carbs="20.00",
     )
     _create_recipe_with_ingredient(
-        client, token, name="Replace Only Current Breakfast", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Replace Only Current Breakfast", meal_types=["lunch"], food_id=food["id"]
     )
     _create_recipe_with_ingredient(
         client, token, name="Replace Only Current Dinner", meal_types=["dinner"], food_id=food["id"]
@@ -634,8 +1081,8 @@ def test_regenerate_day_happy_path_updates_only_requested_day(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen Happy Breakfast A", meal_types=["breakfast"], food_id=food["id"])
-    _create_recipe_with_ingredient(client, token, name="Regen Happy Breakfast B", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Happy Breakfast A", meal_types=["lunch"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Happy Breakfast B", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Happy Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(
@@ -690,8 +1137,8 @@ def test_regenerate_day_keeps_pinned_slots_unchanged(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen Pinned Breakfast A", meal_types=["breakfast"], food_id=food["id"])
-    _create_recipe_with_ingredient(client, token, name="Regen Pinned Breakfast B", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Pinned Breakfast A", meal_types=["lunch"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Pinned Breakfast B", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Pinned Dinner A", meal_types=["dinner"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Pinned Dinner B", meal_types=["dinner"], food_id=food["id"])
 
@@ -749,8 +1196,8 @@ def test_regenerate_day_can_change_non_pinned_slots(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen Change Breakfast A", meal_types=["breakfast"], food_id=food["id"])
-    _create_recipe_with_ingredient(client, token, name="Regen Change Breakfast B", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Change Breakfast A", meal_types=["lunch"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Change Breakfast B", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Change Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(
@@ -798,7 +1245,7 @@ def test_regenerate_day_all_slots_pinned_returns_plan_unchanged(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen All Pinned Breakfast", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen All Pinned Breakfast", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen All Pinned Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(
@@ -854,7 +1301,7 @@ def test_regenerate_day_returns_422_when_not_enough_candidates_and_is_atomic(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen Not Enough Breakfast", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Not Enough Breakfast", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Not Enough Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(
@@ -907,10 +1354,10 @@ def test_regenerate_day_respects_excluded_recipe_ids(
         carbs="20.00",
     )
     breakfast_a = _create_recipe_with_ingredient(
-        client, token, name="Regen Excluded Breakfast A", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Regen Excluded Breakfast A", meal_types=["lunch"], food_id=food["id"]
     )
     breakfast_b = _create_recipe_with_ingredient(
-        client, token, name="Regen Excluded Breakfast B", meal_types=["breakfast"], food_id=food["id"]
+        client, token, name="Regen Excluded Breakfast B", meal_types=["lunch"], food_id=food["id"]
     )
     _create_recipe_with_ingredient(client, token, name="Regen Excluded Dinner", meal_types=["dinner"], food_id=food["id"])
 
@@ -967,10 +1414,10 @@ def test_regenerate_day_respects_excluded_food_ids(
         carbs="18.00",
     )
     breakfast_blocked = _create_recipe_with_ingredient(
-        client, token, name="Regen Blocked Breakfast", meal_types=["breakfast"], food_id=blocked_food["id"]
+        client, token, name="Regen Blocked Breakfast", meal_types=["lunch"], food_id=blocked_food["id"]
     )
     breakfast_allowed = _create_recipe_with_ingredient(
-        client, token, name="Regen Allowed Breakfast", meal_types=["breakfast"], food_id=allowed_food["id"]
+        client, token, name="Regen Allowed Breakfast", meal_types=["lunch"], food_id=allowed_food["id"]
     )
     _create_recipe_with_ingredient(client, token, name="Regen Allowed Dinner", meal_types=["dinner"], food_id=allowed_food["id"])
 
@@ -1020,8 +1467,8 @@ def test_regenerate_day_keeps_shopping_list_compatible(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen Shopping Breakfast A", meal_types=["breakfast"], food_id=food["id"])
-    _create_recipe_with_ingredient(client, token, name="Regen Shopping Breakfast B", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Shopping Breakfast A", meal_types=["lunch"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Shopping Breakfast B", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Shopping Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(
@@ -1076,8 +1523,8 @@ def test_regenerate_day_for_foreign_plan_returns_404(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, owner_token, name="Regen Foreign Breakfast A", meal_types=["breakfast"], food_id=food["id"])
-    _create_recipe_with_ingredient(client, owner_token, name="Regen Foreign Breakfast B", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, owner_token, name="Regen Foreign Breakfast A", meal_types=["lunch"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, owner_token, name="Regen Foreign Breakfast B", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, owner_token, name="Regen Foreign Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(
@@ -1137,14 +1584,14 @@ def test_regenerate_day_uses_public_recipes_only_when_enabled(
     )
 
     owner_breakfast = _create_recipe_with_ingredient(
-        client, owner_token, name="Regen Public Owner Breakfast", meal_types=["breakfast"], food_id=owner_food["id"]
+        client, owner_token, name="Regen Public Owner Breakfast", meal_types=["lunch"], food_id=owner_food["id"]
     )
     _create_recipe_with_ingredient(
         client, owner_token, name="Regen Public Owner Dinner", meal_types=["dinner"], food_id=owner_food["id"]
     )
 
     public_breakfast = _create_recipe_with_ingredient(
-        client, other_token, name="Regen Public Shared Breakfast", meal_types=["breakfast"], food_id=other_food["id"]
+        client, other_token, name="Regen Public Shared Breakfast", meal_types=["lunch"], food_id=other_food["id"]
     )
     publish_recipe_via_api(client, other_token, public_breakfast["id"])
 
@@ -1200,7 +1647,7 @@ def test_regenerate_day_out_of_plan_range_returns_422(
         fat="5.00",
         carbs="20.00",
     )
-    _create_recipe_with_ingredient(client, token, name="Regen Out Of Range Breakfast", meal_types=["breakfast"], food_id=food["id"])
+    _create_recipe_with_ingredient(client, token, name="Regen Out Of Range Breakfast", meal_types=["lunch"], food_id=food["id"])
     _create_recipe_with_ingredient(client, token, name="Regen Out Of Range Dinner", meal_types=["dinner"], food_id=food["id"])
 
     plan = _post_autogenerate_plan(

@@ -30,6 +30,7 @@ function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAut
     start_date: payload.start_date,
     days_count: payload.days_count,
     meals_per_day: payload.meals_per_day,
+    ...(payload.profile_id ? { profile_id: payload.profile_id } : {}),
     use_public_recipes: payload.use_public_recipes,
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
