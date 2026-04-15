@@ -43,6 +43,14 @@ class RecipeScore:
     slot_penalty: Decimal
 
 
+@dataclass(frozen=True)
+class FeasibilityEstimate:
+    max_daily_kcal: Decimal
+    max_daily_protein: Decimal
+    max_daily_fat: Decimal
+    max_daily_carbs: Decimal
+
+
 SLOT_TEMPLATES_BY_MEALS_PER_DAY: dict[int, tuple[SlotTemplate, ...]] = {
     2: (
         SlotTemplate(meal_type="lunch", weight=Decimal("0.45")),
@@ -109,6 +117,10 @@ PROTEIN_DENSE_MULTIPLIER_THRESHOLD = Decimal("1.50")
 PROTEIN_DENSE_PER_SERVING_THRESHOLD = Decimal("35")
 LOW_CARB_PER_SERVING_THRESHOLD = Decimal("22")
 PROTEIN_DENSE_MULTIPLIER_CAP = Decimal("1.50")
+LOW_FEASIBILITY_KCAL_GAP_RATIO = Decimal("0.18")
+LOW_FEASIBILITY_CARBS_GAP_RATIO = Decimal("0.20")
+LOW_FEASIBILITY_FAT_GAP_RATIO = Decimal("0.20")
+HIGH_TARGET_KCAL_RISK_THRESHOLD = Decimal("3200")
 
 
 class PlanAutogenerateNotEnoughRecipesError(ValueError):
@@ -132,6 +144,10 @@ class PlanAutogenerateProfileNotFoundError(ValueError):
 
 
 class PlanAutogenerateProfileValidationError(ValueError):
+    pass
+
+
+class PlanAutogenerateLowFeasibilityError(ValueError):
     pass
 
 
@@ -501,6 +517,118 @@ def _max_multiplier_for_recipe(nutrients: dict[str, Decimal]) -> Decimal:
     return max(SERVINGS_MULTIPLIER_CANDIDATES)
 
 
+def _feasibility_gap_ratio(*, target: Decimal | None, reachable_max: Decimal) -> Decimal:
+    if target is None or target <= 0:
+        return Decimal("0")
+    if reachable_max >= target:
+        return Decimal("0")
+    return (target - reachable_max) / target
+
+
+def _estimate_daily_feasibility(
+    *,
+    slot_templates: tuple[SlotTemplate, ...],
+    candidates_by_meal_type: dict[str, list[Recipe]],
+    recipe_nutrients_cache: dict[int, dict[str, Decimal]],
+) -> FeasibilityEstimate:
+    per_meal_type_max: dict[str, dict[str, Decimal]] = {}
+    for meal_type in {template.meal_type for template in slot_templates}:
+        candidates = candidates_by_meal_type.get(meal_type, [])
+        max_values = _zero_totals()
+        for recipe in candidates:
+            nutrients = _recipe_nutrients_per_serving(recipe, recipe_nutrients_cache=recipe_nutrients_cache)
+            max_multiplier = _max_multiplier_for_recipe(nutrients)
+            max_values["kcal"] = max(max_values["kcal"], nutrients["kcal"] * max_multiplier)
+            max_values["protein"] = max(max_values["protein"], nutrients["protein"] * max_multiplier)
+            max_values["fat"] = max(max_values["fat"], nutrients["fat"] * max_multiplier)
+            max_values["carbs"] = max(max_values["carbs"], nutrients["carbs"] * max_multiplier)
+        per_meal_type_max[meal_type] = max_values
+
+    max_day = _zero_totals()
+    for template in slot_templates:
+        slot_max = per_meal_type_max.get(template.meal_type, _zero_totals())
+        max_day["kcal"] += slot_max["kcal"]
+        max_day["protein"] += slot_max["protein"]
+        max_day["fat"] += slot_max["fat"]
+        max_day["carbs"] += slot_max["carbs"]
+
+    return FeasibilityEstimate(
+        max_daily_kcal=max_day["kcal"],
+        max_daily_protein=max_day["protein"],
+        max_daily_fat=max_day["fat"],
+        max_daily_carbs=max_day["carbs"],
+    )
+
+
+def _build_low_feasibility_message(
+    *,
+    meals_per_day: int,
+    targets: PlanTargets,
+    estimate: FeasibilityEstimate,
+) -> str:
+    target_kcal = int(targets.kcal or 0)
+    reachable_kcal = int(estimate.max_daily_kcal)
+
+    message_parts = [
+        (
+            f"Для этой цели и {meals_per_day} приемов пищи доступных блюд недостаточно: "
+            f"реалистичный максимум около {reachable_kcal} ккал/день при цели {target_kcal} ккал."
+        )
+    ]
+    if meals_per_day <= 3 and (targets.kcal or Decimal("0")) >= HIGH_TARGET_KCAL_RISK_THRESHOLD:
+        message_parts.append("Для целей 3200+ ккал обычно нужны 4-5 приемов пищи.")
+    message_parts.append("Попробуйте 4-5 приемов пищи или расширьте базу рецептов.")
+    return " ".join(message_parts)
+
+
+def _ensure_autogenerate_feasibility(
+    *,
+    meals_per_day: int,
+    slot_templates: tuple[SlotTemplate, ...],
+    targets: PlanTargets,
+    candidates_by_meal_type: dict[str, list[Recipe]],
+    recipe_nutrients_cache: dict[int, dict[str, Decimal]],
+) -> None:
+    if targets.kcal is None or targets.kcal <= 0:
+        return
+
+    # MVP guardrail: trigger feasibility precheck only for genuinely high-calorie profiles.
+    if targets.kcal < HIGH_TARGET_KCAL_RISK_THRESHOLD:
+        return
+
+    if any(not candidates_by_meal_type.get(template.meal_type) for template in slot_templates):
+        return
+
+    estimate = _estimate_daily_feasibility(
+        slot_templates=slot_templates,
+        candidates_by_meal_type=candidates_by_meal_type,
+        recipe_nutrients_cache=recipe_nutrients_cache,
+    )
+
+    kcal_gap_ratio = _feasibility_gap_ratio(target=targets.kcal, reachable_max=estimate.max_daily_kcal)
+    carbs_gap_ratio = _feasibility_gap_ratio(target=targets.carbs, reachable_max=estimate.max_daily_carbs)
+    fat_gap_ratio = _feasibility_gap_ratio(target=targets.fat, reachable_max=estimate.max_daily_fat)
+
+    low_feasibility = kcal_gap_ratio > LOW_FEASIBILITY_KCAL_GAP_RATIO
+    if (
+        (targets.kcal or Decimal("0")) >= HIGH_TARGET_KCAL_RISK_THRESHOLD
+        and meals_per_day <= 3
+        and (carbs_gap_ratio > LOW_FEASIBILITY_CARBS_GAP_RATIO or fat_gap_ratio > LOW_FEASIBILITY_FAT_GAP_RATIO)
+    ):
+        low_feasibility = True
+
+    if not low_feasibility:
+        return
+
+    raise PlanAutogenerateLowFeasibilityError(
+        _build_low_feasibility_message(
+            meals_per_day=meals_per_day,
+            targets=targets,
+            estimate=estimate,
+        )
+    )
+
+
 def _cumulative_weight_for_slot(*, meals_per_day: int, slot_index: int) -> Decimal:
     templates = get_slot_templates(meals_per_day)
     return sum(template.weight for template in templates[: slot_index + 1])
@@ -761,10 +889,18 @@ def build_autogenerated_plan(
             excluded_food_ids=payload.excluded_food_ids,
         )
 
+    recipe_nutrients_cache: dict[int, dict[str, Decimal]] = {}
+    _ensure_autogenerate_feasibility(
+        meals_per_day=payload.meals_per_day,
+        slot_templates=slot_templates,
+        targets=targets,
+        candidates_by_meal_type=candidates_by_meal_type,
+        recipe_nutrients_cache=recipe_nutrients_cache,
+    )
+
     planned_slots: list[tuple[date, int, int, Decimal]] = []
     recipe_usage_counts: dict[int, int] = defaultdict(int)
     slot_recipe_dates: dict[int, dict[int, list[date]]] = defaultdict(lambda: defaultdict(list))
-    recipe_nutrients_cache: dict[int, dict[str, Decimal]] = {}
 
     for day_offset in range(payload.days_count):
         day_date = payload.start_date + timedelta(days=day_offset)

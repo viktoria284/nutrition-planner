@@ -3,6 +3,7 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.services.recipes import seed_demo_public_recipes
 from test_plans_api import (
     add_ingredient_via_api,
     auth_headers,
@@ -290,6 +291,136 @@ def test_autogenerate_returns_422_when_profile_has_no_kcal_target(
     )
     assert response.status_code == 422, response.text
     assert "target_kcal" in response.json()["detail"]
+
+
+def test_autogenerate_returns_422_for_low_feasibility_high_target_with_3_meals(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_low_feasibility_high_target@example.com",
+        username="autoplan_low_feasibility_high_target",
+    )
+
+    breakfast_food = create_food_via_api(
+        client,
+        token,
+        name="Low Feasibility Breakfast Food",
+        kcal="180.00",
+        protein="9.00",
+        fat="4.00",
+        carbs="28.00",
+    )
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Low Feasibility Lunch Food",
+        kcal="220.00",
+        protein="15.00",
+        fat="7.00",
+        carbs="30.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Low Feasibility Dinner Food",
+        kcal="260.00",
+        protein="20.00",
+        fat="9.00",
+        carbs="32.00",
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Low Feasibility Breakfast Recipe",
+        meal_types=["breakfast"],
+        food_id=breakfast_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Low Feasibility Lunch Recipe",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Low Feasibility Dinner Recipe",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="High target profile",
+        target_kcal=3530,
+        target_protein=180,
+        target_fat=90,
+        target_carbs=500,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 3,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert "доступных блюд недостаточно" in detail
+    assert "4-5" in detail
+
+
+def test_autogenerate_high_target_with_5_meals_is_feasible_with_seeded_pool(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_high_target_seeded_pool@example.com",
+        username="autoplan_high_target_seeded_pool",
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Seeded high target profile",
+        target_kcal=3200,
+        target_protein=170,
+        target_fat=95,
+        target_carbs=430,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 5,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    assert len(plan["slots"]) == 5
+    assert Decimal(str(plan["days"][0]["totals"]["kcal"])) >= Decimal("2600")
 
 
 def test_autogenerate_high_kcal_profile_can_pick_multiplier_above_one(

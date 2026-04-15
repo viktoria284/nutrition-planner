@@ -20,6 +20,16 @@ MIN_MEAL_TYPE_COUNTS = {
     "dinner": 9,
     "snack": 6,
 }
+HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES = {
+    "Овсянка с арахисовой пастой и бананом",
+    "Тосты с творогом и бананом",
+    "Паста с говядиной и оливковым маслом",
+    "Рис с лососем и оливковым маслом",
+    "Курица с пастой и оливковым маслом",
+    "Говядина с рисом и подсолнечным маслом",
+    "Йогурт с бананом и арахисовой пастой",
+    "Тосты с арахисовой пастой и грушей",
+}
 
 
 def test_seed_demo_recipes_is_idempotent(
@@ -71,6 +81,26 @@ def test_seed_demo_recipes_have_meal_type_coverage(
             covered.update(recipe.meal_types)
         assert all(meal_type in covered for meal_type in DEMO_MEAL_TYPES)
         assert len(demo_recipes) >= MIN_DEMO_RECIPES
+    finally:
+        db.close()
+
+
+def test_seed_demo_recipes_include_high_calorie_carb_fat_friendly_options(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        demo_names = {item["name"] for item in DEMO_PUBLIC_RECIPES}
+        assert HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES.issubset(demo_names)
+
+        seeded = db.execute(
+            select(Recipe).where(Recipe.name.in_(sorted(HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES)))
+        ).scalars().all()
+        assert len(seeded) == len(HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES)
+        assert all(recipe.source == FoodSource.community for recipe in seeded)
+        assert all(recipe.status == FoodStatus.approved for recipe in seeded)
+        assert all(recipe.is_listed is True for recipe in seeded)
     finally:
         db.close()
 
