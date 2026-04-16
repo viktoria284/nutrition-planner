@@ -594,6 +594,49 @@
   gap: 12px;
 }
 
+.plan-shopping-status-row {
+  min-height: 30px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.plan-shopping-network-status {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  line-height: 1.1;
+}
+
+.plan-shopping-network-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8f8f8f;
+}
+
+.plan-shopping-network-dot.is-online {
+  background: var(--primary);
+}
+
+.plan-shopping-network-dot.is-offline {
+  background: var(--danger);
+}
+
+.plan-shopping-offline-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
 .plan-shopping-card {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -742,6 +785,10 @@
 
   .plan-shopping-item {
     grid-template-columns: 1fr;
+  }
+
+  .plan-shopping-status-row {
+    align-items: flex-start;
   }
 
   .plan-shopping-controls {
