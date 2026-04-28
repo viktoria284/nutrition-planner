@@ -320,7 +320,8 @@ def test_regenerate_day_uses_plan_snapshot_targets_not_updated_profile(
     )
     assert regenerate_response.status_code == 200, regenerate_response.text
     regenerated_plan = regenerate_response.json()
-    assert _find_slot(regenerated_plan, day_date="2026-03-24", slot_index=0)["recipe_id"] == lunch_low["id"]
+    regenerated_day_kcal = Decimal(str(regenerated_plan["days"][0]["totals"]["kcal"]))
+    assert abs(regenerated_day_kcal - Decimal("1400")) < abs(regenerated_day_kcal - Decimal("2400"))
 
 
 def test_replace_and_regenerate_can_recalculate_servings_multiplier(
@@ -1224,6 +1225,250 @@ def test_regenerate_day_can_change_non_pinned_slots(
     assert regenerate_response.status_code == 200, regenerate_response.text
     breakfast_after = _find_slot(regenerate_response.json(), day_date="2026-03-24", slot_index=0)["recipe_id"]
     assert breakfast_after != breakfast_before
+
+
+def test_regenerate_day_changes_non_pinned_slots_when_viable_alternative_exists(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regen_viable_variation@example.com",
+        username="regen_viable_variation",
+    )
+
+    breakfast_food = create_food_via_api(
+        client,
+        token,
+        name="Regen Viable Variation Breakfast Food",
+        kcal="420.00",
+        protein="22.00",
+        fat="12.00",
+        carbs="54.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Regen Viable Variation Dinner Food",
+        kcal="760.00",
+        protein="34.00",
+        fat="24.00",
+        carbs="84.00",
+    )
+    breakfast_a = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Viable Variation Breakfast A",
+        meal_types=["lunch"],
+        food_id=breakfast_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Viable Variation Breakfast B",
+        meal_types=["lunch"],
+        food_id=breakfast_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Viable Variation Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    breakfast_before = _find_slot(plan, day_date="2026-03-24", slot_index=0)["recipe_id"]
+    assert breakfast_before == breakfast_a["id"]
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    breakfast_after = _find_slot(regenerate_response.json(), day_date="2026-03-24", slot_index=0)["recipe_id"]
+    assert breakfast_after != breakfast_before
+
+
+def test_regenerate_day_keeps_current_day_when_only_current_combination_is_viable(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regen_only_viable_current@example.com",
+        username="regen_only_viable_current",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Regen Only Viable Current Food",
+        kcal="360.00",
+        protein="20.00",
+        fat="10.00",
+        carbs="44.00",
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Only Viable Current Lunch",
+        meal_types=["lunch"],
+        food_id=food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Only Viable Current Dinner",
+        meal_types=["dinner"],
+        food_id=food["id"],
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    before_signature = [
+        (slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"]))
+        for slot in sorted(plan["slots"], key=lambda item: (item["slot_index"], item["id"]))
+    ]
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    after_signature = [
+        (slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"]))
+        for slot in sorted(regenerate_response.json()["slots"], key=lambda item: (item["slot_index"], item["id"]))
+    ]
+    assert after_signature == before_signature
+
+
+def test_regenerate_day_does_not_make_totals_much_worse_only_for_variety(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regen_no_worse_for_variation@example.com",
+        username="regen_no_worse_for_variation",
+    )
+
+    balanced_lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Regen Variation Balanced Lunch Food",
+        kcal="450.00",
+        protein="26.00",
+        fat="12.00",
+        carbs="56.00",
+    )
+    heavy_lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Regen Variation Heavy Lunch Food",
+        kcal="980.00",
+        protein="28.00",
+        fat="52.00",
+        carbs="92.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Regen Variation Dinner Food",
+        kcal="820.00",
+        protein="34.00",
+        fat="24.00",
+        carbs="95.00",
+    )
+    balanced_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Variation Balanced Lunch",
+        meal_types=["lunch"],
+        food_id=balanced_lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Variation Heavy Lunch",
+        meal_types=["lunch"],
+        food_id=heavy_lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Regen Variation Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Regen variation profile",
+        target_kcal=1800,
+        target_protein=110,
+        target_fat=60,
+        target_carbs=220,
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    lunch_before = _find_slot(plan, day_date="2026-03-24", slot_index=0)["recipe_id"]
+    assert lunch_before == balanced_lunch["id"]
+    before_kcal = Decimal(str(plan["days"][0]["totals"]["kcal"]))
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-03-24",
+        payload={},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    regenerated = regenerate_response.json()
+    lunch_after = _find_slot(regenerated, day_date="2026-03-24", slot_index=0)["recipe_id"]
+    after_kcal = Decimal(str(regenerated["days"][0]["totals"]["kcal"]))
+
+    assert lunch_after == lunch_before
+    assert abs(after_kcal - Decimal("1800")) <= abs(before_kcal - Decimal("1800")) + Decimal("120")
 
 
 def test_regenerate_day_all_slots_pinned_returns_plan_unchanged(

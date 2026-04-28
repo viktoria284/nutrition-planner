@@ -13,7 +13,7 @@ from app.services.recipes import (
 
 
 MIN_DEMO_RECIPES = 36
-MAX_DEMO_RECIPES = 48
+MAX_DEMO_RECIPES = len(DEMO_PUBLIC_RECIPES)
 MIN_MEAL_TYPE_COUNTS = {
     "breakfast": 9,
     "lunch": 9,

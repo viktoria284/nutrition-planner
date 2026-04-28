@@ -119,6 +119,7 @@ class PlanListItem(BaseModel):
     id: int
     owner_user_id: int
     profile_id: int | None
+    profile_name: str | None
     start_date: date
     days_count: int
     meals_per_day: int

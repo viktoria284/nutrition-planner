@@ -74,6 +74,11 @@ VERIFIED_FOODS_SEED_DATA = [
     {"name": "Подсолнечное масло", "brand": "Олейна", "kcal": Decimal("899.00"), "protein": Decimal("0.00"), "fat": Decimal("99.90"), "carbs": Decimal("0.00")},
     {"name": "Арахисовая паста", "brand": "Skippy", "kcal": Decimal("588.00"), "protein": Decimal("25.00"), "fat": Decimal("50.00"), "carbs": Decimal("20.00")},
     {"name": "Фасоль красная вареная", "brand": None, "kcal": Decimal("127.00"), "protein": Decimal("8.70"), "fat": Decimal("0.50"), "carbs": Decimal("22.80")},
+    {"name": "Булгур отварной", "brand": None, "kcal": Decimal("83.00"), "protein": Decimal("3.10"), "fat": Decimal("0.20"), "carbs": Decimal("18.60")},
+    {"name": "Кускус отварной", "brand": None, "kcal": Decimal("112.00"), "protein": Decimal("3.80"), "fat": Decimal("0.20"), "carbs": Decimal("23.20")},
+    {"name": "Чечевица вареная", "brand": None, "kcal": Decimal("116.00"), "protein": Decimal("9.00"), "fat": Decimal("0.40"), "carbs": Decimal("20.10")},
+    {"name": "Нут вареный", "brand": None, "kcal": Decimal("164.00"), "protein": Decimal("8.90"), "fat": Decimal("2.60"), "carbs": Decimal("27.40")},
+    {"name": "Лаваш тонкий", "brand": None, "kcal": Decimal("270.00"), "protein": Decimal("8.50"), "fat": Decimal("1.20"), "carbs": Decimal("56.00")},
 ]
 
 

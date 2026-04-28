@@ -32,10 +32,16 @@ export type PlanDay = {
 export type PlanListItem = {
   id: number;
   owner_user_id: number;
+  profile_id: number | null;
+  profile_name: string | null;
   start_date: string;
   days_count: number;
   meals_per_day: number;
   title: string | null;
+  target_kcal: number | null;
+  target_protein: number | null;
+  target_fat: number | null;
+  target_carbs: number | null;
   created_at: string;
   updated_at: string;
 };

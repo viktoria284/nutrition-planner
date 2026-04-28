@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import type { FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
 import { autogeneratePlan } from "../api/plans";
+import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { FormErrorSummary } from "../components/FormErrorSummary";
 import { useProfiles } from "../context/ProfilesContext";
 import type { PlanAutogeneratePayload } from "../types/plan";
@@ -13,6 +15,7 @@ type PlanAutogenerateFormState = {
   meals_per_day: string;
   profile_id: string;
   use_public_recipes: boolean;
+  excluded_food_ids: number[];
 };
 
 type PlanAutogenerateFormErrors = {
@@ -80,7 +83,7 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
       profile_id: profileId,
       use_public_recipes: form.use_public_recipes,
       excluded_recipe_ids: [],
-      excluded_food_ids: [],
+      excluded_food_ids: [...new Set(form.excluded_food_ids)],
     },
     errors: { form: [] },
   };
@@ -128,14 +131,31 @@ export function PlansAutogeneratePage() {
     meals_per_day: "3",
     profile_id: activeProfileId ? String(activeProfileId) : "",
     use_public_recipes: true,
+    excluded_food_ids: [],
   });
   const [errors, setErrors] = useState<PlanAutogenerateFormErrors>({ form: [] });
   const [saving, setSaving] = useState(false);
+  const [excludedFoods, setExcludedFoods] = useState<FoodSearchOption[]>([]);
+  const [excludedFoodInputKey, setExcludedFoodInputKey] = useState(0);
 
   const profileOptions = useMemo(() => profiles.map((profile) => ({
     id: profile.id,
     name: profile.name,
   })), [profiles]);
+  const selectedProfile = useMemo(() => {
+    const profileId = Number(form.profile_id);
+    if (!Number.isInteger(profileId) || profileId < 1) return null;
+    return profiles.find((profile) => profile.id === profileId) ?? null;
+  }, [form.profile_id, profiles]);
+
+  const shouldShowHighCalorieHint = useMemo(() => {
+    const mealsPerDay = Number(form.meals_per_day);
+    if (!Number.isInteger(mealsPerDay) || mealsPerDay >= 5) return false;
+    if (!selectedProfile) return false;
+    const hasHighCalories = typeof selectedProfile.target_kcal === "number" && selectedProfile.target_kcal >= 3200;
+    const hasHighCarbs = typeof selectedProfile.target_carbs === "number" && selectedProfile.target_carbs >= 450;
+    return hasHighCalories || hasHighCarbs;
+  }, [form.meals_per_day, selectedProfile]);
 
   useEffect(() => {
     if (form.profile_id) return;
@@ -155,6 +175,30 @@ export function PlansAutogeneratePage() {
   const updateUsePublicRecipes = (value: boolean) => {
     setForm((prev) => ({ ...prev, use_public_recipes: value }));
     setErrors((prev) => ({ ...prev, form: [] }));
+  };
+
+  const onExcludedFoodSelected = (food: FoodItem | null) => {
+    if (!food) return;
+
+    setForm((prev) => {
+      if (prev.excluded_food_ids.includes(food.id)) return prev;
+      return { ...prev, excluded_food_ids: [...prev.excluded_food_ids, food.id] };
+    });
+
+    setExcludedFoods((prev) => {
+      if (prev.some((item) => item.id === food.id)) return prev;
+      return [...prev, { id: food.id, name: food.name, brand: food.brand ?? null }];
+    });
+
+    setExcludedFoodInputKey((prev) => prev + 1);
+  };
+
+  const removeExcludedFood = (foodId: number) => {
+    setForm((prev) => ({
+      ...prev,
+      excluded_food_ids: prev.excluded_food_ids.filter((id) => id !== foodId),
+    }));
+    setExcludedFoods((prev) => prev.filter((food) => food.id !== foodId));
   };
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -286,6 +330,46 @@ export function PlansAutogeneratePage() {
           <p className="plans-field-hint">
             Если включено, автоплан сможет использовать ваши рецепты и публичные опубликованные рецепты.
           </p>
+
+          <div className="plans-field">
+            <span className="plans-field-label">Исключить продукты</span>
+            <div className="plans-excluded-foods">
+              <FoodSearchSelect
+                key={excludedFoodInputKey}
+                value={null}
+                onChange={onExcludedFoodSelected}
+                placeholder="Найдите продукт, который нужно исключить"
+                disabled={saving}
+              />
+              {excludedFoods.length > 0 && (
+                <ul className="plans-chip-list">
+                  {excludedFoods.map((food) => (
+                    <li key={food.id} className="plans-chip">
+                      <span className="plans-chip-label">{food.brand ? `${food.name} — ${food.brand}` : food.name}</span>
+                      <button
+                        type="button"
+                        className="plans-chip-remove"
+                        onClick={() => removeExcludedFood(food.id)}
+                        disabled={saving}
+                        aria-label={`Удалить ${food.name} из исключений`}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <p className="plans-field-hint">
+              Выбранные продукты не будут использоваться при автогенерации.
+            </p>
+          </div>
+
+          {shouldShowHighCalorieHint && (
+            <p className="plans-inline-hint">
+              Для высокой калорийности и большого количества углеводов лучше выбрать 5–6 приёмов пищи.
+            </p>
+          )}
 
           <div className="plans-form-actions">
             <button type="button" className="btn btn-secondary" onClick={() => navigate("/plans")} disabled={saving}>

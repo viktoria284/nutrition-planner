@@ -95,6 +95,37 @@
   gap: 10px;
 }
 
+.plans-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.plans-filter-chip {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fbfbfb;
+  color: var(--text-main);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.plans-filter-chip.is-active {
+  border-color: rgba(var(--primary-rgb), 0.32);
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-dark);
+}
+
+.plans-filter-note {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
 .plan-list-item {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -408,6 +439,58 @@
   color: var(--text-soft);
   font-size: 0.82rem;
   line-height: 1.35;
+}
+
+.plans-inline-hint {
+  margin: 0;
+  border: 1px solid rgba(var(--primary-rgb), 0.34);
+  border-radius: var(--radius-md);
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-dark);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+
+.plans-excluded-foods {
+  display: grid;
+  gap: 8px;
+}
+
+.plans-chip-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plans-chip {
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  border-radius: 999px;
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-dark);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 10px;
+  max-width: 100%;
+}
+
+.plans-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plans-chip-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 2px;
+  font-size: 1rem;
 }
 
 .plan-recipe-picker {

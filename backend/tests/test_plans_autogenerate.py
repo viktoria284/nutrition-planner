@@ -22,6 +22,14 @@ MEAL_SEQUENCE_BY_MEALS_PER_DAY = {
     6: ["breakfast", "snack", "lunch", "snack", "dinner", "snack"],
 }
 
+SLOT_WEIGHTS_BY_MEALS_PER_DAY = {
+    2: [Decimal("0.45"), Decimal("0.55")],
+    3: [Decimal("0.25"), Decimal("0.40"), Decimal("0.35")],
+    4: [Decimal("0.25"), Decimal("0.35"), Decimal("0.30"), Decimal("0.10")],
+    5: [Decimal("0.20"), Decimal("0.10"), Decimal("0.30"), Decimal("0.25"), Decimal("0.15")],
+    6: [Decimal("0.20"), Decimal("0.10"), Decimal("0.25"), Decimal("0.10"), Decimal("0.25"), Decimal("0.10")],
+}
+
 
 def _create_recipe_with_ingredient(
     client: TestClient,
@@ -1713,3 +1721,441 @@ def test_autogenerate_does_not_use_withdrawn_public_recipe(
         },
     )
     assert response.status_code == 422, response.text
+
+
+def test_autogenerate_female_2220_with_4_meals_remains_reasonable(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_female_2220_4_meals@example.com",
+        username="autoplan_female_2220_4_meals",
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Female 2220 / 4 meals",
+        target_kcal=2220,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=300,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-01",
+            "days_count": 7,
+            "meals_per_day": 4,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+
+    extreme_day_signatures: list[tuple[str, str, str, str]] = []
+    for day in plan["days"]:
+        kcal = Decimal(str(day["totals"]["kcal"]))
+        protein = Decimal(str(day["totals"]["protein"]))
+        fat = Decimal(str(day["totals"]["fat"]))
+        carbs = Decimal(str(day["totals"]["carbs"]))
+        assert kcal <= Decimal("2600")
+        assert kcal >= Decimal("1700")
+        assert fat <= Decimal("87")
+        assert carbs >= Decimal("210")
+
+        if (
+            kcal > Decimal("2220") * Decimal("1.12")
+            and protein > Decimal("120") * Decimal("1.25")
+            and fat > Decimal("60") * Decimal("1.25")
+        ):
+            extreme_day_signatures.append(
+                (
+                    str(day["totals"]["kcal"]),
+                    str(day["totals"]["protein"]),
+                    str(day["totals"]["fat"]),
+                    str(day["totals"]["carbs"]),
+                )
+            )
+
+    assert len(extreme_day_signatures) <= 1
+    assert len(extreme_day_signatures) == len(set(extreme_day_signatures))
+
+
+def test_autogenerate_female_2220_with_5_meals_avoids_extreme_day_overshoot(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_female_2220_5_meals@example.com",
+        username="autoplan_female_2220_5_meals",
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Female 2220 / 5 meals",
+        target_kcal=2220,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=300,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-01",
+            "days_count": 7,
+            "meals_per_day": 5,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+
+    weights = SLOT_WEIGHTS_BY_MEALS_PER_DAY[5]
+    meal_sequence = MEAL_SEQUENCE_BY_MEALS_PER_DAY[5]
+    slots_by_day: dict[str, list[dict]] = {}
+    for slot in plan["slots"]:
+        slots_by_day.setdefault(slot["day_date"], []).append(slot)
+    for day_slots in slots_by_day.values():
+        day_slots.sort(key=lambda item: item["slot_index"])
+
+    for day in plan["days"]:
+        kcal = Decimal(str(day["totals"]["kcal"]))
+        fat = Decimal(str(day["totals"]["fat"]))
+        assert kcal <= Decimal("2580")
+        assert fat <= Decimal("84")
+
+        huge_breakfast_snack_count = 0
+        day_slots = slots_by_day[day["date"]]
+        for slot in day_slots:
+            slot_index = slot["slot_index"]
+            meal_type = meal_sequence[slot_index]
+            if meal_type not in {"breakfast", "snack"}:
+                continue
+
+            slot_target_kcal = Decimal("2220") * weights[slot_index]
+            slot_kcal = Decimal(str(slot["slot_kcal"]))
+            multiplier = Decimal(str(slot["servings_multiplier"]))
+            if multiplier >= Decimal("2.0") and slot_kcal > slot_target_kcal * Decimal("1.50"):
+                huge_breakfast_snack_count += 1
+
+        assert huge_breakfast_snack_count < 2
+
+
+def test_autogenerate_male_3530_controls_fat_and_keeps_carbs_closer_to_target(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_male_3530_guardrails@example.com",
+        username="autoplan_male_3530_guardrails",
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Male 3530",
+        target_kcal=3530,
+        target_protein=180,
+        target_fat=90,
+        target_carbs=500,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-01",
+            "days_count": 7,
+            "meals_per_day": 5,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+
+    fat_above_130 = 0
+    carbs_below_390 = 0
+    protein_high_and_carbs_low = 0
+    for day in plan["days"]:
+        kcal = Decimal(str(day["totals"]["kcal"]))
+        protein = Decimal(str(day["totals"]["protein"]))
+        fat = Decimal(str(day["totals"]["fat"]))
+        carbs = Decimal(str(day["totals"]["carbs"]))
+        assert kcal >= Decimal("3000")
+        assert kcal <= Decimal("4060")
+        if fat > Decimal("130"):
+            fat_above_130 += 1
+        if carbs < Decimal("390"):
+            carbs_below_390 += 1
+        if protein > Decimal("180") * Decimal("1.18") and carbs < Decimal("500") * Decimal("0.82"):
+            protein_high_and_carbs_low += 1
+
+    assert fat_above_130 <= 1
+    assert carbs_below_390 <= 1
+    assert protein_high_and_carbs_low <= 1
+
+
+def test_autogenerate_penalizes_repeated_day_patterns_when_alternatives_exist(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_day_pattern_penalty@example.com",
+        username="autoplan_day_pattern_penalty",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Day Pattern Lunch Food",
+        kcal="520.00",
+        protein="30.00",
+        fat="14.00",
+        carbs="62.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Day Pattern Dinner Food",
+        kcal="700.00",
+        protein="34.00",
+        fat="20.00",
+        carbs="84.00",
+    )
+    for suffix in ["A", "B", "C"]:
+        _create_recipe_with_ingredient(
+            client,
+            token,
+            name=f"Day Pattern Lunch {suffix}",
+            meal_types=["lunch"],
+            food_id=lunch_food["id"],
+        )
+        _create_recipe_with_ingredient(
+            client,
+            token,
+            name=f"Day Pattern Dinner {suffix}",
+            meal_types=["dinner"],
+            food_id=dinner_food["id"],
+        )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-04",
+            "days_count": 6,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+
+    slots_by_day: dict[str, list[dict]] = {}
+    for slot in plan["slots"]:
+        slots_by_day.setdefault(slot["day_date"], []).append(slot)
+    day_patterns = []
+    for day_date, day_slots in sorted(slots_by_day.items(), key=lambda item: item[0]):
+        ordered = sorted(day_slots, key=lambda item: item["slot_index"])
+        day_patterns.append((day_date, tuple(slot["recipe_id"] for slot in ordered)))
+
+    repeated_patterns = len(day_patterns) - len({pattern for _, pattern in day_patterns})
+    assert repeated_patterns <= 1
+
+
+def test_autogenerate_seeded_pool_remains_deterministic_for_same_input(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_seeded_deterministic@example.com",
+        username="autoplan_seeded_deterministic",
+    )
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Deterministic 2220/5",
+        target_kcal=2220,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=300,
+    )
+
+    first_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-02",
+            "days_count": 7,
+            "meals_per_day": 5,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    second_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-02",
+            "days_count": 7,
+            "meals_per_day": 5,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert first_response.status_code == 201, first_response.text
+    assert second_response.status_code == 201, second_response.text
+
+    first_plan = first_response.json()
+    second_plan = second_response.json()
+    first_signature = [
+        (slot["day_date"], slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"]))
+        for slot in sorted(first_plan["slots"], key=lambda item: (item["day_date"], item["slot_index"], item["id"]))
+    ]
+    second_signature = [
+        (slot["day_date"], slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"]))
+        for slot in sorted(second_plan["slots"], key=lambda item: (item["day_date"], item["slot_index"], item["id"]))
+    ]
+    assert first_signature == second_signature
+
+
+def test_autogenerate_is_deterministic_and_uses_stable_tie_break(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_deterministic_tie_break@example.com",
+        username="autoplan_deterministic_tie_break",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Deterministic Lunch Food",
+        kcal="500.00",
+        protein="30.00",
+        fat="15.00",
+        carbs="55.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Deterministic Dinner Food",
+        kcal="700.00",
+        protein="38.00",
+        fat="22.00",
+        carbs="78.00",
+    )
+
+    first_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Deterministic Lunch A",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Deterministic Lunch B",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Deterministic Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    first_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-29",
+            "days_count": 2,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    second_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-29",
+            "days_count": 2,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert first_response.status_code == 201, first_response.text
+    assert second_response.status_code == 201, second_response.text
+
+    first_plan = first_response.json()
+    second_plan = second_response.json()
+
+    first_plan_slots = sorted(first_plan["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    second_plan_slots = sorted(
+        second_plan["slots"],
+        key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]),
+    )
+
+    first_signature = [(slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"])) for slot in first_plan_slots]
+    second_signature = [
+        (slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"])) for slot in second_plan_slots
+    ]
+    assert first_signature == second_signature
+
+    # Both lunch candidates are nutritionally identical, so deterministic tie-break should pick the smallest id.
+    first_lunch_slot = next(slot for slot in first_plan_slots if slot["slot_index"] == 0)
+    assert first_lunch_slot["recipe_id"] == first_lunch["id"]

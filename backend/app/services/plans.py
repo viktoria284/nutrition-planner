@@ -205,13 +205,31 @@ def build_plan_slot_read(slot: PlanSlot) -> PlanSlotRead:
 def list_plans_for_user(db: Session, user_id: int) -> list[Plan]:
     return db.execute(
         select(Plan)
+        .options(selectinload(Plan.profile))
         .where(Plan.owner_user_id == user_id)
         .order_by(Plan.updated_at.desc(), Plan.id.desc())
     ).scalars().all()
 
 
 def build_plan_list_item(plan: Plan) -> PlanListItem:
-    return PlanListItem.model_validate(plan)
+    return PlanListItem.model_validate(
+        {
+            "id": plan.id,
+            "owner_user_id": plan.owner_user_id,
+            "profile_id": plan.profile_id,
+            "profile_name": plan.profile.name if plan.profile is not None else None,
+            "start_date": plan.start_date,
+            "days_count": plan.days_count,
+            "meals_per_day": plan.meals_per_day,
+            "title": plan.title,
+            "target_kcal": plan.target_kcal,
+            "target_protein": plan.target_protein,
+            "target_fat": plan.target_fat,
+            "target_carbs": plan.target_carbs,
+            "created_at": plan.created_at,
+            "updated_at": plan.updated_at,
+        }
+    )
 
 
 def create_plan(db: Session, user_id: int, payload: PlanCreate) -> Plan:
