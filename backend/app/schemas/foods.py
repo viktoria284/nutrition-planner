@@ -4,6 +4,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.models.constants import DEFAULT_FOOD_CATEGORY, FOOD_CATEGORIES_SET
 from app.models.enums import FoodSource, FoodStatus
 
 
@@ -25,6 +26,7 @@ class FoodItemRead(BaseModel):
     protein: Decimal
     fat: Decimal
     carbs: Decimal
+    category: str
     source: FoodSource
     status: FoodStatus
     owner_user_id: int | None
@@ -54,6 +56,7 @@ class FoodItemCreate(BaseModel):
     protein: MacroDecimal
     fat: MacroDecimal
     carbs: MacroDecimal
+    category: str = DEFAULT_FOOD_CATEGORY
 
     @field_validator("name")
     @classmethod
@@ -99,6 +102,14 @@ class FoodItemCreate(BaseModel):
             raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
         return value
 
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in FOOD_CATEGORIES_SET:
+            raise ValueError("Invalid category")
+        return normalized
+
 
 class FoodItemUpdate(BaseModel):
     name: str | None = None
@@ -107,6 +118,7 @@ class FoodItemUpdate(BaseModel):
     protein: MacroDecimal | None = None
     fat: MacroDecimal | None = None
     carbs: MacroDecimal | None = None
+    category: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -161,6 +173,16 @@ class FoodItemUpdate(BaseModel):
         if value > MAX_MACRO:
             raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
         return value
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if normalized not in FOOD_CATEGORIES_SET:
+            raise ValueError("Invalid category")
+        return normalized
 
 
 class FoodServingCreate(BaseModel):

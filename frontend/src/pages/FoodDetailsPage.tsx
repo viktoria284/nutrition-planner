@@ -16,6 +16,7 @@ import {
   type FoodServing,
 } from "../api/foods";
 import { Alert } from "../components/Alert";
+import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, isFoodCategory, type FoodCategory } from "../types/foodCategory";
 import { getCurrentUserIdFromJwt } from "../utils/auth";
 import "./FoodsPage.css";
 
@@ -33,6 +34,7 @@ type ServingFormErrors = {
 type FoodEditForm = {
   name: string;
   brand: string;
+  category: FoodCategory;
   kcal: string;
   protein: string;
   fat: string;
@@ -42,6 +44,7 @@ type FoodEditForm = {
 type FoodEditErrors = {
   name?: string;
   brand?: string;
+  category?: string;
   kcal?: string;
   protein?: string;
   fat?: string;
@@ -76,6 +79,7 @@ const EMPTY_SERVING_FORM: ServingForm = {
 const EMPTY_EDIT_FORM: FoodEditForm = {
   name: "",
   brand: "",
+  category: "other",
   kcal: "",
   protein: "",
   fat: "",
@@ -140,10 +144,15 @@ function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; pay
 
   const name = form.name.trim();
   const brand = form.brand.trim();
+  const category = form.category;
 
   if (!name) {
     errors.name = "invalid";
     formErrors.push("Введите название продукта.");
+  }
+  if (!isFoodCategory(category)) {
+    errors.category = "invalid";
+    formErrors.push("Выберите корректный раздел магазина.");
   }
 
   const numericKeys: Array<keyof Pick<FoodEditForm, "kcal" | "protein" | "fat" | "carbs">> = [
@@ -207,6 +216,7 @@ function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; pay
     payload: {
       name,
       brand: brand || null,
+      category,
       kcal: parsed.kcal as number,
       protein: parsed.protein as number,
       fat: parsed.fat as number,
@@ -219,6 +229,7 @@ function toEditForm(food: FoodItem): FoodEditForm {
   return {
     name: food.name,
     brand: food.brand ?? "",
+    category: food.category,
     kcal: formatFoodValueForInput(food.kcal),
     protein: formatFoodValueForInput(food.protein),
     fat: formatFoodValueForInput(food.fat),
@@ -799,6 +810,7 @@ export function FoodDetailsPage() {
               <div className="food-details-heading">
                 <h1 className="food-details-title">{food.name}</h1>
                 {food.brand && <p className="food-details-brand">{food.brand}</p>}
+                <p className="food-details-brand">{FOOD_CATEGORY_LABELS[food.category]}</p>
               </div>
 
               {(canEditFood || canWithdrawFood || canReportFood) && (
@@ -1100,6 +1112,22 @@ export function FoodDetailsPage() {
                   onChange={(e) => updateEditField("brand", e.target.value)}
                   placeholder="Например, Простоквашино"
                 />
+              </label>
+
+              <label className="foods-field" htmlFor="edit_food_category">
+                <span className="foods-field-label">Раздел магазина</span>
+                <select
+                  id="edit_food_category"
+                  className={`foods-field-input ${editErrors.category ? "is-invalid" : ""}`}
+                  value={editForm.category}
+                  onChange={(e) => updateEditField("category", e.target.value as FoodCategory)}
+                >
+                  {FOOD_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {FOOD_CATEGORY_LABELS[category]}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <div className="foods-grid">

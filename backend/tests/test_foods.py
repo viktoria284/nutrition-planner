@@ -64,6 +64,16 @@ def create_food_via_api(client: TestClient, token: str, *, name: str = "Apple") 
     return response.json()
 
 
+def create_food_with_payload(client: TestClient, token: str, payload: dict) -> dict:
+    response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json=payload,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def create_serving_via_api(client: TestClient, token: str, food_id: int, *, name: str = "1 cup", grams: str = "250") -> dict:
     response = client.post(
         f"/foods/{food_id}/servings",
@@ -124,6 +134,97 @@ def create_food(
         db_session.close()
 
 
+def test_create_food_default_category_is_other(client: TestClient) -> None:
+    register_user(client, email="food_category_default@example.com", username="food_category_default")
+    token = login_and_get_token(client, identifier="food_category_default@example.com")
+
+    created = create_food_with_payload(
+        client,
+        token,
+        {
+            "name": "Category Default Food",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+        },
+    )
+
+    assert created["category"] == "other"
+
+
+def test_create_food_with_category_and_patch_category(client: TestClient) -> None:
+    register_user(client, email="food_category_patch@example.com", username="food_category_patch")
+    token = login_and_get_token(client, identifier="food_category_patch@example.com")
+
+    created = create_food_with_payload(
+        client,
+        token,
+        {
+            "name": "Category Patch Food",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+            "category": "fruits",
+        },
+    )
+    assert created["category"] == "fruits"
+
+    patched = client.patch(
+        f"/foods/{created['id']}",
+        headers=auth_headers(token),
+        json={"category": "vegetables"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["category"] == "vegetables"
+
+    detail = client.get(f"/foods/{created['id']}", headers=auth_headers(token))
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["category"] == "vegetables"
+
+    search = client.get("/foods/search", headers=auth_headers(token), params={"q": "Category Patch"})
+    assert search.status_code == 200, search.text
+    assert any(item["id"] == created["id"] and item["category"] == "vegetables" for item in search.json())
+
+
+def test_food_category_validation_for_create_and_patch(client: TestClient) -> None:
+    register_user(client, email="food_category_invalid@example.com", username="food_category_invalid")
+    token = login_and_get_token(client, identifier="food_category_invalid@example.com")
+
+    create_invalid = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Category Invalid Food",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+            "category": "invalid_category",
+        },
+    )
+    assert create_invalid.status_code == 422, create_invalid.text
+
+    created = create_food_with_payload(
+        client,
+        token,
+        {
+            "name": "Category Patch Invalid Food",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+        },
+    )
+    patch_invalid = client.patch(
+        f"/foods/{created['id']}",
+        headers=auth_headers(token),
+        json={"category": "invalid_category"},
+    )
+    assert patch_invalid.status_code == 422, patch_invalid.text
+
+
 def test_private_food_hidden_from_other_user(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:
     user1 = register_user(client, email="user1@example.com", username="userone")
     register_user(client, email="user2@example.com", username="usertwo")
@@ -154,12 +255,19 @@ def test_seed_verified_foods_idempotent(db_session_factory: sessionmaker[Session
         count_after_second = db_session.execute(
             select(func.count(FoodItem.id)).where(FoodItem.source == FoodSource.verified)
         ).scalar_one()
+        egg_category = db_session.execute(
+            select(FoodItem).where(
+                FoodItem.source == FoodSource.verified,
+                FoodItem.name == "Яйцо куриное",
+            )
+        ).scalar_one().category
     finally:
         db_session.close()
 
     assert 20 <= created_first <= 50
     assert created_second == 0
     assert count_after_second == count_after_first
+    assert egg_category == "eggs"
 
 
 def test_verified_food_visible_for_both_users(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:

@@ -17,25 +17,22 @@ export function Navbar() {
       <div className={`topbar-inner ${token ? "topbar-inner-auth" : ""}`}>
         {token ? (
           <>
-            <Link to="/planner" className="brand topbar-brand">
+            <Link to="/plans" className="brand topbar-brand">
               Nutrition Planner
             </Link>
 
             <nav className="main-nav main-nav-centered" aria-label="Основная навигация">
-              <NavLink to="/planner" className={navClass}>
-                Планировщик
-              </NavLink>
               <NavLink to="/foods" className={navClass}>
-                Foods
+                Продукты
               </NavLink>
               <NavLink to="/recipes" className={navClass}>
                 Рецепты
               </NavLink>
-              <NavLink to="/shopping" className={navClass}>
-                Покупки
-              </NavLink>
               <NavLink to="/plans" className={navClass}>
                 Планы
+              </NavLink>
+              <NavLink to="/shopping-lists" className={navClass}>
+                Списки покупок
               </NavLink>
             </nav>
 

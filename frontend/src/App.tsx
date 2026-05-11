@@ -1,14 +1,12 @@
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { PlannerPage } from "./pages/PlannerPage";
 import { RecipesListPage } from "./pages/RecipesListPage";
 import { PublicRecipesPage } from "./pages/PublicRecipesPage";
 import { RecipeCreatePage } from "./pages/RecipeCreatePage";
 import { RecipeDetailsPage } from "./pages/RecipeDetailsPage";
 import { RecipeEditPage } from "./pages/RecipeEditPage";
-import { ShoppingPage } from "./pages/ShoppingPage";
 import { FoodsPage } from "./pages/FoodsPage";
 import { FoodDetailsPage } from "./pages/FoodDetailsPage";
 import { PlanCreatePage } from "./pages/PlanCreatePage";
@@ -16,6 +14,8 @@ import { PlanDetailsPage } from "./pages/PlanDetailsPage";
 import { PlanShoppingPage } from "./pages/PlanShoppingPage";
 import { PlansListPage } from "./pages/PlansListPage";
 import { PlansAutogeneratePage } from "./pages/PlansAutogeneratePage";
+import { ShoppingListPage } from "./pages/ShoppingListPage";
+import { ShoppingListsPage } from "./pages/ShoppingListsPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Navbar } from "./components/Navbar";
 import { ProfilesProvider } from "./context/ProfilesContext";
@@ -33,7 +33,7 @@ export default function App() {
               path="/"
               element={
                 <RequireAuth>
-                  <PlannerPage />
+                  <Navigate to="/plans" replace />
                 </RequireAuth>
               }
             />
@@ -41,7 +41,7 @@ export default function App() {
               path="/planner"
               element={
                 <RequireAuth>
-                  <PlannerPage />
+                  <Navigate to="/plans" replace />
                 </RequireAuth>
               }
             />
@@ -89,7 +89,7 @@ export default function App() {
               path="/shopping"
               element={
                 <RequireAuth>
-                  <ShoppingPage />
+                  <Navigate to="/shopping-lists" replace />
                 </RequireAuth>
               }
             />
@@ -130,6 +130,22 @@ export default function App() {
               element={
                 <RequireAuth>
                   <PlanShoppingPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/shopping-lists"
+              element={
+                <RequireAuth>
+                  <ShoppingListsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/shopping-lists/:id"
+              element={
+                <RequireAuth>
+                  <ShoppingListPage />
                 </RequireAuth>
               }
             />

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { FormErrorSummary } from "../FormErrorSummary";
 import type { ShoppingManualItemCreatePayload } from "../../types/shopping";
+import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "../../types/foodCategory";
 
 type AddManualShoppingItemModalProps = {
   open: boolean;
@@ -12,8 +13,9 @@ type AddManualShoppingItemModalProps = {
 
 type ManualFormState = {
   name: string;
-  grams: string;
+  adjusted_grams: string;
   unit: string;
+  category: FoodCategory;
 };
 
 function validatePositiveDecimal(raw: string): { value: string | null; error: string | null } {
@@ -37,14 +39,15 @@ export function AddManualShoppingItemModal({
 }: AddManualShoppingItemModalProps) {
   const [form, setForm] = useState<ManualFormState>({
     name: "",
-    grams: "",
-    unit: "",
+    adjusted_grams: "",
+    unit: "г",
+    category: "other",
   });
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open) return;
-    setForm({ name: "", grams: "", unit: "" });
+    setForm({ name: "", adjusted_grams: "", unit: "г", category: "other" });
     setFormErrors([]);
   }, [open]);
 
@@ -55,10 +58,11 @@ export function AddManualShoppingItemModal({
     const name = form.name.trim();
     if (!name) errors.push("Введите название позиции.");
 
-    const gramsResult = validatePositiveDecimal(form.grams);
+    const gramsResult = validatePositiveDecimal(form.adjusted_grams);
     if (gramsResult.error) errors.push(gramsResult.error);
 
     const unit = form.unit.trim();
+    if (!unit) errors.push("Укажите единицу измерения.");
     if (unit.length > 32) errors.push("Единица измерения слишком длинная (до 32 символов).");
 
     if (errors.length > 0) {
@@ -69,8 +73,9 @@ export function AddManualShoppingItemModal({
     setFormErrors([]);
     await onSubmit({
       name,
-      ...(gramsResult.value ? { grams: gramsResult.value } : {}),
-      ...(unit ? { unit } : {}),
+      category: form.category,
+      unit,
+      ...(gramsResult.value ? { adjusted_grams: gramsResult.value } : {}),
     });
   };
 
@@ -90,7 +95,7 @@ export function AddManualShoppingItemModal({
           <h2 id="manual-item-modal-title" className="plans-modal-title">
             Добавить вручную
           </h2>
-          <p className="plans-modal-subtitle">Создайте дополнительную позицию, которая не зависит от рецептов.</p>
+          <p className="plans-modal-subtitle">Позиция сохранится при пересборке списка.</p>
         </header>
 
         <form className="plans-modal-form" onSubmit={handleSubmit} noValidate>
@@ -113,6 +118,23 @@ export function AddManualShoppingItemModal({
             />
           </label>
 
+          <label className="plans-field" htmlFor="manual-item-category">
+            <span className="plans-field-label">Раздел магазина</span>
+            <select
+              id="manual-item-category"
+              className="plans-field-input"
+              value={form.category}
+              onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value as FoodCategory }))}
+              disabled={saving}
+            >
+              {FOOD_CATEGORIES.map((category) => (
+                <option key={category} value={category}>
+                  {FOOD_CATEGORY_LABELS[category]}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <label className="plans-field" htmlFor="manual-item-grams">
             <span className="plans-field-label">Количество (опционально)</span>
             <input
@@ -120,15 +142,15 @@ export function AddManualShoppingItemModal({
               className="plans-field-input"
               type="text"
               inputMode="decimal"
-              value={form.grams}
-              onChange={(event) => setForm((prev) => ({ ...prev, grams: event.target.value }))}
+              value={form.adjusted_grams}
+              onChange={(event) => setForm((prev) => ({ ...prev, adjusted_grams: event.target.value }))}
               disabled={saving}
               placeholder="Например, 250"
             />
           </label>
 
           <label className="plans-field" htmlFor="manual-item-unit">
-            <span className="plans-field-label">Ед. измерения (опционально)</span>
+            <span className="plans-field-label">Ед. измерения</span>
             <input
               id="manual-item-unit"
               className="plans-field-input"
@@ -136,7 +158,7 @@ export function AddManualShoppingItemModal({
               value={form.unit}
               onChange={(event) => setForm((prev) => ({ ...prev, unit: event.target.value }))}
               disabled={saving}
-              placeholder="Например, г, мл, шт"
+              placeholder="г, мл, шт"
               maxLength={32}
             />
           </label>

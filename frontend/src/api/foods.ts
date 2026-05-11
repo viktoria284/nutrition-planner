@@ -1,4 +1,5 @@
 import { apiRequest } from "./http";
+import type { FoodCategory } from "../types/foodCategory";
 
 const TOKEN_KEY = "access_token";
 
@@ -13,6 +14,7 @@ export type FoodItem = {
   protein: number;
   fat: number;
   carbs: number;
+  category: FoodCategory;
   source: FoodSource;
   status: FoodStatus;
   is_listed: boolean;
@@ -28,6 +30,7 @@ export type FoodCreatePayload = {
   protein: number;
   fat: number;
   carbs: number;
+  category?: FoodCategory;
 };
 
 export type FoodItemUpdatePayload = {
@@ -37,6 +40,7 @@ export type FoodItemUpdatePayload = {
   protein?: number;
   fat?: number;
   carbs?: number;
+  category?: FoodCategory;
 };
 
 export type FoodServing = {
@@ -90,6 +94,7 @@ export async function createFood(payload: FoodCreatePayload): Promise<FoodItem> 
     protein: payload.protein,
     fat: payload.fat,
     carbs: payload.carbs,
+    ...(payload.category ? { category: payload.category } : {}),
     ...(normalizedBrand ? { brand: normalizedBrand } : {}),
   };
 

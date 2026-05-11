@@ -4,11 +4,13 @@ import { createFood, searchFoods, type FoodCreatePayload, type FoodItem, type Fo
 import { Alert } from "../components/Alert";
 import { FoodSearchSelect } from "../components/FoodSearchSelect";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, isFoodCategory, type FoodCategory } from "../types/foodCategory";
 import "./FoodsPage.css";
 
 type CreateFoodForm = {
   name: string;
   brand: string;
+  category: FoodCategory;
   kcal: string;
   protein: string;
   fat: string;
@@ -18,6 +20,7 @@ type CreateFoodForm = {
 type CreateFoodErrors = {
   name?: string;
   brand?: string;
+  category?: string;
   kcal?: string;
   protein?: string;
   fat?: string;
@@ -28,6 +31,7 @@ type CreateFoodErrors = {
 const EMPTY_CREATE_FORM: CreateFoodForm = {
   name: "",
   brand: "",
+  category: "other",
   kcal: "",
   protein: "",
   fat: "",
@@ -59,10 +63,15 @@ function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; p
 
   const name = form.name.trim();
   const brand = form.brand.trim();
+  const category = form.category;
 
   if (!name) {
     errors.name = "invalid";
     formErrors.push("Введите название продукта.");
+  }
+  if (!isFoodCategory(category)) {
+    errors.category = "invalid";
+    formErrors.push("Выберите корректный раздел магазина.");
   }
 
   const numericKeys: Array<keyof Pick<CreateFoodForm, "kcal" | "protein" | "fat" | "carbs">> = [
@@ -126,6 +135,7 @@ function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; p
     payload: {
       name,
       brand: brand || undefined,
+      category,
       kcal: parsed.kcal as number,
       protein: parsed.protein as number,
       fat: parsed.fat as number,
@@ -303,6 +313,7 @@ export function FoodsPage() {
                   <div className="food-row-main">
                     <p className="food-row-title">{food.name}</p>
                     {food.brand && <p className="food-row-brand">{food.brand}</p>}
+                    <p className="food-row-brand">{FOOD_CATEGORY_LABELS[food.category]}</p>
                   </div>
 
                   <div className="food-row-meta">
@@ -363,6 +374,22 @@ export function FoodsPage() {
                   onChange={(e) => updateCreateField("brand", e.target.value)}
                   placeholder="Например, Простоквашино"
                 />
+              </label>
+
+              <label className="foods-field" htmlFor="create_food_category">
+                <span className="foods-field-label">Раздел магазина</span>
+                <select
+                  id="create_food_category"
+                  className={`foods-field-input ${createErrors.category ? "is-invalid" : ""}`}
+                  value={createForm.category}
+                  onChange={(e) => updateCreateField("category", e.target.value as FoodCategory)}
+                >
+                  {FOOD_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {FOOD_CATEGORY_LABELS[category]}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <div className="foods-grid">

@@ -81,6 +81,49 @@ VERIFIED_FOODS_SEED_DATA = [
     {"name": "Лаваш тонкий", "brand": None, "kcal": Decimal("270.00"), "protein": Decimal("8.50"), "fat": Decimal("1.20"), "carbs": Decimal("56.00")},
 ]
 
+VERIFIED_FOOD_CATEGORY_OVERRIDES: dict[str, str] = {
+    "яйцо куриное": "eggs",
+    "молоко 2.5%": "dairy",
+    "кефир 1%": "dairy",
+    "йогурт греческий": "dairy",
+    "творог 5%": "dairy",
+    "сыр твердый": "dairy",
+    "рис отварной": "grains_bakery",
+    "гречка отварная": "grains_bakery",
+    "овсяные хлопья": "grains_bakery",
+    "макароны отварные": "grains_bakery",
+    "хлеб цельнозерновой": "grains_bakery",
+    "картофель отварной": "vegetables",
+    "куриная грудка": "meat_fish",
+    "индейка филе": "meat_fish",
+    "говядина постная": "meat_fish",
+    "лосось": "meat_fish",
+    "тунец консервированный": "meat_fish",
+    "яблоко": "fruits",
+    "банан": "fruits",
+    "апельсин": "fruits",
+    "груша": "fruits",
+    "помидор": "vegetables",
+    "огурец": "vegetables",
+    "морковь": "vegetables",
+    "брокколи": "vegetables",
+    "капуста белокочанная": "vegetables",
+    "оливковое масло": "nuts_oils",
+    "подсолнечное масло": "nuts_oils",
+    "арахисовая паста": "nuts_oils",
+    "фасоль красная вареная": "pantry_spices",
+    "булгур отварной": "grains_bakery",
+    "кускус отварной": "grains_bakery",
+    "чечевица вареная": "pantry_spices",
+    "нут вареный": "pantry_spices",
+    "лаваш тонкий": "grains_bakery",
+}
+
+
+def infer_verified_food_category(name: str) -> str:
+    normalized = name.strip().casefold()
+    return VERIFIED_FOOD_CATEGORY_OVERRIDES.get(normalized, "other")
+
 
 def build_visible_foods_query(
     db: Session,
@@ -171,6 +214,7 @@ def create_food(db: Session, user_id: int, data: FoodItemCreate) -> FoodItem:
     food = FoodItem(
         name=data.name,
         brand=data.brand,
+        category=data.category,
         kcal=data.kcal,
         protein=data.protein,
         fat=data.fat,
@@ -331,36 +375,39 @@ def moderate_food(db: Session, food_id: int, action: str) -> FoodItem | None:
 def seed_verified_foods(db: Session) -> int:
     created_count = 0
 
-    existing_rows = db.execute(
-        select(FoodItem.name, FoodItem.brand).where(FoodItem.source == FoodSource.verified)
-    ).all()
-
     def key(name: str | None, brand: str | None) -> tuple[str, str]:
         return (name or "").strip().casefold(), (brand or "").strip().casefold()
 
-    existing_keys = {key(name, brand) for name, brand in existing_rows}
+    existing_verified_foods = db.execute(
+        select(FoodItem).where(FoodItem.source == FoodSource.verified)
+    ).scalars().all()
+    existing_by_key = {key(food.name, food.brand): food for food in existing_verified_foods}
 
     for item in VERIFIED_FOODS_SEED_DATA:
         name = item["name"].strip()
         brand = (item.get("brand") or "").strip()
         item_key = key(name, brand)
-        if item_key in existing_keys:
+        inferred_category = infer_verified_food_category(name)
+        existing_food = existing_by_key.get(item_key)
+        if existing_food is not None:
+            if existing_food.category != inferred_category:
+                existing_food.category = inferred_category
             continue
 
-        db.add(
-            FoodItem(
-                name=name,
-                brand=brand or None,
-                kcal=item["kcal"],
-                protein=item["protein"],
-                fat=item["fat"],
-                carbs=item["carbs"],
-                source=FoodSource.verified,
-                status=FoodStatus.approved,
-                owner_user_id=None,
-            )
+        new_food = FoodItem(
+            name=name,
+            brand=brand or None,
+            category=inferred_category,
+            kcal=item["kcal"],
+            protein=item["protein"],
+            fat=item["fat"],
+            carbs=item["carbs"],
+            source=FoodSource.verified,
+            status=FoodStatus.approved,
+            owner_user_id=None,
         )
-        existing_keys.add(item_key)
+        db.add(new_food)
+        existing_by_key[item_key] = new_food
         created_count += 1
 
     db.commit()

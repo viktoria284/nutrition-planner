@@ -21,7 +21,10 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.db.base_class import Base
+from app.models.constants import DEFAULT_FOOD_CATEGORY, FOOD_CATEGORIES, FOOD_CATEGORIES_SET
 from app.models.enums import FoodSource, FoodStatus
+
+FOOD_CATEGORY_SQL_VALUES = ", ".join(f"'{value}'" for value in FOOD_CATEGORIES)
 
 
 class FoodItem(Base):
@@ -30,6 +33,12 @@ class FoodItem(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     brand: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=DEFAULT_FOOD_CATEGORY,
+        server_default=text(f"'{DEFAULT_FOOD_CATEGORY}'"),
+    )
 
     kcal: Mapped[Decimal] = mapped_column(Numeric(8, 2), nullable=False)
     protein: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
@@ -96,6 +105,10 @@ class FoodItem(Base):
         CheckConstraint("protein <= 100", name="ck_food_items_protein_max"),
         CheckConstraint("fat <= 100", name="ck_food_items_fat_max"),
         CheckConstraint("carbs <= 100", name="ck_food_items_carbs_max"),
+        CheckConstraint(
+            f"category IN ({FOOD_CATEGORY_SQL_VALUES})",
+            name="ck_food_items_category_allowed",
+        ),
         Index("ix_food_items_name_lower", func.lower(name)),
         Index("ix_food_items_source_status_is_listed", source, status, is_listed),
     )
@@ -113,6 +126,13 @@ class FoodItem(Base):
             return None
         normalized = value.strip()
         return normalized or None
+
+    @validates("category")
+    def _validate_category(self, _key: str, value: str) -> str:
+        normalized = value.strip()
+        if normalized not in FOOD_CATEGORIES_SET:
+            raise ValueError("Invalid food category")
+        return normalized
 
 
 class FoodServing(Base):

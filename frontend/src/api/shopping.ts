@@ -1,8 +1,12 @@
 import type {
+  ShoppingCreateFromPlanPayload,
   ShoppingItemPatchPayload,
+  ShoppingListBulkDeletePayload,
+  ShoppingListBulkDeleteResponse,
+  ShoppingListMergePayload,
   ShoppingListRead,
+  ShoppingListSummary,
   ShoppingManualItemCreatePayload,
-  ShoppingManualItem,
 } from "../types/shopping";
 import { ApiError, apiRequest } from "./http";
 
@@ -21,25 +25,90 @@ async function requestWithApiError<T>(request: Promise<T>): Promise<T> {
   }
 }
 
-export async function getPlanShoppingList(planId: number | string): Promise<ShoppingListRead> {
+export async function listShoppingLists(): Promise<ShoppingListSummary[]> {
+  return requestWithApiError(
+    apiRequest<ShoppingListSummary[]>({
+      method: "GET",
+      path: "/shopping-lists",
+      token: getToken(),
+    }),
+  );
+}
+
+export async function createShoppingListFromPlan(payload: ShoppingCreateFromPlanPayload): Promise<ShoppingListRead> {
+  return requestWithApiError(
+    apiRequest<ShoppingListRead>({
+      method: "POST",
+      path: "/shopping-lists/from-plan",
+      token: getToken(),
+      body: payload,
+    }),
+  );
+}
+
+export async function getShoppingList(shoppingListId: number | string): Promise<ShoppingListRead> {
   return requestWithApiError(
     apiRequest<ShoppingListRead>({
       method: "GET",
-      path: `/plans/${planId}/shopping-list`,
+      path: `/shopping-lists/${shoppingListId}`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function deleteShoppingList(shoppingListId: number | string): Promise<void> {
+  await requestWithApiError(
+    apiRequest<void>({
+      method: "DELETE",
+      path: `/shopping-lists/${shoppingListId}`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function bulkDeleteShoppingLists(
+  payload: ShoppingListBulkDeletePayload,
+): Promise<ShoppingListBulkDeleteResponse> {
+  return requestWithApiError(
+    apiRequest<ShoppingListBulkDeleteResponse>({
+      method: "POST",
+      path: "/shopping-lists/bulk-delete",
+      token: getToken(),
+      body: payload,
+    }),
+  );
+}
+
+export async function mergeShoppingLists(payload: ShoppingListMergePayload): Promise<ShoppingListRead> {
+  return requestWithApiError(
+    apiRequest<ShoppingListRead>({
+      method: "POST",
+      path: "/shopping-lists/merge",
+      token: getToken(),
+      body: payload,
+    }),
+  );
+}
+
+export async function rebuildShoppingList(shoppingListId: number | string): Promise<ShoppingListRead> {
+  return requestWithApiError(
+    apiRequest<ShoppingListRead>({
+      method: "POST",
+      path: `/shopping-lists/${shoppingListId}/rebuild`,
       token: getToken(),
     }),
   );
 }
 
 export async function patchShoppingItem(
-  planId: number | string,
-  foodId: number | string,
+  shoppingListId: number | string,
+  itemId: number | string,
   payload: ShoppingItemPatchPayload,
 ): Promise<void> {
   await requestWithApiError(
     apiRequest<void>({
       method: "PATCH",
-      path: `/plans/${planId}/shopping-list/${foodId}`,
+      path: `/shopping-lists/${shoppingListId}/items/${itemId}`,
       token: getToken(),
       body: payload,
     }),
@@ -47,27 +116,27 @@ export async function patchShoppingItem(
 }
 
 export async function createManualShoppingItem(
-  planId: number | string,
+  shoppingListId: number | string,
   payload: ShoppingManualItemCreatePayload,
-): Promise<ShoppingManualItem> {
-  return requestWithApiError(
-    apiRequest<ShoppingManualItem>({
+): Promise<void> {
+  await requestWithApiError(
+    apiRequest<void>({
       method: "POST",
-      path: `/plans/${planId}/shopping-list/manual`,
+      path: `/shopping-lists/${shoppingListId}/items/manual`,
       token: getToken(),
       body: payload,
     }),
   );
 }
 
-export async function deleteManualShoppingItem(
-  planId: number | string,
-  manualItemId: number | string,
+export async function deleteShoppingListItem(
+  shoppingListId: number | string,
+  itemId: number | string,
 ): Promise<void> {
   await requestWithApiError(
     apiRequest<void>({
       method: "DELETE",
-      path: `/plans/${planId}/shopping-list/manual/${manualItemId}`,
+      path: `/shopping-lists/${shoppingListId}/items/${itemId}`,
       token: getToken(),
     }),
   );
