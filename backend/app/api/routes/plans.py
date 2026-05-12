@@ -8,6 +8,8 @@ from app.models.user import User
 from app.schemas.plan import (
     PlanAutogenerateRequest,
     PlanAutogenerateResponse,
+    PlanBulkDeleteRequest,
+    PlanBulkDeleteResponse,
     PlanCreate,
     PlanListItem,
     PlanRead,
@@ -33,12 +35,14 @@ from app.services.plan_autogenerate import (
 )
 from app.services.plans import (
     PlanNotFoundError,
+    PlanProfileNotFoundError,
     PlanSlotNotFoundError,
     PlanSlotRecipeNotFoundError,
     build_plan_list_item,
     build_plan_read,
     build_plan_slot_read,
     create_plan,
+    delete_plans_for_user,
     delete_plan_for_user,
     get_plan_for_user,
     list_plans_for_user,
@@ -67,7 +71,10 @@ def post_plan(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    plan = create_plan(db, current_user.id, payload)
+    try:
+        plan = create_plan(db, current_user.id, payload)
+    except PlanProfileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found") from exc
     return build_plan_read(plan)
 
 
@@ -93,6 +100,18 @@ def post_plan_autogenerate(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     return build_plan_read(plan)
+
+
+@router.post("/bulk-delete", response_model=PlanBulkDeleteResponse)
+def post_plan_bulk_delete(
+    payload: PlanBulkDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return delete_plans_for_user(db, current_user.id, payload.plan_ids)
+    except PlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
 
 
 @router.post("/{plan_id}/slots/{slot_id}/replace", response_model=PlanRead)

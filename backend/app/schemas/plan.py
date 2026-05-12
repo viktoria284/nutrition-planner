@@ -11,6 +11,7 @@ class PlanCreate(BaseModel):
     start_date: date
     days_count: Annotated[int, Field(ge=1, le=7)]
     meals_per_day: Annotated[int, Field(ge=2, le=6)]
+    profile_id: Annotated[int, Field(ge=1)]
     title: Annotated[str, Field(max_length=120)] | None = None
 
     @field_validator("title")
@@ -27,9 +28,33 @@ class PlanAutogenerateRequest(BaseModel):
     days_count: Annotated[int, Field(ge=1, le=7)]
     meals_per_day: Annotated[int, Field(ge=2, le=6)]
     profile_id: Annotated[int, Field(ge=1)] | None = None
+    title: Annotated[str, Field(max_length=120)] | None = None
     use_public_recipes: bool = True
     excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
+class PlanBulkDeleteRequest(BaseModel):
+    plan_ids: list[Annotated[int, Field(ge=1)]]
+
+    @field_validator("plan_ids")
+    @classmethod
+    def validate_plan_ids(cls, value: list[int]) -> list[int]:
+        if len(value) == 0:
+            raise ValueError("at least one plan is required")
+        return value
+
+
+class PlanBulkDeleteResponse(BaseModel):
+    deleted_count: int
 
 
 class ReplacePlanSlotRequest(BaseModel):

@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
 import { autogeneratePlan } from "../api/plans";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { FormErrorSummary } from "../components/FormErrorSummary";
+import { PlanProfileSelect } from "../components/plans/PlanProfileSelect";
+import { useAutoSelectedProfileId } from "../components/plans/useAutoSelectedProfileId";
 import { useProfiles } from "../context/ProfilesContext";
 import type { PlanAutogeneratePayload } from "../types/plan";
 import "./PlansPage.css";
@@ -14,6 +16,7 @@ type PlanAutogenerateFormState = {
   days_count: string;
   meals_per_day: string;
   profile_id: string;
+  title: string;
   use_public_recipes: boolean;
   excluded_food_ids: number[];
 };
@@ -67,7 +70,7 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
 
   const profileId = Number(form.profile_id);
   if (!Number.isInteger(profileId) || profileId < 1) {
-    errors.profile_id = "Выберите профиль.";
+    errors.profile_id = "Выберите профиль питания.";
     errors.form.push("Нужно выбрать профиль для автоплана.");
   }
 
@@ -81,6 +84,7 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
       days_count: daysCount,
       meals_per_day: mealsPerDay,
       profile_id: profileId,
+      title: form.title.trim() || null,
       use_public_recipes: form.use_public_recipes,
       excluded_recipe_ids: [],
       excluded_food_ids: [...new Set(form.excluded_food_ids)],
@@ -122,7 +126,7 @@ function mapAutogenerateError(err: unknown): string[] {
 
 export function PlansAutogeneratePage() {
   const navigate = useNavigate();
-  const { profiles, activeProfileId, loading: loadingProfiles } = useProfiles();
+  const { profiles, activeProfileId, loading: loadingProfiles, error: profilesError } = useProfiles();
   const initialDate = useMemo(() => toTodayIsoDate(), []);
 
   const [form, setForm] = useState<PlanAutogenerateFormState>({
@@ -130,6 +134,7 @@ export function PlansAutogeneratePage() {
     days_count: "7",
     meals_per_day: "3",
     profile_id: activeProfileId ? String(activeProfileId) : "",
+    title: "",
     use_public_recipes: true,
     excluded_food_ids: [],
   });
@@ -138,10 +143,6 @@ export function PlansAutogeneratePage() {
   const [excludedFoods, setExcludedFoods] = useState<FoodSearchOption[]>([]);
   const [excludedFoodInputKey, setExcludedFoodInputKey] = useState(0);
 
-  const profileOptions = useMemo(() => profiles.map((profile) => ({
-    id: profile.id,
-    name: profile.name,
-  })), [profiles]);
   const selectedProfile = useMemo(() => {
     const profileId = Number(form.profile_id);
     if (!Number.isInteger(profileId) || profileId < 1) return null;
@@ -157,15 +158,22 @@ export function PlansAutogeneratePage() {
     return hasHighCalories || hasHighCarbs;
   }, [form.meals_per_day, selectedProfile]);
 
-  useEffect(() => {
-    if (form.profile_id) return;
-    if (activeProfileId) {
-      setForm((prev) => ({ ...prev, profile_id: String(activeProfileId) }));
-    }
-  }, [activeProfileId, form.profile_id]);
+  const setAutoProfileId = useCallback((nextProfileId: string) => {
+    setForm((prev) => {
+      if (prev.profile_id === nextProfileId) return prev;
+      return { ...prev, profile_id: nextProfileId };
+    });
+  }, []);
+
+  useAutoSelectedProfileId({
+    profiles,
+    activeProfileId,
+    currentProfileId: form.profile_id,
+    setProfileId: setAutoProfileId,
+  });
 
   const updateTextField = (
-    field: "start_date" | "days_count" | "meals_per_day" | "profile_id",
+    field: "start_date" | "days_count" | "meals_per_day" | "profile_id" | "title",
     value: string,
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -296,25 +304,40 @@ export function PlansAutogeneratePage() {
             </div>
           </label>
 
-          <label className="plans-field" htmlFor="autoplan-profile">
-            <span className="plans-field-label">Профиль</span>
-            <select
-              id="autoplan-profile"
-              className={`plans-field-input ${errors.profile_id ? "is-invalid" : ""}`}
-              value={form.profile_id}
-              onChange={(event) => updateTextField("profile_id", event.target.value)}
-              disabled={saving || loadingProfiles || profileOptions.length === 0}
-            >
-              <option value="">{loadingProfiles ? "Загрузка профилей..." : "Выберите профиль"}</option>
-              {profileOptions.map((profile) => (
-                <option key={profile.id} value={String(profile.id)}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-            <div className="plans-field-error-slot" aria-live="polite">
-              {errors.profile_id && <p className="plans-field-error">{errors.profile_id}</p>}
+          <PlanProfileSelect
+            id="autoplan-profile"
+            profiles={profiles}
+            value={form.profile_id}
+            onChange={(value) => updateTextField("profile_id", value)}
+            error={errors.profile_id}
+            disabled={saving || loadingProfiles || profiles.length === 0}
+            hint="План будет создан с целями выбранного профиля."
+          />
+
+          {!loadingProfiles && profiles.length === 0 && (
+            <div className="plans-empty-card">
+              <p className="plans-empty-title">Сначала создайте профиль питания.</p>
+              <p className="plans-empty-subtitle">Без профиля невозможно создать автоплан.</p>
+              <Link to="/profiles" className="btn btn-secondary">
+                К профилям
+              </Link>
             </div>
+          )}
+
+          {profilesError && <p className="plans-note">{profilesError}</p>}
+
+          <label className="plans-field" htmlFor="autoplan-title">
+            <span className="plans-field-label">Название плана</span>
+            <input
+              id="autoplan-title"
+              className="plans-field-input"
+              type="text"
+              value={form.title}
+              onChange={(event) => updateTextField("title", event.target.value)}
+              placeholder="Например, Рацион на неделю"
+              disabled={saving}
+            />
+            <p className="plans-field-hint">Если оставить пустым, название будет создано автоматически.</p>
           </label>
 
           <label className="plans-checkbox-row" htmlFor="autoplan-use-public">
@@ -375,7 +398,7 @@ export function PlansAutogeneratePage() {
             <button type="button" className="btn btn-secondary" onClick={() => navigate("/plans")} disabled={saving}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            <button type="submit" className="btn btn-primary" disabled={saving || loadingProfiles || profiles.length === 0}>
               {saving ? "Генерация..." : "Сгенерировать план"}
             </button>
           </div>

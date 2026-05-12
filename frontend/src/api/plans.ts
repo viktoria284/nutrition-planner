@@ -1,5 +1,7 @@
 import type {
   PlanAutogeneratePayload,
+  PlanBulkDeletePayload,
+  PlanBulkDeleteResponse,
   PlanCreatePayload,
   PlanListItem,
   PlanRegenerateDayPayload,
@@ -21,16 +23,19 @@ function normalizeCreatePayload(payload: PlanCreatePayload): PlanCreatePayload {
     start_date: payload.start_date,
     days_count: payload.days_count,
     meals_per_day: payload.meals_per_day,
+    profile_id: payload.profile_id,
     ...(title ? { title } : {}),
   };
 }
 
 function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAutogeneratePayload {
+  const title = payload.title?.trim();
   return {
     start_date: payload.start_date,
     days_count: payload.days_count,
     meals_per_day: payload.meals_per_day,
     ...(payload.profile_id ? { profile_id: payload.profile_id } : {}),
+    ...(title ? { title } : {}),
     use_public_recipes: payload.use_public_recipes,
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
@@ -111,6 +116,19 @@ export async function deletePlan(id: number | string): Promise<void> {
       method: "DELETE",
       path: `/plans/${id}`,
       token: getToken(),
+    }),
+  );
+}
+
+export async function bulkDeletePlans(
+  payload: PlanBulkDeletePayload,
+): Promise<PlanBulkDeleteResponse> {
+  return requestWithApiError(
+    apiRequest<PlanBulkDeleteResponse>({
+      method: "POST",
+      path: "/plans/bulk-delete",
+      token: getToken(),
+      body: payload,
     }),
   );
 }

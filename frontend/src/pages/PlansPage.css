@@ -160,6 +160,25 @@
   flex-shrink: 0;
 }
 
+.plan-select-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.plan-select-card.is-selected {
+  border-color: rgba(var(--primary-rgb), 0.36);
+  background: rgba(var(--primary-rgb), 0.06);
+}
+
+.plan-select-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .shopping-list-card {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
@@ -1005,7 +1024,18 @@
     align-items: start;
   }
 
+  .plan-select-card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    align-items: start;
+  }
+
   .shopping-list-card-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .plan-select-card-actions {
     grid-column: 1 / -1;
     width: 100%;
     justify-content: stretch;

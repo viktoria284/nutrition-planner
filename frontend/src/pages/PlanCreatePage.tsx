@@ -1,8 +1,11 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useCallback, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/http";
 import { createPlan } from "../api/plans";
 import { FormErrorSummary } from "../components/FormErrorSummary";
+import { PlanProfileSelect } from "../components/plans/PlanProfileSelect";
+import { useAutoSelectedProfileId } from "../components/plans/useAutoSelectedProfileId";
+import { useProfiles } from "../context/ProfilesContext";
 import type { PlanCreatePayload } from "../types/plan";
 import "./PlansPage.css";
 
@@ -10,6 +13,7 @@ type PlanCreateFormState = {
   start_date: string;
   days_count: string;
   meals_per_day: string;
+  profile_id: string;
   title: string;
 };
 
@@ -17,6 +21,7 @@ type PlanCreateFormErrors = {
   start_date?: string;
   days_count?: string;
   meals_per_day?: string;
+  profile_id?: string;
   title?: string;
   form: string[];
 };
@@ -29,7 +34,11 @@ function toTodayIsoDate(): string {
   return `${year}-${month}-${day}`;
 }
 
-function validateCreateForm(form: PlanCreateFormState): { payload: PlanCreatePayload | null; errors: PlanCreateFormErrors } {
+function validateCreateForm(
+  form: PlanCreateFormState,
+  options: { hasProfiles: boolean },
+): { payload: PlanCreatePayload | null; errors: PlanCreateFormErrors } {
+  const { hasProfiles } = options;
   const errors: PlanCreateFormErrors = { form: [] };
 
   const dateValue = form.start_date.trim();
@@ -50,6 +59,14 @@ function validateCreateForm(form: PlanCreateFormState): { payload: PlanCreatePay
     errors.form.push("Слотов в день должно быть от 2 до 6.");
   }
 
+  const profileId = Number(form.profile_id);
+  if (!hasProfiles) {
+    errors.form.push("Сначала создайте профиль питания.");
+  } else if (!Number.isInteger(profileId) || profileId < 1) {
+    errors.profile_id = "Выберите профиль питания.";
+    errors.form.push("Нужно выбрать профиль питания.");
+  }
+
   const title = form.title.trim();
   if (title.length > 120) {
     errors.title = "Название слишком длинное (до 120 символов).";
@@ -65,6 +82,7 @@ function validateCreateForm(form: PlanCreateFormState): { payload: PlanCreatePay
       start_date: dateValue,
       days_count: daysCount,
       meals_per_day: mealsPerDay,
+      profile_id: profileId,
       ...(title ? { title } : {}),
     },
     errors: { form: [] },
@@ -73,16 +91,32 @@ function validateCreateForm(form: PlanCreateFormState): { payload: PlanCreatePay
 
 export function PlanCreatePage() {
   const navigate = useNavigate();
+  const { profiles, activeProfileId, loading: loadingProfiles, error: profilesError } = useProfiles();
   const initialDate = useMemo(() => toTodayIsoDate(), []);
 
   const [form, setForm] = useState<PlanCreateFormState>({
     start_date: initialDate,
     days_count: "7",
     meals_per_day: "3",
+    profile_id: activeProfileId ? String(activeProfileId) : "",
     title: "",
   });
   const [errors, setErrors] = useState<PlanCreateFormErrors>({ form: [] });
   const [saving, setSaving] = useState(false);
+
+  const setAutoProfileId = useCallback((nextProfileId: string) => {
+    setForm((prev) => {
+      if (prev.profile_id === nextProfileId) return prev;
+      return { ...prev, profile_id: nextProfileId };
+    });
+  }, []);
+
+  useAutoSelectedProfileId({
+    profiles,
+    activeProfileId,
+    currentProfileId: form.profile_id,
+    setProfileId: setAutoProfileId,
+  });
 
   const updateField = (field: keyof PlanCreateFormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -95,7 +129,7 @@ export function PlanCreatePage() {
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const { payload, errors: validationErrors } = validateCreateForm(form);
+    const { payload, errors: validationErrors } = validateCreateForm(form, { hasProfiles: profiles.length > 0 });
     if (!payload) {
       setErrors(validationErrors);
       return;
@@ -109,7 +143,11 @@ export function PlanCreatePage() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 422) {
         setErrors({
-          form: ["Проверьте поля формы: количество дней 1–7, слотов в день 2–6, корректная дата старта."],
+          form: ["Проверьте поля формы: выберите профиль, количество дней 1–7, слотов в день 2–6, корректная дата старта."],
+        });
+      } else if (err instanceof ApiError && err.status === 404) {
+        setErrors({
+          form: ["Выбранный профиль недоступен. Обновите страницу и выберите другой профиль."],
         });
       } else if (err instanceof ApiError && err.status === 409) {
         setErrors({
@@ -194,6 +232,28 @@ export function PlanCreatePage() {
             </div>
           </label>
 
+          <PlanProfileSelect
+            id="plan-profile"
+            profiles={profiles}
+            value={form.profile_id}
+            onChange={(value) => updateField("profile_id", value)}
+            error={errors.profile_id}
+            disabled={saving || loadingProfiles || profiles.length === 0}
+            hint="План будет создан с целями выбранного профиля. Если потом изменить профиль, уже созданный план сохранит исходные цели."
+          />
+
+          {!loadingProfiles && profiles.length === 0 && (
+            <div className="plans-empty-card">
+              <p className="plans-empty-title">Сначала создайте профиль питания.</p>
+              <p className="plans-empty-subtitle">Без профиля невозможно создать ручной план.</p>
+              <Link to="/profiles" className="btn btn-secondary">
+                К профилям
+              </Link>
+            </div>
+          )}
+
+          {profilesError && <p className="plans-note">{profilesError}</p>}
+
           <label className="plans-field" htmlFor="plan-title">
             <span className="plans-field-label">Название (опционально)</span>
             <input
@@ -215,7 +275,7 @@ export function PlanCreatePage() {
             <button type="button" className="btn btn-secondary" onClick={() => navigate("/plans")} disabled={saving}>
               Отмена
             </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            <button type="submit" className="btn btn-primary" disabled={saving || loadingProfiles || profiles.length === 0}>
               {saving ? "Создание..." : "Создать план"}
             </button>
           </div>

@@ -69,6 +69,7 @@ export type PlanCreatePayload = {
   start_date: string;
   days_count: number;
   meals_per_day: number;
+  profile_id: number;
   title?: string;
 };
 
@@ -77,6 +78,7 @@ export type PlanAutogeneratePayload = {
   days_count: number;
   meals_per_day: number;
   profile_id?: number;
+  title?: string | null;
   use_public_recipes: boolean;
   excluded_recipe_ids?: number[];
   excluded_food_ids?: number[];
@@ -99,4 +101,12 @@ export type PlanSlotPatchPayload = {
   recipe_id?: number | null;
   servings_multiplier?: DecimalString;
   pinned?: boolean;
+};
+
+export type PlanBulkDeletePayload = {
+  plan_ids: number[];
+};
+
+export type PlanBulkDeleteResponse = {
+  deleted_count: number;
 };

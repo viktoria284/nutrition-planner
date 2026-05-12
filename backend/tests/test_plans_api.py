@@ -1,9 +1,12 @@
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.plan_slot import PlanSlot
 from app.models.profile import Profile
+from app.models.shopping import ShoppingListSource
 from app.models.user import User
 from app.services.recipes import seed_demo_public_recipes
 from app.services.security import create_access_token
@@ -56,8 +59,17 @@ def create_plan_via_api(
     start_date: str = "2026-03-24",
     days_count: int = 3,
     meals_per_day: int = 3,
+    profile_id: int | None = None,
     title: str | None = "Тестовый план",
 ) -> dict:
+    resolved_profile_id = profile_id
+    if resolved_profile_id is None:
+        profiles_response = client.get("/profiles", headers=auth_headers(token))
+        assert profiles_response.status_code == 200, profiles_response.text
+        profiles_payload = profiles_response.json()
+        assert len(profiles_payload) > 0
+        resolved_profile_id = profiles_payload[0]["id"]
+
     response = client.post(
         "/plans",
         headers=auth_headers(token),
@@ -65,8 +77,29 @@ def create_plan_via_api(
             "start_date": start_date,
             "days_count": days_count,
             "meals_per_day": meals_per_day,
+            "profile_id": resolved_profile_id,
             "title": title,
         },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def create_shopping_list_from_plan_via_api(
+    client: TestClient,
+    token: str,
+    *,
+    plan_id: int,
+    title: str | None = None,
+) -> dict:
+    payload: dict[str, object] = {"plan_id": plan_id}
+    if title is not None:
+        payload["title"] = title
+
+    response = client.post(
+        "/shopping-lists/from-plan",
+        headers=auth_headers(token),
+        json=payload,
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -262,6 +295,116 @@ def test_post_plan_creates_expected_slots(
         assert all(slot["pinned"] is False for slot in day_slots)
 
 
+def test_post_plan_manual_create_saves_profile_and_targets_snapshot(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_manual_profile_snapshot@example.com",
+        username="plans_manual_profile_snapshot",
+    )
+
+    profile_create_response = client.post(
+        "/profiles",
+        headers=auth_headers(token),
+        json={
+            "name": "Набор массы",
+            "target_kcal": 3150,
+            "target_protein": 185,
+            "target_fat": 95,
+            "target_carbs": 360,
+        },
+    )
+    assert profile_create_response.status_code == 201, profile_create_response.text
+    profile = profile_create_response.json()
+
+    created = create_plan_via_api(
+        client,
+        token,
+        start_date="2026-03-24",
+        days_count=2,
+        meals_per_day=3,
+        profile_id=profile["id"],
+        title="Ручной план с профилем",
+    )
+
+    assert created["profile_id"] == profile["id"]
+    assert created["profile_name"] == "Набор массы"
+    assert created["target_kcal"] == 3150
+    assert created["target_protein"] == 185
+    assert created["target_fat"] == 95
+    assert created["target_carbs"] == 360
+
+    get_response = client.get(f"/plans/{created['id']}", headers=auth_headers(token))
+    assert get_response.status_code == 200, get_response.text
+    payload = get_response.json()
+    assert payload["profile_id"] == profile["id"]
+    assert payload["profile_name"] == "Набор массы"
+    assert payload["target_kcal"] == 3150
+    assert payload["target_protein"] == 185
+    assert payload["target_fat"] == 95
+    assert payload["target_carbs"] == 360
+
+
+def test_post_plan_returns_404_for_foreign_profile_id(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="plans_manual_profile_owner@example.com",
+        username="plans_manual_profile_owner",
+    )
+    _other, other_token = create_user_with_token(
+        db_session_factory,
+        email="plans_manual_profile_other@example.com",
+        username="plans_manual_profile_other",
+    )
+
+    other_profiles = client.get("/profiles", headers=auth_headers(other_token))
+    assert other_profiles.status_code == 200, other_profiles.text
+    foreign_profile_id = other_profiles.json()[0]["id"]
+
+    response = client.post(
+        "/plans",
+        headers=auth_headers(owner_token),
+        json={
+            "start_date": "2026-03-24",
+            "days_count": 3,
+            "meals_per_day": 3,
+            "profile_id": foreign_profile_id,
+            "title": "Нельзя с чужим профилем",
+        },
+    )
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "Profile not found"
+
+
+def test_post_plan_requires_profile_id(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_manual_profile_required@example.com",
+        username="plans_manual_profile_required",
+    )
+
+    response = client.post(
+        "/plans",
+        headers=auth_headers(token),
+        json={
+            "start_date": "2026-03-24",
+            "days_count": 3,
+            "meals_per_day": 3,
+            "title": "Без профиля",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert any(err["loc"][-1] == "profile_id" for err in response.json().get("detail", []))
+
+
 def test_post_plan_rejects_meals_per_day_below_min(
     client: TestClient,
     db_session_factory: sessionmaker[Session],
@@ -271,6 +414,9 @@ def test_post_plan_rejects_meals_per_day_below_min(
         email="plans_invalid_meals@example.com",
         username="plans_invalid_meals",
     )
+    profiles_response = client.get("/profiles", headers=auth_headers(token))
+    assert profiles_response.status_code == 200, profiles_response.text
+    profile_id = profiles_response.json()[0]["id"]
 
     response = client.post(
         "/plans",
@@ -279,6 +425,7 @@ def test_post_plan_rejects_meals_per_day_below_min(
             "start_date": "2026-03-24",
             "days_count": 1,
             "meals_per_day": 1,
+            "profile_id": profile_id,
             "title": "invalid",
         },
     )
@@ -476,6 +623,194 @@ def test_autogenerated_plan_read_includes_profile_snapshot_fields(
     assert payload["target_protein"] is None
     assert payload["target_fat"] is None
     assert payload["target_carbs"] is None
+
+
+def test_autogenerate_without_title_uses_default_title(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_autogen_default_title@example.com",
+        username="plans_autogen_default_title",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Autogen Default Title Lunch Food",
+        kcal="200.00",
+        protein="15.00",
+        fat="8.00",
+        carbs="20.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autogen Default Title Dinner Food",
+        kcal="220.00",
+        protein="18.00",
+        fat="9.00",
+        carbs="22.00",
+    )
+    lunch_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Autogen Default Title Lunch Recipe",
+        servings_count=1,
+        meal_types=["lunch"],
+    )
+    dinner_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Autogen Default Title Dinner Recipe",
+        servings_count=1,
+        meal_types=["dinner"],
+    )
+    add_ingredient_via_api(client, token, recipe_id=lunch_recipe["id"], food_id=lunch_food["id"], grams="100")
+    add_ingredient_via_api(client, token, recipe_id=dinner_recipe["id"], food_id=dinner_food["id"], grams="100")
+
+    response = client.post(
+        "/plans/autogenerate",
+        headers=auth_headers(token),
+        json={
+            "start_date": "2026-05-12",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["title"] == "План с 12 мая 2026 г."
+
+
+def test_autogenerate_with_custom_title_stores_trimmed_value(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_autogen_custom_title@example.com",
+        username="plans_autogen_custom_title",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Autogen Custom Title Lunch Food",
+        kcal="200.00",
+        protein="15.00",
+        fat="8.00",
+        carbs="20.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autogen Custom Title Dinner Food",
+        kcal="220.00",
+        protein="18.00",
+        fat="9.00",
+        carbs="22.00",
+    )
+    lunch_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Autogen Custom Title Lunch Recipe",
+        servings_count=1,
+        meal_types=["lunch"],
+    )
+    dinner_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Autogen Custom Title Dinner Recipe",
+        servings_count=1,
+        meal_types=["dinner"],
+    )
+    add_ingredient_via_api(client, token, recipe_id=lunch_recipe["id"], food_id=lunch_food["id"], grams="100")
+    add_ingredient_via_api(client, token, recipe_id=dinner_recipe["id"], food_id=dinner_food["id"], grams="100")
+
+    response = client.post(
+        "/plans/autogenerate",
+        headers=auth_headers(token),
+        json={
+            "start_date": "2026-05-12",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "title": "  Рацион на неделю  ",
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["title"] == "Рацион на неделю"
+
+
+def test_autogenerate_with_blank_title_uses_default_title(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_autogen_blank_title@example.com",
+        username="plans_autogen_blank_title",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Autogen Blank Title Lunch Food",
+        kcal="200.00",
+        protein="15.00",
+        fat="8.00",
+        carbs="20.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autogen Blank Title Dinner Food",
+        kcal="220.00",
+        protein="18.00",
+        fat="9.00",
+        carbs="22.00",
+    )
+    lunch_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Autogen Blank Title Lunch Recipe",
+        servings_count=1,
+        meal_types=["lunch"],
+    )
+    dinner_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Autogen Blank Title Dinner Recipe",
+        servings_count=1,
+        meal_types=["dinner"],
+    )
+    add_ingredient_via_api(client, token, recipe_id=lunch_recipe["id"], food_id=lunch_food["id"], grams="100")
+    add_ingredient_via_api(client, token, recipe_id=dinner_recipe["id"], food_id=dinner_food["id"], grams="100")
+
+    response = client.post(
+        "/plans/autogenerate",
+        headers=auth_headers(token),
+        json={
+            "start_date": "2026-05-12",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "title": "   ",
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    payload = response.json()
+    assert payload["title"] == "План с 12 мая 2026 г."
 
 
 def test_get_plan_day_totals_empty_or_null_recipe_slots_are_zero(
@@ -705,6 +1040,207 @@ def test_delete_plan_owner_only(
 
     get_after_delete = client.get(f"/plans/{plan['id']}", headers=auth_headers(token_owner))
     assert get_after_delete.status_code == 404, get_after_delete.text
+
+
+def test_bulk_delete_plans_one_success(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_one@example.com",
+        username="plans_bulk_delete_one",
+    )
+    plan = create_plan_via_api(client, token, title="Удалить один")
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(token),
+        json={"plan_ids": [plan["id"]]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted_count": 1}
+
+    get_after_delete = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert get_after_delete.status_code == 404, get_after_delete.text
+
+
+def test_bulk_delete_plans_multiple_success(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_many@example.com",
+        username="plans_bulk_delete_many",
+    )
+    first = create_plan_via_api(client, token, title="Удалить первый")
+    second = create_plan_via_api(client, token, title="Удалить второй")
+    keep = create_plan_via_api(client, token, title="Оставить")
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(token),
+        json={"plan_ids": [first["id"], second["id"]]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted_count": 2}
+
+    for plan in (first, second):
+        deleted = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+        assert deleted.status_code == 404, deleted.text
+
+    kept = client.get(f"/plans/{keep['id']}", headers=auth_headers(token))
+    assert kept.status_code == 200, kept.text
+
+
+def test_bulk_delete_plans_duplicate_ids_deduplicated(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_duplicates@example.com",
+        username="plans_bulk_delete_duplicates",
+    )
+    plan = create_plan_via_api(client, token, title="Дубликаты")
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(token),
+        json={"plan_ids": [plan["id"], plan["id"], plan["id"]]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted_count": 1}
+
+    deleted = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert deleted.status_code == 404, deleted.text
+
+
+def test_bulk_delete_plans_empty_ids_returns_422(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_empty@example.com",
+        username="plans_bulk_delete_empty",
+    )
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(token),
+        json={"plan_ids": []},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_bulk_delete_plans_foreign_id_returns_404_without_partial_delete(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_owner_only@example.com",
+        username="plans_bulk_delete_owner_only",
+    )
+    _other, other_token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_other@example.com",
+        username="plans_bulk_delete_other",
+    )
+
+    own_plan = create_plan_via_api(client, owner_token, title="План владельца")
+    foreign_plan = create_plan_via_api(client, other_token, title="Чужой план")
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(owner_token),
+        json={"plan_ids": [own_plan["id"], foreign_plan["id"]]},
+    )
+    assert response.status_code == 404, response.text
+
+    own_plan_still_exists = client.get(f"/plans/{own_plan['id']}", headers=auth_headers(owner_token))
+    assert own_plan_still_exists.status_code == 200, own_plan_still_exists.text
+
+
+def test_bulk_delete_plans_nonexistent_id_returns_404_without_partial_delete(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_nonexistent@example.com",
+        username="plans_bulk_delete_nonexistent",
+    )
+    own_plan = create_plan_via_api(client, token, title="План существует")
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(token),
+        json={"plan_ids": [own_plan["id"], own_plan["id"] + 100000]},
+    )
+    assert response.status_code == 404, response.text
+
+    own_plan_still_exists = client.get(f"/plans/{own_plan['id']}", headers=auth_headers(token))
+    assert own_plan_still_exists.status_code == 200, own_plan_still_exists.text
+
+
+def test_bulk_delete_plans_removes_slots_by_cascade(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_bulk_delete_slots_cascade@example.com",
+        username="plans_bulk_delete_slots_cascade",
+    )
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=2, meals_per_day=3, title="Каскад")
+    slot_ids = [slot["id"] for slot in plan["slots"]]
+    assert len(slot_ids) == 6
+
+    response = client.post(
+        "/plans/bulk-delete",
+        headers=auth_headers(token),
+        json={"plan_ids": [plan["id"]]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"deleted_count": 1}
+
+    with db_session_factory() as db:
+        orphan_slots = db.execute(select(PlanSlot).where(PlanSlot.id.in_(slot_ids))).scalars().all()
+    assert orphan_slots == []
+
+
+def test_delete_plan_keeps_shopping_list_document_and_drops_source_row(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="plans_delete_keeps_shopping_doc@example.com",
+        username="plans_delete_keeps_shopping_doc",
+    )
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2, title="План для списка")
+    shopping_list = create_shopping_list_from_plan_via_api(client, token, plan_id=plan["id"], title="Связанный список")
+    assert len(shopping_list["sources"]) == 1
+    source_id = shopping_list["sources"][0]["id"]
+
+    delete_response = client.delete(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert delete_response.status_code == 204, delete_response.text
+
+    plan_get_after_delete = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert plan_get_after_delete.status_code == 404, plan_get_after_delete.text
+
+    shopping_list_after = client.get(f"/shopping-lists/{shopping_list['id']}", headers=auth_headers(token))
+    assert shopping_list_after.status_code == 200, shopping_list_after.text
+    assert shopping_list_after.json()["id"] == shopping_list["id"]
+    assert shopping_list_after.json()["sources"] == []
+
+    with db_session_factory() as db:
+        source_rows = db.execute(select(ShoppingListSource).where(ShoppingListSource.id == source_id)).scalars().all()
+    assert source_rows == []
 
 
 def test_patch_plan_slot_updates_recipe_multiplier_and_pinned(

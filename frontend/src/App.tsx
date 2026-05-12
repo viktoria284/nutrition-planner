@@ -173,6 +173,14 @@ export default function App() {
                 </RequireAuth>
               }
             />
+            <Route
+              path="/profiles"
+              element={
+                <RequireAuth>
+                  <SettingsPage />
+                </RequireAuth>
+              }
+            />
 
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />

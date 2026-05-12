@@ -4,14 +4,17 @@ from collections import defaultdict
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.plan import Plan
 from app.models.plan_slot import PlanSlot
+from app.models.profile import Profile
 from app.models.recipe import Recipe, RecipeIngredient
+from app.models.shopping import ShoppingListSource
 from app.schemas.plan import (
     NutritionTotalsRead,
+    PlanBulkDeleteResponse,
     PlanCreate,
     PlanDayRead,
     PlanListItem,
@@ -31,6 +34,10 @@ class PlanSlotNotFoundError(ValueError):
 
 
 class PlanSlotRecipeNotFoundError(ValueError):
+    pass
+
+
+class PlanProfileNotFoundError(ValueError):
     pass
 
 
@@ -106,6 +113,18 @@ def _get_plan_or_404(db: Session, user_id: int, plan_id: int, *, with_slots: boo
     if not plan:
         raise PlanNotFoundError("Plan not found")
     return plan
+
+
+def _get_profile_or_404(db: Session, user_id: int, profile_id: int) -> Profile:
+    profile = db.execute(
+        select(Profile).where(
+            Profile.id == profile_id,
+            Profile.user_id == user_id,
+        )
+    ).scalar_one_or_none()
+    if not profile:
+        raise PlanProfileNotFoundError("Profile not found")
+    return profile
 
 
 def build_plan_read(plan: Plan) -> PlanRead:
@@ -233,12 +252,19 @@ def build_plan_list_item(plan: Plan) -> PlanListItem:
 
 
 def create_plan(db: Session, user_id: int, payload: PlanCreate) -> Plan:
+    profile = _get_profile_or_404(db, user_id, payload.profile_id)
+
     plan = Plan(
         owner_user_id=user_id,
+        profile_id=profile.id,
         start_date=payload.start_date,
         days_count=payload.days_count,
         meals_per_day=payload.meals_per_day,
         title=payload.title,
+        target_kcal=profile.target_kcal,
+        target_protein=profile.target_protein,
+        target_fat=profile.target_fat,
+        target_carbs=profile.target_carbs,
     )
     db.add(plan)
     db.flush()
@@ -269,9 +295,43 @@ def get_plan_for_user(db: Session, user_id: int, plan_id: int) -> Plan:
 
 
 def delete_plan_for_user(db: Session, user_id: int, plan_id: int) -> None:
-    plan = _get_plan_or_404(db, user_id, plan_id, with_slots=False)
-    db.delete(plan)
+    _get_plan_or_404(db, user_id, plan_id, with_slots=False)
+    db.execute(delete(PlanSlot).where(PlanSlot.plan_id == plan_id))
+    db.execute(delete(ShoppingListSource).where(ShoppingListSource.plan_id == plan_id))
+    db.execute(
+        delete(Plan).where(
+            Plan.owner_user_id == user_id,
+            Plan.id == plan_id,
+        )
+    )
     db.commit()
+
+
+def delete_plans_for_user(db: Session, user_id: int, plan_ids: list[int]) -> PlanBulkDeleteResponse:
+    unique_ids = sorted(set(plan_ids))
+
+    plans = db.execute(
+        select(Plan)
+        .where(
+            Plan.owner_user_id == user_id,
+            Plan.id.in_(unique_ids),
+        )
+    ).scalars().all()
+
+    if len(plans) != len(unique_ids):
+        raise PlanNotFoundError("Plan not found")
+
+    db.execute(delete(PlanSlot).where(PlanSlot.plan_id.in_(unique_ids)))
+    db.execute(delete(ShoppingListSource).where(ShoppingListSource.plan_id.in_(unique_ids)))
+    db.execute(
+        delete(Plan).where(
+            Plan.owner_user_id == user_id,
+            Plan.id.in_(unique_ids),
+        )
+    )
+
+    db.commit()
+    return PlanBulkDeleteResponse(deleted_count=len(unique_ids))
 
 
 def update_plan_slot(
