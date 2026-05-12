@@ -7,15 +7,32 @@ const dateFormatter = new Intl.DateTimeFormat("ru-RU", {
   timeZone: "UTC",
 });
 
+const dayLabelFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+  timeZone: "UTC",
+});
+
 export function formatPlanDate(dateIso: string): string {
+  const date = toUtcDate(dateIso);
+  if (!date) return dateIso;
+  return dateFormatter.format(date);
+}
+
+export function formatPlanDayLabel(dateIso: string): string {
+  const date = toUtcDate(dateIso);
+  if (!date) return dateIso;
+  return dayLabelFormatter.format(date);
+}
+
+function toUtcDate(dateIso: string): Date | null {
   const [yearRaw, monthRaw, dayRaw] = dateIso.split("-");
   const year = Number(yearRaw);
   const month = Number(monthRaw);
   const day = Number(dayRaw);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return dateIso;
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
 
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return dateFormatter.format(date);
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 export function planTitleWithFallback(title: string | null, startDate: string): string {

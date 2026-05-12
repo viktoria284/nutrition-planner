@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
 import { getPlan } from "../api/plans";
 import {
@@ -383,8 +384,14 @@ export function ShoppingListPage() {
                 Пересоберите список, чтобы обновить рассчитанные количества. Ручные позиции сохранятся.
               </p>
             </div>
-            <button type="button" className="btn btn-primary" onClick={() => void handleRebuild()} disabled={rebuilding}>
-              {rebuilding ? "Пересобираем..." : "Пересобрать"}
+            <button
+              type="button"
+              className="btn btn-primary plan-shopping-rebuild-btn"
+              onClick={() => void handleRebuild()}
+              disabled={rebuilding}
+            >
+              <RefreshCw aria-hidden="true" size={18} />
+              {rebuilding ? "Пересобираем..." : "Пересобрать список"}
             </button>
           </article>
         )}

@@ -216,6 +216,67 @@
   background: #f3f3f3;
 }
 
+.icon-button {
+  height: 40px;
+  min-width: 40px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: "Source Sans 3", "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: #f3f3f3;
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid rgba(var(--primary-rgb), 0.45);
+  outline-offset: 2px;
+}
+
+.icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.icon-button svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.icon-button--secondary {
+  background: var(--surface);
+  color: var(--text-main);
+  border-color: var(--border);
+}
+
+.icon-button--danger {
+  background: rgba(var(--danger-rgb), 0.08);
+  border-color: rgba(var(--danger-rgb), 0.28);
+  color: var(--danger);
+}
+
+.icon-button--danger:hover:not(:disabled) {
+  background: rgba(var(--danger-rgb), 0.14);
+}
+
+.icon-button--compact {
+  height: 38px;
+  min-width: 38px;
+  padding: 0 10px;
+}
+
 .home-link-btn {
   text-decoration: none;
 }

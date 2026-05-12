@@ -99,17 +99,18 @@ def post_plan_autogenerate(
 def post_plan_slot_replace(
     plan_id: int,
     slot_id: int,
-    payload: ReplacePlanSlotRequest,
+    payload: ReplacePlanSlotRequest | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    normalized_payload = payload or ReplacePlanSlotRequest()
     try:
         plan = replace_slot(
             db,
             user_id=current_user.id,
             plan_id=plan_id,
             slot_id=slot_id,
-            payload=payload,
+            payload=normalized_payload,
         )
     except PlanAutogeneratePlanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc

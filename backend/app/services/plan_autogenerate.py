@@ -4,6 +4,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -164,6 +165,8 @@ HIGH_CARB_PROFILE_LOW_CARB_GUARDRAIL_RATIO = Decimal("0.82")
 HIGH_CARB_PROFILE_PROTEIN_OVERSHOOT_RATIO = Decimal("1.15")
 DAY_PATTERN_PREFIX_PENALTY = Decimal("10")
 DAY_PATTERN_EXACT_REPEAT_PENALTY = Decimal("260")
+RECIPE_NAME_SIMILARITY_THRESHOLD = Decimal("0.65")
+RECIPE_NAME_SIMILARITY_PENALTY = Decimal("800")
 
 
 class PlanAutogenerateNotEnoughRecipesError(ValueError):
@@ -303,6 +306,39 @@ def select_plan_snapshot_targets(plan: Plan) -> PlanTargets:
 
 def _normalize_recipe_meal_types(recipe: Recipe) -> set[str]:
     return {value.strip().lower() for value in recipe.meal_types}
+
+
+def _recipe_name_tokens(value: str) -> set[str]:
+    normalized = re.sub(r"[^\w\s]", " ", value.casefold(), flags=re.UNICODE)
+    return {token for token in normalized.split() if token}
+
+
+def recipe_name_similarity(left_name: str, right_name: str) -> Decimal:
+    left_tokens = _recipe_name_tokens(left_name)
+    right_tokens = _recipe_name_tokens(right_name)
+    if not left_tokens or not right_tokens:
+        return Decimal("0")
+
+    intersection_size = len(left_tokens & right_tokens)
+    union_size = len(left_tokens | right_tokens)
+    if union_size == 0:
+        return Decimal("0")
+    return Decimal(intersection_size) / Decimal(union_size)
+
+
+def _recipe_name_similarity_penalty(*, recipe_name: str, reference_recipe_names: list[str] | None) -> Decimal:
+    if not reference_recipe_names:
+        return Decimal("0")
+
+    max_similarity = Decimal("0")
+    for reference_name in reference_recipe_names:
+        similarity = recipe_name_similarity(recipe_name, reference_name)
+        if similarity > max_similarity:
+            max_similarity = similarity
+
+    if max_similarity < RECIPE_NAME_SIMILARITY_THRESHOLD:
+        return Decimal("0")
+    return RECIPE_NAME_SIMILARITY_PENALTY
 
 
 def _load_accessible_recipes(
@@ -986,6 +1022,7 @@ def _score_recipe_candidate(
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
     recipe_nutrients: dict[str, Decimal],
+    similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
 ) -> RecipeScore:
@@ -1229,6 +1266,10 @@ def _score_recipe_candidate(
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
     )
+    name_similarity_penalty = _recipe_name_similarity_penalty(
+        recipe_name=recipe.name,
+        reference_recipe_names=similarity_reference_names,
+    )
 
     macro_penalty = (
         cumulative_macro_penalty
@@ -1239,6 +1280,7 @@ def _score_recipe_candidate(
         + remaining_balance_penalty
         + macro_profile_penalty
         + guardrail_penalty
+        + name_similarity_penalty
     )
 
     slot_penalty = Decimal("0")
@@ -1322,6 +1364,7 @@ def score_candidate(
     targets: PlanTargets,
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
+    similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
 ) -> RecipeScore:
@@ -1340,6 +1383,7 @@ def score_candidate(
         recipe_usage_counts=recipe_usage_counts,
         slot_recipe_dates=slot_recipe_dates,
         recipe_nutrients=candidate.nutrients,
+        similarity_reference_names=similarity_reference_names,
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
     )
@@ -1358,6 +1402,7 @@ def choose_best_candidate(
     targets: PlanTargets,
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
+    similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
 ) -> CandidateOption:
@@ -1383,6 +1428,7 @@ def choose_best_candidate(
             targets=targets,
             recipe_usage_counts=recipe_usage_counts,
             slot_recipe_dates=slot_recipe_dates,
+            similarity_reference_names=similarity_reference_names,
             current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
             historical_day_patterns=historical_day_patterns,
         )
@@ -1417,6 +1463,7 @@ def _select_slot_candidate(
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
     recipe_nutrients_cache: dict[int, dict[str, Decimal]],
+    similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
 ) -> tuple[Recipe, Decimal]:
@@ -1441,6 +1488,7 @@ def _select_slot_candidate(
         targets=targets,
         recipe_usage_counts=recipe_usage_counts,
         slot_recipe_dates=slot_recipe_dates,
+        similarity_reference_names=similarity_reference_names,
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
     )
@@ -1610,30 +1658,41 @@ def replace_plan_slot(
     targets = select_plan_snapshot_targets(plan)
     template = _resolve_slot_template(meals_per_day=plan.meals_per_day, slot_index=slot.slot_index)
 
-    candidates = get_accessible_recipe_candidates(
+    day_slots = sorted(
+        [value for value in plan.slots if value.day_date == slot.day_date],
+        key=lambda value: (value.slot_index, value.id),
+    )
+    avoid_recipe_ids = {
+        day_slot.recipe_id
+        for day_slot in day_slots
+        if day_slot.id != slot.id and day_slot.recipe_id is not None
+    }
+    if slot.recipe_id is not None:
+        avoid_recipe_ids.add(slot.recipe_id)
+
+    accessible_recipes = _load_accessible_recipes(
         db,
         user_id=user_id,
-        meal_type=template.meal_type,
         use_public_recipes=payload.use_public_recipes,
-        excluded_recipe_ids=payload.excluded_recipe_ids,
-        excluded_food_ids=payload.excluded_food_ids,
     )
-
-    avoid_recipe_ids: set[int] = set()
-    if payload.avoid_current_recipe and slot.recipe_id is not None:
-        avoid_recipe_ids.add(slot.recipe_id)
+    recipe_name_by_id = {recipe.id: recipe.name for recipe in accessible_recipes}
     candidates = filter_candidates(
-        candidates=candidates,
+        candidates=accessible_recipes,
         expected_meal_type=template.meal_type,
         excluded_recipe_ids=payload.excluded_recipe_ids,
         excluded_food_ids=payload.excluded_food_ids,
         avoid_recipe_ids=avoid_recipe_ids,
     )
+    if not candidates:
+        raise PlanAutogenerateNotEnoughRecipesError(
+            "Не удалось найти другую подходящую замену для этого слота."
+        )
 
-    day_slots = sorted(
-        [value for value in plan.slots if value.day_date == slot.day_date],
-        key=lambda value: (value.slot_index, value.id),
-    )
+    similarity_reference_names = [
+        recipe_name_by_id[recipe_id]
+        for recipe_id in sorted(avoid_recipe_ids.union(set(payload.excluded_recipe_ids)))
+        if recipe_id in recipe_name_by_id
+    ]
 
     recipe_usage_counts = _build_recipe_usage_counts(slots=list(plan.slots), excluded_slot_ids={slot.id})
     slot_recipe_dates = _build_slot_recipe_dates(slots=list(plan.slots), excluded_slot_ids={slot.id})
@@ -1649,21 +1708,27 @@ def replace_plan_slot(
         recipe_nutrients_cache=recipe_nutrients_cache,
     )
 
-    selected_recipe, selected_multiplier = _select_slot_candidate(
-        candidates=candidates,
-        multiplier_candidates=_candidate_multipliers(extra_candidates=[slot.servings_multiplier]),
-        meals_per_day=plan.meals_per_day,
-        expected_meal_type=template.meal_type,
-        day_date=slot.day_date,
-        slot_index=slot.slot_index,
-        day_totals_before_slot=day_totals_before_slot,
-        slot_weight=template.weight,
-        cumulative_weight=_cumulative_weight_for_slot(meals_per_day=plan.meals_per_day, slot_index=slot.slot_index),
-        targets=targets,
-        recipe_usage_counts=recipe_usage_counts,
-        slot_recipe_dates=slot_recipe_dates,
-        recipe_nutrients_cache=recipe_nutrients_cache,
-    )
+    try:
+        selected_recipe, selected_multiplier = _select_slot_candidate(
+            candidates=candidates,
+            multiplier_candidates=_candidate_multipliers(extra_candidates=[slot.servings_multiplier]),
+            meals_per_day=plan.meals_per_day,
+            expected_meal_type=template.meal_type,
+            day_date=slot.day_date,
+            slot_index=slot.slot_index,
+            day_totals_before_slot=day_totals_before_slot,
+            slot_weight=template.weight,
+            cumulative_weight=_cumulative_weight_for_slot(meals_per_day=plan.meals_per_day, slot_index=slot.slot_index),
+            targets=targets,
+            recipe_usage_counts=recipe_usage_counts,
+            slot_recipe_dates=slot_recipe_dates,
+            recipe_nutrients_cache=recipe_nutrients_cache,
+            similarity_reference_names=similarity_reference_names,
+        )
+    except PlanAutogenerateNotEnoughRecipesError as exc:
+        raise PlanAutogenerateNotEnoughRecipesError(
+            "Не удалось найти другую подходящую замену для этого слота."
+        ) from exc
 
     slot.recipe_id = selected_recipe.id
     slot.servings_multiplier = selected_multiplier

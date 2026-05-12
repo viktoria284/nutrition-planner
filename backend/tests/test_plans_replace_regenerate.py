@@ -72,8 +72,13 @@ def _replace_slot(
     *,
     plan_id: int,
     slot_id: int,
-    payload: dict,
+    payload: dict | None = None,
 ):
+    if payload is None:
+        return client.post(
+            f"/plans/{plan_id}/slots/{slot_id}/replace",
+            headers=auth_headers(token),
+        )
     return client.post(
         f"/plans/{plan_id}/slots/{slot_id}/replace",
         headers=auth_headers(token),
@@ -177,7 +182,7 @@ def test_replace_slot_uses_plan_snapshot_targets_not_updated_profile(
     lunch_low = _create_recipe_with_ingredient(
         client, token, name="Replace Snapshot Lunch Low", meal_types=["lunch"], food_id=lunch_low_food["id"]
     )
-    _create_recipe_with_ingredient(
+    lunch_high = _create_recipe_with_ingredient(
         client, token, name="Replace Snapshot Lunch High", meal_types=["lunch"], food_id=lunch_high_food["id"]
     )
     _create_recipe_with_ingredient(
@@ -230,7 +235,7 @@ def test_replace_slot_uses_plan_snapshot_targets_not_updated_profile(
     )
     assert replace_response.status_code == 200, replace_response.text
     replaced_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
-    assert replaced_slot["recipe_id"] == lunch_low["id"]
+    assert replaced_slot["recipe_id"] == lunch_high["id"]
     assert Decimal(str(replaced_slot["servings_multiplier"])) > Decimal("0")
     assert replaced_slot["pinned"] is True
 
@@ -356,6 +361,9 @@ def test_replace_and_regenerate_can_recalculate_servings_multiplier(
         client, token, name="Multiplier Aware Lunch", meal_types=["lunch"], food_id=lunch_food["id"]
     )
     _create_recipe_with_ingredient(
+        client, token, name="Multiplier Aware Lunch Alt", meal_types=["lunch"], food_id=lunch_food["id"]
+    )
+    _create_recipe_with_ingredient(
         client, token, name="Multiplier Aware Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
     )
 
@@ -398,6 +406,7 @@ def test_replace_and_regenerate_can_recalculate_servings_multiplier(
     )
     assert replace_response.status_code == 200, replace_response.text
     replaced_lunch_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert replaced_lunch_slot["recipe_id"] != lunch_recipe["id"]
     assert Decimal(str(replaced_lunch_slot["servings_multiplier"])) > Decimal("0.75")
 
     _patch_plan_slot(
@@ -750,6 +759,242 @@ def test_replace_slot_respects_excluded_recipe_ids(
     assert replace_response.status_code == 200, replace_response.text
     replaced_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
     assert replaced_slot["recipe_id"] == breakfast_c["id"]
+
+
+def test_replace_slot_accepts_empty_request_body(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_empty_body@example.com",
+        username="replace_empty_body",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Replace Empty Body Food",
+        kcal="120.00",
+        protein="11.00",
+        fat="6.00",
+        carbs="14.00",
+    )
+    recipe_a = _create_recipe_with_ingredient(
+        client, token, name="Replace Empty Body Lunch A", meal_types=["lunch"], food_id=food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Empty Body Lunch B", meal_types=["lunch"], food_id=food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Empty Body Dinner", meal_types=["dinner"], food_id=food["id"]
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    breakfast_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+    assert breakfast_slot["recipe_id"] == recipe_a["id"]
+
+    replace_response = _replace_slot(client, token, plan_id=plan["id"], slot_id=breakfast_slot["id"], payload=None)
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert replaced_slot["recipe_id"] != recipe_a["id"]
+
+
+def test_replace_slot_repeated_with_excluded_ids_avoids_previous_variants(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_history_cycle@example.com",
+        username="replace_history_cycle",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Replace History Cycle Food",
+        kcal="120.00",
+        protein="11.00",
+        fat="6.00",
+        carbs="14.00",
+    )
+    recipe_a = _create_recipe_with_ingredient(
+        client, token, name="Replace History Lunch A", meal_types=["lunch"], food_id=food["id"]
+    )
+    recipe_b = _create_recipe_with_ingredient(
+        client, token, name="Replace History Lunch B", meal_types=["lunch"], food_id=food["id"]
+    )
+    recipe_c = _create_recipe_with_ingredient(
+        client, token, name="Replace History Lunch C", meal_types=["lunch"], food_id=food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace History Dinner", meal_types=["dinner"], food_id=food["id"]
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    breakfast_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+    assert breakfast_slot["recipe_id"] == recipe_a["id"]
+
+    first_replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=breakfast_slot["id"],
+        payload={},
+    )
+    assert first_replace_response.status_code == 200, first_replace_response.text
+    first_replaced_slot = _find_slot(first_replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert first_replaced_slot["recipe_id"] == recipe_b["id"]
+
+    second_replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=breakfast_slot["id"],
+        payload={"excluded_recipe_ids": [recipe_a["id"], recipe_b["id"]]},
+    )
+    assert second_replace_response.status_code == 200, second_replace_response.text
+    second_replaced_slot = _find_slot(second_replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert second_replaced_slot["recipe_id"] == recipe_c["id"]
+    assert second_replaced_slot["recipe_id"] not in {recipe_a["id"], recipe_b["id"]}
+
+
+def test_replace_slot_returns_friendly_422_when_all_alternatives_excluded(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_friendly_422@example.com",
+        username="replace_friendly_422",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Replace Friendly Error Food",
+        kcal="120.00",
+        protein="11.00",
+        fat="6.00",
+        carbs="14.00",
+    )
+    recipe_a = _create_recipe_with_ingredient(
+        client, token, name="Replace Friendly Lunch A", meal_types=["lunch"], food_id=food["id"]
+    )
+    recipe_b = _create_recipe_with_ingredient(
+        client, token, name="Replace Friendly Lunch B", meal_types=["lunch"], food_id=food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Friendly Dinner", meal_types=["dinner"], food_id=food["id"]
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    breakfast_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+    assert breakfast_slot["recipe_id"] == recipe_a["id"]
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=breakfast_slot["id"],
+        payload={"excluded_recipe_ids": [recipe_b["id"]]},
+    )
+    assert replace_response.status_code == 422, replace_response.text
+    assert replace_response.json()["detail"] == "Не удалось найти другую подходящую замену для этого слота."
+
+
+def test_replace_slot_penalizes_near_duplicate_recipe_names_when_other_option_exists(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_similarity_penalty@example.com",
+        username="replace_similarity_penalty",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Replace Similarity Food",
+        kcal="120.00",
+        protein="11.00",
+        fat="6.00",
+        carbs="14.00",
+    )
+    current_recipe = _create_recipe_with_ingredient(
+        client, token, name="Рис Лосось Боул", meal_types=["lunch"], food_id=food["id"]
+    )
+    near_duplicate_recipe = _create_recipe_with_ingredient(
+        client, token, name="Лосось Рис Боул", meal_types=["lunch"], food_id=food["id"]
+    )
+    distinct_recipe = _create_recipe_with_ingredient(
+        client, token, name="Курица Овощной Боул", meal_types=["lunch"], food_id=food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Similarity Dinner", meal_types=["dinner"], food_id=food["id"]
+    )
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-03-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    breakfast_slot = _find_slot(plan, day_date="2026-03-24", slot_index=0)
+    assert breakfast_slot["recipe_id"] == current_recipe["id"]
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=breakfast_slot["id"],
+        payload={},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_slot = _find_slot(replace_response.json(), day_date="2026-03-24", slot_index=0)
+    assert replaced_slot["recipe_id"] == distinct_recipe["id"]
+    assert replaced_slot["recipe_id"] != near_duplicate_recipe["id"]
 
 
 def test_replace_slot_respects_excluded_food_ids(

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
 import { getPlan, regeneratePlanDay } from "../api/plans";
 import { getRecipe, listRecipes, type RecipeRead } from "../api/recipes";
@@ -7,7 +8,7 @@ import { EditPlanSlotModal } from "../components/plans/EditPlanSlotModal";
 import { PlanConfirmModal } from "../components/plans/PlanConfirmModal";
 import { Alert } from "../components/Alert";
 import type { PlanDay, PlanRead, PlanSlot } from "../types/plan";
-import { formatDecimal, formatPlanDate, planTitleWithFallback } from "./plans";
+import { formatDecimal, formatPlanDate, formatPlanDayLabel, planTitleWithFallback } from "./plans";
 import "./PlansPage.css";
 
 function resolvePlanDetailsError(err: unknown): string {
@@ -82,6 +83,7 @@ export function PlanDetailsPage() {
   const [regeneratingDay, setRegeneratingDay] = useState(false);
   const [regenerateDayError, setRegenerateDayError] = useState<string | null>(null);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
+  const [replacementHistoryBySlotId, setReplacementHistoryBySlotId] = useState<Record<number, number[]>>({});
 
   const loadPlan = useCallback(async () => {
     if (!id) {
@@ -193,6 +195,16 @@ export function PlanDetailsPage() {
 
   const canShowCalendar = !error && !isNotFound && plan !== null;
   const initialLoading = loading && !plan;
+  const rememberReplacementRecipe = useCallback((slotId: number, recipeId: number) => {
+    setReplacementHistoryBySlotId((prev) => {
+      const current = prev[slotId] ?? [];
+      if (current.includes(recipeId)) return prev;
+      return {
+        ...prev,
+        [slotId]: [...current, recipeId],
+      };
+    });
+  }, []);
 
   const handleRegenerateDay = useCallback(async () => {
     if (!plan || !dayToRegenerate) return;
@@ -292,10 +304,11 @@ export function PlanDetailsPage() {
                     {days.map((day) => (
                       <th key={day.date}>
                         <div className="plan-day-head">
-                          <p className="plan-day-date">{formatPlanDate(day.date)}</p>
+                          <span className="plan-day-title">{formatPlanDayLabel(day.date)}</span>
                           <button
                             type="button"
-                            className="btn btn-secondary plan-day-regenerate-btn"
+                            className="icon-button icon-button--secondary icon-button--compact plan-day-regenerate-btn"
+                            aria-label="Перегенерировать день"
                             onClick={() => {
                               setDayToRegenerate(day);
                               setRegenerateDayError(null);
@@ -303,7 +316,7 @@ export function PlanDetailsPage() {
                             }}
                             disabled={loading || regeneratingDay}
                           >
-                            Перегенерировать
+                            <RefreshCw aria-hidden="true" size={16} />
                           </button>
                         </div>
                       </th>
@@ -360,6 +373,8 @@ export function PlanDetailsPage() {
         recipeNamesById={recipeNamesById}
         recipesLoading={recipesLoading}
         recipesError={recipesError}
+        replacementHistory={editingSlot ? replacementHistoryBySlotId[editingSlot.id] ?? [] : []}
+        onRememberReplacementRecipe={rememberReplacementRecipe}
         onClose={() => setEditingSlot(null)}
         onSaved={loadPlan}
       />

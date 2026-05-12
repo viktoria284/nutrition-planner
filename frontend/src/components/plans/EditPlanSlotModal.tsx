@@ -15,6 +15,8 @@ type EditPlanSlotModalProps = {
   recipeNamesById: Record<number, string>;
   recipesLoading: boolean;
   recipesError: string | null;
+  replacementHistory: number[];
+  onRememberReplacementRecipe: (slotId: number, recipeId: number) => void;
   onClose: () => void;
   onSaved: () => Promise<void>;
 };
@@ -33,7 +35,7 @@ function toFriendlyReplaceError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Нужно войти в систему.";
     if (err.status === 404) return "План или слот не найден.";
-    if (err.status === 422) return "Не удалось подобрать замену для этого слота.";
+    if (err.status === 422) return "Других подходящих вариантов для этого слота не найдено.";
   }
   return "Не удалось подобрать замену для этого слота.";
 }
@@ -60,6 +62,8 @@ export function EditPlanSlotModal({
   recipeNamesById,
   recipesLoading,
   recipesError,
+  replacementHistory,
+  onRememberReplacementRecipe,
   onClose,
   onSaved,
 }: EditPlanSlotModalProps) {
@@ -163,9 +167,20 @@ export function EditPlanSlotModal({
     setBusyAction("replace");
     setFormErrors([]);
     try {
-      await replacePlanSlot(planId, slot.id, {
+      const excludedRecipeIdsSet = new Set<number>(replacementHistory);
+      if (slot.recipe_id !== null) {
+        excludedRecipeIdsSet.add(slot.recipe_id);
+        onRememberReplacementRecipe(slot.id, slot.recipe_id);
+      }
+
+      const updatedPlan = await replacePlanSlot(planId, slot.id, {
         use_public_recipes: true,
+        excluded_recipe_ids: Array.from(excludedRecipeIdsSet),
       });
+      const replacedSlot = updatedPlan.slots.find((value) => value.id === slot.id) ?? null;
+      if (replacedSlot && replacedSlot.recipe_id !== null) {
+        onRememberReplacementRecipe(slot.id, replacedSlot.recipe_id);
+      }
       await onSaved();
       onClose();
     } catch (err) {
@@ -209,10 +224,6 @@ export function EditPlanSlotModal({
               disabled={isBusy}
               onChange={setSelectedRecipeId}
             />
-            <div className="plans-field-hint">
-              Для ручной замены можно выбрать любой доступный рецепт.
-            </div>
-            <div className="plans-field-hint">Показываются ваши рецепты и публичные опубликованные рецепты.</div>
           </label>
 
           <label className="plans-field" htmlFor="slot-multiplier">
@@ -244,8 +255,13 @@ export function EditPlanSlotModal({
             <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isBusy}>
               Отмена
             </button>
-            <button type="button" className="btn btn-secondary" onClick={() => void onReplaceRecipe()} disabled={isBusy}>
-              {busyAction === "replace" ? "Подбираем..." : "Заменить блюдо"}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void onReplaceRecipe()}
+              disabled={isBusy}
+            >
+              {busyAction === "replace" ? "Подбираем..." : "Заменить"}
             </button>
             <button type="button" className="btn btn-secondary" onClick={() => void onClearRecipe()} disabled={isBusy || selectedRecipeId === null}>
               Снять рецепт

@@ -133,14 +133,15 @@ export async function updatePlanSlot(
 export async function replacePlanSlot(
   planId: number | string,
   slotId: number | string,
-  payload: PlanReplaceSlotPayload,
+  payload?: PlanReplaceSlotPayload,
 ): Promise<PlanRead> {
+  const normalizedPayload = normalizeReplaceSlotPayload(payload ?? { use_public_recipes: true });
   return requestWithApiError(
     apiRequest<PlanRead>({
       method: "POST",
       path: `/plans/${planId}/slots/${slotId}/replace`,
       token: getToken(),
-      body: normalizeReplaceSlotPayload(payload),
+      body: normalizedPayload,
     }),
   );
 }
