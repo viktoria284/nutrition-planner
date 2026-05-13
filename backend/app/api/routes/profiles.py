@@ -1,11 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.models.profile import Profile
 from app.models.user import User
 from app.schemas.profile import ProfileCreate, ProfileOut, ProfileUpdate
+from app.services.profiles import (
+    ProfileFoodNotFoundError,
+    ProfileNotFoundError,
+    create_profile_for_user,
+    delete_profile_for_user,
+    list_profiles_for_user,
+    update_profile_for_user,
+)
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
@@ -15,9 +21,7 @@ def list_profiles(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return db.execute(
-        select(Profile).where(Profile.user_id == current_user.id).order_by(Profile.id)
-    ).scalars().all()
+    return list_profiles_for_user(db, current_user.id)
 
 
 @router.post("", response_model=ProfileOut, status_code=status.HTTP_201_CREATED)
@@ -26,18 +30,14 @@ def create_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    profile = Profile(
-        user_id=current_user.id,
-        name=payload.name,
-        target_kcal=payload.target_kcal,
-        target_protein=payload.target_protein,
-        target_fat=payload.target_fat,
-        target_carbs=payload.target_carbs,
-    )
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
-    return profile
+    try:
+        return create_profile_for_user(
+            db,
+            user_id=current_user.id,
+            payload=payload,
+        )
+    except ProfileFoodNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.patch("/{profile_id}", response_model=ProfileOut)
@@ -47,22 +47,17 @@ def update_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    profile = db.execute(
-        select(Profile).where(
-            Profile.id == profile_id,
-            Profile.user_id == current_user.id,
+    try:
+        return update_profile_for_user(
+            db,
+            user_id=current_user.id,
+            profile_id=profile_id,
+            payload=payload,
         )
-    ).scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
-
-    update_data = payload.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(profile, field, value)
-
-    db.commit()
-    db.refresh(profile)
-    return profile
+    except ProfileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found") from exc
+    except ProfileFoodNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -71,15 +66,12 @@ def delete_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    profile = db.execute(
-        select(Profile).where(
-            Profile.id == profile_id,
-            Profile.user_id == current_user.id,
+    try:
+        delete_profile_for_user(
+            db,
+            user_id=current_user.id,
+            profile_id=profile_id,
         )
-    ).scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found")
-
-    db.delete(profile)
-    db.commit()
+    except ProfileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)

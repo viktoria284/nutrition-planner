@@ -15,10 +15,10 @@ from app.services.recipes import (
 MIN_DEMO_RECIPES = 36
 MAX_DEMO_RECIPES = len(DEMO_PUBLIC_RECIPES)
 MIN_MEAL_TYPE_COUNTS = {
-    "breakfast": 9,
-    "lunch": 9,
-    "dinner": 9,
-    "snack": 6,
+    "breakfast": 16,
+    "lunch": 18,
+    "dinner": 18,
+    "snack": 12,
 }
 HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES = {
     "Овсянка с арахисовой пастой и бананом",
@@ -81,6 +81,39 @@ def test_seed_demo_recipes_have_meal_type_coverage(
             covered.update(recipe.meal_types)
         assert all(meal_type in covered for meal_type in DEMO_MEAL_TYPES)
         assert len(demo_recipes) >= MIN_DEMO_RECIPES
+    finally:
+        db.close()
+
+
+def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        demo_names = [item["name"] for item in DEMO_PUBLIC_RECIPES]
+        demo_recipes = db.execute(
+            select(Recipe).where(Recipe.name.in_(demo_names))
+        ).scalars().all()
+
+        assert len(demo_recipes) == len(DEMO_PUBLIC_RECIPES)
+        assert all(recipe.cook_time_minutes is not None for recipe in demo_recipes)
+        fast_lunch_count = 0
+        fast_dinner_count = 0
+        for recipe in demo_recipes:
+            meal_types = set(recipe.meal_types)
+            assert recipe.cook_time_minutes is not None
+            if meal_types & {"breakfast", "snack"}:
+                assert 5 <= recipe.cook_time_minutes <= 20
+            elif meal_types & {"lunch", "dinner"}:
+                assert 10 <= recipe.cook_time_minutes <= 60
+            if "lunch" in meal_types and recipe.cook_time_minutes <= 20:
+                fast_lunch_count += 1
+            if "dinner" in meal_types and recipe.cook_time_minutes <= 20:
+                fast_dinner_count += 1
+
+        assert fast_lunch_count >= 8
+        assert fast_dinner_count >= 8
     finally:
         db.close()
 

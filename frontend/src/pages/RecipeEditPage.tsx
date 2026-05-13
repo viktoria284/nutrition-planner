@@ -188,6 +188,25 @@ export function RecipeEditPage() {
               </div>
             </label>
 
+            <label className="recipes-field" htmlFor="recipe_cook_time_minutes">
+              <span className="recipes-field-label">Время приготовления, мин</span>
+              <input
+                id="recipe_cook_time_minutes"
+                className={`recipes-field-input ${errors.cook_time_minutes ? "is-invalid" : ""}`}
+                type="number"
+                min={1}
+                max={1440}
+                step={1}
+                value={form.cook_time_minutes}
+                onChange={(e) => updateField("cook_time_minutes", e.target.value)}
+                placeholder="Например, 25"
+                disabled={submitting}
+              />
+              <div className="recipes-field-error-slot" aria-live="polite">
+                {errors.cook_time_minutes && <p className="recipes-field-error">{errors.cook_time_minutes}</p>}
+              </div>
+            </label>
+
             <div className="recipes-field">
               <span className="recipes-field-label">Тип приёма пищи</span>
               <div className="recipes-meal-grid">

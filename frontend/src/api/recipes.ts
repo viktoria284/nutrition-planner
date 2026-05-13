@@ -12,6 +12,7 @@ export type RecipeCreate = {
   description?: string;
   servings_count: number;
   meal_types: MealType[];
+  cook_time_minutes?: number | null;
 };
 
 export type RecipeUpdate = Partial<RecipeCreate>;
@@ -23,6 +24,7 @@ export type RecipeRead = {
   description: string | null;
   servings_count: number;
   meal_types: MealType[];
+  cook_time_minutes: number | null;
   source: RecipeSource;
   status: RecipeStatus;
   reports_count: number;
@@ -99,6 +101,13 @@ function normalizeRecipePayload(payload: RecipeCreate | RecipeUpdate): RecipeCre
 
   if (Array.isArray(normalized.meal_types)) {
     normalized.meal_types = normalizeMealTypes(normalized.meal_types);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "cook_time_minutes")) {
+    const value = normalized.cook_time_minutes;
+    if (value === null || value === undefined) {
+      normalized.cook_time_minutes = undefined;
+    }
   }
 
   return normalized;

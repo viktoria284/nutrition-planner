@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { getFood, type FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
 import { deleteProfile, updateProfile, type Profile, type ProfileUpdatePayload } from "../api/profiles";
+import { type FoodCategory, FOOD_CATEGORIES, FOOD_CATEGORY_LABELS } from "../types/foodCategory";
 import { Alert } from "./Alert";
+import { FoodSearchSelect, type FoodSearchOption } from "./FoodSearchSelect";
 
 type GoalsMode = "kcal_pct" | "grams";
 
@@ -60,6 +63,21 @@ function parsePayloadNonNegativeInt(value: string, label: string): number | null
   }
   if (parsed < 0) {
     throw new Error(`Поле "${label}" не может быть отрицательным.`);
+  }
+  return parsed;
+}
+
+
+function parsePayloadNullablePositiveInt(value: string, label: string): number | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    throw new Error(`Поле "${label}" должно быть целым числом.`);
+  }
+  if (parsed < 1 || parsed > 1440) {
+    throw new Error(`Поле "${label}" должно быть в диапазоне от 1 до 1440.`);
   }
   return parsed;
 }
@@ -255,6 +273,11 @@ function validateGoals(form: GoalsForm, mode: GoalsMode): string | null {
   return null;
 }
 
+
+function profileFoodPlaceholder(foodId: number): FoodSearchOption {
+  return { id: foodId, name: "", brand: null };
+}
+
 type GoalsValueInputProps = {
   id: string;
   ariaLabel: string;
@@ -313,6 +336,22 @@ export function ProfileTargetsCard({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [excludedFoods, setExcludedFoods] = useState<FoodSearchOption[]>(
+    profile.excluded_food_ids.map(profileFoodPlaceholder),
+  );
+  const [preferredFoods, setPreferredFoods] = useState<FoodSearchOption[]>(
+    profile.preferred_food_ids.map(profileFoodPlaceholder),
+  );
+  const [excludedFoodInputKey, setExcludedFoodInputKey] = useState(0);
+  const [preferredFoodInputKey, setPreferredFoodInputKey] = useState(0);
+  const [preferredCategories, setPreferredCategories] = useState<FoodCategory[]>(
+    profile.preferred_categories.filter((value): value is FoodCategory =>
+      FOOD_CATEGORIES.includes(value as FoodCategory),
+    ),
+  );
+  const [maxCookTimeMinutes, setMaxCookTimeMinutes] = useState(
+    profile.max_cook_time_minutes === null ? "" : String(profile.max_cook_time_minutes),
+  );
 
   const resolvedGoals = useMemo(() => resolveGoalsValues(goalsForm, mode), [goalsForm, mode]);
   const goalsValidationError = useMemo(() => validateGoals(goalsForm, mode), [goalsForm, mode]);
@@ -324,6 +363,15 @@ export function ProfileTargetsCard({
   }, [isDefault, name]);
 
   const validationError = goalsValidationError ?? nameValidationError;
+  const cookTimeValidationError = useMemo(() => {
+    const normalized = maxCookTimeMinutes.trim();
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 1 || parsed > 1440) {
+      return "Максимальное время приготовления должно быть целым числом от 1 до 1440.";
+    }
+    return null;
+  }, [maxCookTimeMinutes]);
 
   useEffect(() => {
     setName(profile.name);
@@ -333,6 +381,16 @@ export function ProfileTargetsCard({
     setDeleteError(null);
     setError(null);
     setSuccess(null);
+    setExcludedFoods(profile.excluded_food_ids.map(profileFoodPlaceholder));
+    setPreferredFoods(profile.preferred_food_ids.map(profileFoodPlaceholder));
+    setExcludedFoodInputKey((prev) => prev + 1);
+    setPreferredFoodInputKey((prev) => prev + 1);
+    setPreferredCategories(
+      profile.preferred_categories.filter((value): value is FoodCategory =>
+        FOOD_CATEGORIES.includes(value as FoodCategory),
+      ),
+    );
+    setMaxCookTimeMinutes(profile.max_cook_time_minutes === null ? "" : String(profile.max_cook_time_minutes));
   }, [
     profile.id,
     profile.name,
@@ -340,7 +398,59 @@ export function ProfileTargetsCard({
     profile.target_protein,
     profile.target_fat,
     profile.target_carbs,
+    profile.excluded_food_ids,
+    profile.preferred_food_ids,
+    profile.preferred_categories,
+    profile.max_cook_time_minutes,
   ]);
+
+  useEffect(() => {
+    const unresolvedIds = Array.from(
+      new Set(
+        [...excludedFoods, ...preferredFoods]
+          .filter((option) => option.name.trim().length === 0)
+          .map((option) => option.id),
+      ),
+    );
+    if (unresolvedIds.length === 0) return undefined;
+
+    let cancelled = false;
+    type ResolvedFoodOption = {
+      id: number;
+      name: string;
+      brand: string | null;
+    };
+
+    void Promise.all(
+      unresolvedIds.map(async (foodId) => {
+        try {
+          const food = await getFood(foodId);
+          return {
+            id: foodId,
+            name: food.name,
+            brand: food.brand ?? null,
+          } satisfies ResolvedFoodOption;
+        } catch {
+          return null;
+        }
+      }),
+    ).then((resolvedOptions) => {
+      if (cancelled) return;
+      const resolvedById = new Map(
+        resolvedOptions
+          .filter((option): option is ResolvedFoodOption => option !== null)
+          .map((option) => [option.id, option]),
+      );
+
+      if (resolvedById.size === 0) return;
+      setExcludedFoods((prev) => prev.map((option) => resolvedById.get(option.id) ?? option));
+      setPreferredFoods((prev) => prev.map((option) => resolvedById.get(option.id) ?? option));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [excludedFoods, preferredFoods]);
 
   useEffect(() => {
     if (!deleteModalOpen) return;
@@ -380,6 +490,51 @@ export function ProfileTargetsCard({
     setSuccess(null);
   };
 
+  const onExcludedFoodSelected = (food: FoodItem | null) => {
+    if (!food) return;
+    setExcludedFoods((prev) => {
+      if (prev.some((item) => item.id === food.id)) return prev;
+      return [...prev, { id: food.id, name: food.name, brand: food.brand ?? null }];
+    });
+    setExcludedFoodInputKey((prev) => prev + 1);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const onPreferredFoodSelected = (food: FoodItem | null) => {
+    if (!food) return;
+    setPreferredFoods((prev) => {
+      if (prev.some((item) => item.id === food.id)) return prev;
+      return [...prev, { id: food.id, name: food.name, brand: food.brand ?? null }];
+    });
+    setPreferredFoodInputKey((prev) => prev + 1);
+    setError(null);
+    setSuccess(null);
+  };
+
+  const removeExcludedFood = (foodId: number) => {
+    setExcludedFoods((prev) => prev.filter((food) => food.id !== foodId));
+    setError(null);
+    setSuccess(null);
+  };
+
+  const removePreferredFood = (foodId: number) => {
+    setPreferredFoods((prev) => prev.filter((food) => food.id !== foodId));
+    setError(null);
+    setSuccess(null);
+  };
+
+  const togglePreferredCategory = (category: FoodCategory) => {
+    setPreferredCategories((prev) => {
+      if (prev.includes(category)) {
+        return prev.filter((item) => item !== category);
+      }
+      return [...prev, category];
+    });
+    setError(null);
+    setSuccess(null);
+  };
+
   const onSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (validationError || saving || deleting) return;
@@ -394,6 +549,13 @@ export function ProfileTargetsCard({
         target_protein: parsePayloadNonNegativeInt(resolvedGoals.target_protein, "Белки"),
         target_fat: parsePayloadNonNegativeInt(resolvedGoals.target_fat, "Жиры"),
         target_carbs: parsePayloadNonNegativeInt(resolvedGoals.target_carbs, "Углеводы"),
+        excluded_food_ids: excludedFoods.map((food) => food.id),
+        preferred_food_ids: preferredFoods.map((food) => food.id),
+        preferred_categories: preferredCategories,
+        max_cook_time_minutes: parsePayloadNullablePositiveInt(
+          maxCookTimeMinutes,
+          "Максимальное время приготовления",
+        ),
       };
 
       if (!isDefault) {
@@ -452,7 +614,7 @@ export function ProfileTargetsCard({
     }
   };
 
-  const saveDisabled = saving || deleting || Boolean(validationError);
+  const saveDisabled = saving || deleting || Boolean(validationError) || Boolean(cookTimeValidationError);
 
   return (
     <article id={`profile-card-${profile.id}`} className={`profile-card ${highlighted ? "is-highlighted" : ""}`}>
@@ -490,7 +652,9 @@ export function ProfileTargetsCard({
         />
       </label>
 
-      {(error || validationError) && <Alert text={error ?? validationError ?? "Ошибка"} />}
+      {(error || validationError || cookTimeValidationError) && (
+        <Alert text={error ?? validationError ?? cookTimeValidationError ?? "Ошибка"} />
+      )}
       {success && <p className="settings-success">{success}</p>}
 
       <form className="profile-card-form" onSubmit={onSave}>
@@ -598,6 +762,122 @@ export function ProfileTargetsCard({
             </div>
           </div>
         </div>
+
+        <details className="profile-preferences-card">
+          <summary className="profile-preferences-summary">Ограничения и предпочтения</summary>
+
+          <label className="profile-name-field" htmlFor={`profile-max-cook-time-${profile.id}`}>
+            <span className="profile-name-label">Максимальное время приготовления, мин</span>
+            <input
+              id={`profile-max-cook-time-${profile.id}`}
+              className="profile-name-input"
+              type="number"
+              min={1}
+              max={1440}
+              step={1}
+              value={maxCookTimeMinutes}
+              onChange={(e) => {
+                setMaxCookTimeMinutes(e.target.value);
+                setError(null);
+                setSuccess(null);
+              }}
+              placeholder="Например, 45"
+              disabled={saving || deleting}
+            />
+            <p className="profile-preferences-hint">
+              Это значение используется как ограничение по умолчанию в автоплане.
+            </p>
+          </label>
+
+          <div className="profile-preferences-block">
+            <span className="profile-name-label">Исключённые продукты</span>
+            <FoodSearchSelect
+              key={excludedFoodInputKey}
+              value={null}
+              onChange={onExcludedFoodSelected}
+              placeholder="Добавьте продукт в исключения"
+              disabled={saving || deleting}
+            />
+            <p className="profile-preferences-hint">Рецепты с этими продуктами не будут попадать в автоплан.</p>
+            {excludedFoods.some((food) => food.name.trim().length > 0) && (
+              <ul className="profile-chip-list">
+                {excludedFoods
+                  .filter((food) => food.name.trim().length > 0)
+                  .map((food) => (
+                  <li key={`excluded-${food.id}`} className="profile-chip">
+                    <span className="profile-chip-label">{food.brand ? `${food.name} — ${food.brand}` : food.name}</span>
+                    <button
+                      type="button"
+                      className="profile-chip-remove"
+                      onClick={() => removeExcludedFood(food.id)}
+                      disabled={saving || deleting}
+                      aria-label={`Убрать ${food.name} из исключённых`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="profile-preferences-block">
+            <span className="profile-name-label">Предпочитаемые продукты</span>
+            <FoodSearchSelect
+              key={preferredFoodInputKey}
+              value={null}
+              onChange={onPreferredFoodSelected}
+              placeholder="Добавьте предпочитаемый продукт"
+              disabled={saving || deleting}
+            />
+            <p className="profile-preferences-hint">Рецепты с этими продуктами будут получать приоритет.</p>
+            {preferredFoods.some((food) => food.name.trim().length > 0) && (
+              <ul className="profile-chip-list">
+                {preferredFoods
+                  .filter((food) => food.name.trim().length > 0)
+                  .map((food) => (
+                  <li key={`preferred-${food.id}`} className="profile-chip">
+                    <span className="profile-chip-label">{food.brand ? `${food.name} — ${food.brand}` : food.name}</span>
+                    <button
+                      type="button"
+                      className="profile-chip-remove"
+                      onClick={() => removePreferredFood(food.id)}
+                      disabled={saving || deleting}
+                      aria-label={`Убрать ${food.name} из предпочитаемых`}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="profile-preferences-block">
+            <span className="profile-name-label">Предпочитаемые разделы продуктов</span>
+            <div className="profile-categories-grid">
+              {FOOD_CATEGORIES.map((category) => {
+                const checked = preferredCategories.includes(category);
+                return (
+                  <label
+                    key={`category-${profile.id}-${category}`}
+                    className={`profile-category-chip ${checked ? "is-active" : ""}`}
+                    htmlFor={`profile-category-${profile.id}-${category}`}
+                  >
+                    <input
+                      id={`profile-category-${profile.id}-${category}`}
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => togglePreferredCategory(category)}
+                      disabled={saving || deleting}
+                    />
+                    {FOOD_CATEGORY_LABELS[category]}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        </details>
 
         <div className="profile-card-actions">
           <button type="submit" className="btn btn-primary" disabled={saveDisabled}>

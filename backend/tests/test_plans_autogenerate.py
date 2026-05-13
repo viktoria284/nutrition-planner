@@ -57,6 +57,38 @@ def _create_recipe_with_ingredient(
     return recipe
 
 
+def _create_recipe_with_ingredient_and_cook_time(
+    client: TestClient,
+    token: str,
+    *,
+    name: str,
+    meal_types: list[str],
+    food_id: int,
+    cook_time_minutes: int,
+    grams: str = "100",
+) -> dict:
+    recipe_response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={
+            "name": name,
+            "servings_count": 1,
+            "meal_types": meal_types,
+            "cook_time_minutes": cook_time_minutes,
+        },
+    )
+    assert recipe_response.status_code == 201, recipe_response.text
+    recipe = recipe_response.json()
+    add_ingredient_via_api(
+        client,
+        token,
+        recipe_id=recipe["id"],
+        food_id=food_id,
+        grams=grams,
+    )
+    return recipe
+
+
 def _post_autogenerate_plan(
     client: TestClient,
     token: str,
@@ -2159,3 +2191,955 @@ def test_autogenerate_is_deterministic_and_uses_stable_tie_break(
     # Both lunch candidates are nutritionally identical, so deterministic tie-break should pick the smallest id.
     first_lunch_slot = next(slot for slot in first_plan_slots if slot["slot_index"] == 0)
     assert first_lunch_slot["recipe_id"] == first_lunch["id"]
+
+
+def test_autogenerate_respects_profile_excluded_food_ids(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_profile_excluded_food@example.com",
+        username="autoplan_profile_excluded_food",
+    )
+
+    excluded_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Excluded Food",
+        kcal="300.00",
+        protein="22.00",
+        fat="9.00",
+        carbs="30.00",
+    )
+    allowed_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Allowed Food",
+        kcal="300.00",
+        protein="22.00",
+        fat="9.00",
+        carbs="30.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Dinner Food",
+        kcal="600.00",
+        protein="35.00",
+        fat="18.00",
+        carbs="70.00",
+    )
+
+    excluded_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Excluded Lunch",
+        meal_types=["lunch"],
+        food_id=excluded_food["id"],
+    )
+    allowed_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Allowed Lunch",
+        meal_types=["lunch"],
+        food_id=allowed_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Excluded Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profiles = _list_profiles(client, token)
+    default_profile_id = profiles[0]["id"]
+    _patch_profile_via_api(
+        client,
+        token,
+        default_profile_id,
+        {"excluded_food_ids": [excluded_food["id"]]},
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-10",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": default_profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_slot = next(slot for slot in slots if slot["slot_index"] == 0)
+    assert lunch_slot["recipe_id"] == allowed_lunch["id"]
+    assert lunch_slot["recipe_id"] != excluded_lunch["id"]
+
+
+def test_autogenerate_applies_request_max_cook_time_minutes(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_request_max_cook_time@example.com",
+        username="autoplan_request_max_cook_time",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Cook Time Lunch Food",
+        kcal="420.00",
+        protein="26.00",
+        fat="12.00",
+        carbs="50.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Cook Time Dinner Food",
+        kcal="680.00",
+        protein="38.00",
+        fat="22.00",
+        carbs="74.00",
+    )
+
+    slow_lunch = _create_recipe_with_ingredient_and_cook_time(
+        client,
+        token,
+        name="Autoplan Slow Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+        cook_time_minutes=55,
+    )
+    fast_lunch = _create_recipe_with_ingredient_and_cook_time(
+        client,
+        token,
+        name="Autoplan Fast Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+        cook_time_minutes=20,
+    )
+    _create_recipe_with_ingredient_and_cook_time(
+        client,
+        token,
+        name="Autoplan Cook Time Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+        cook_time_minutes=30,
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-12",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "max_cook_time_minutes": 30,
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_slot = next(slot for slot in slots if slot["slot_index"] == 0)
+    assert lunch_slot["recipe_id"] == fast_lunch["id"]
+    assert lunch_slot["recipe_id"] != slow_lunch["id"]
+
+
+def test_autogenerate_prefers_profile_preferred_foods(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_profile_preferred_food@example.com",
+        username="autoplan_profile_preferred_food",
+    )
+
+    non_preferred_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Non Preferred Food",
+        kcal="390.00",
+        protein="25.00",
+        fat="11.00",
+        carbs="46.00",
+    )
+    preferred_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Preferred Food",
+        kcal="390.00",
+        protein="25.00",
+        fat="11.00",
+        carbs="46.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Preferred Dinner Food",
+        kcal="640.00",
+        protein="36.00",
+        fat="19.00",
+        carbs="70.00",
+    )
+
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Lunch Without Preference",
+        meal_types=["lunch"],
+        food_id=non_preferred_food["id"],
+    )
+    preferred_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Lunch With Preference",
+        meal_types=["lunch"],
+        food_id=preferred_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Preferred Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profiles = _list_profiles(client, token)
+    default_profile_id = profiles[0]["id"]
+    _patch_profile_via_api(
+        client,
+        token,
+        default_profile_id,
+        {"preferred_food_ids": [preferred_food["id"]]},
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-14",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": default_profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_slot = next(slot for slot in slots if slot["slot_index"] == 0)
+    assert lunch_slot["recipe_id"] == preferred_recipe["id"]
+
+
+def test_autogenerate_prefers_profile_preferred_categories_when_other_factors_equal(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_profile_preferred_category@example.com",
+        username="autoplan_profile_preferred_category",
+    )
+
+    preferred_food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Autoplan Preferred Category Food",
+            "kcal": "380.00",
+            "protein": "24.00",
+            "fat": "10.00",
+            "carbs": "45.00",
+            "category": "meat_fish",
+        },
+    )
+    assert preferred_food_response.status_code == 201, preferred_food_response.text
+    preferred_category_food = preferred_food_response.json()
+
+    neutral_food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Autoplan Neutral Category Food",
+            "kcal": "380.00",
+            "protein": "24.00",
+            "fat": "10.00",
+            "carbs": "45.00",
+            "category": "vegetables",
+        },
+    )
+    assert neutral_food_response.status_code == 201, neutral_food_response.text
+    neutral_food = neutral_food_response.json()
+
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Preferred Category Dinner Food",
+        kcal="640.00",
+        protein="35.00",
+        fat="19.00",
+        carbs="72.00",
+    )
+
+    preferred_category_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Lunch Preferred Category",
+        meal_types=["lunch"],
+        food_id=preferred_category_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Lunch Neutral Category",
+        meal_types=["lunch"],
+        food_id=neutral_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Preferred Category Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profiles = _list_profiles(client, token)
+    default_profile_id = profiles[0]["id"]
+    _patch_profile_via_api(
+        client,
+        token,
+        default_profile_id,
+        {"preferred_categories": ["meat_fish"]},
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-16",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": default_profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_slot = next(slot for slot in slots if slot["slot_index"] == 0)
+    assert lunch_slot["recipe_id"] == preferred_category_recipe["id"]
+
+
+def test_autogenerate_batch_cooking_reuses_recipe_for_two_days(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_cooking@example.com",
+        username="autoplan_batch_cooking",
+    )
+
+    lunch_food_a = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Lunch A",
+        kcal="450.00",
+        protein="28.00",
+        fat="14.00",
+        carbs="52.00",
+    )
+    lunch_food_b = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Lunch B",
+        kcal="460.00",
+        protein="29.00",
+        fat="14.00",
+        carbs="53.00",
+    )
+    dinner_food_a = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Dinner A",
+        kcal="680.00",
+        protein="37.00",
+        fat="21.00",
+        carbs="74.00",
+    )
+    dinner_food_b = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Dinner B",
+        kcal="690.00",
+        protein="38.00",
+        fat="22.00",
+        carbs="75.00",
+    )
+
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Lunch Recipe A", meal_types=["lunch"], food_id=lunch_food_a["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Lunch Recipe B", meal_types=["lunch"], food_id=lunch_food_b["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Dinner Recipe A", meal_types=["dinner"], food_id=dinner_food_a["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Dinner Recipe B", meal_types=["dinner"], food_id=dinner_food_b["id"])
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-20",
+            "days_count": 3,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {
+                "lunch": 2,
+                "dinner": 2,
+            },
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+
+    day1_lunch = next(slot for slot in slots if slot["day_date"] == "2026-04-20" and slot["slot_index"] == 0)
+    day2_lunch = next(slot for slot in slots if slot["day_date"] == "2026-04-21" and slot["slot_index"] == 0)
+    day1_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-20" and slot["slot_index"] == 1)
+    day2_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-21" and slot["slot_index"] == 1)
+
+    assert day1_lunch["recipe_id"] == day2_lunch["recipe_id"]
+    assert day1_dinner["recipe_id"] == day2_dinner["recipe_id"]
+
+
+def test_autogenerate_batch_cooking_reuses_dinner_for_three_day_window(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_cooking_three_days@example.com",
+        username="autoplan_batch_cooking_three_days",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch3 Lunch Food",
+        kcal="420.00",
+        protein="24.00",
+        fat="10.00",
+        carbs="48.00",
+    )
+    dinner_food_a = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch3 Dinner Food A",
+        kcal="650.00",
+        protein="34.00",
+        fat="20.00",
+        carbs="70.00",
+    )
+    dinner_food_b = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch3 Dinner Food B",
+        kcal="660.00",
+        protein="35.00",
+        fat="20.00",
+        carbs="71.00",
+    )
+
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch3 Lunch", meal_types=["lunch"], food_id=lunch_food["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch3 Dinner A", meal_types=["dinner"], food_id=dinner_food_a["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch3 Dinner B", meal_types=["dinner"], food_id=dinner_food_b["id"])
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-24",
+            "days_count": 5,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"dinner": 3},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+
+    day1_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-24" and slot["slot_index"] == 1)
+    day2_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-25" and slot["slot_index"] == 1)
+    day3_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-26" and slot["slot_index"] == 1)
+    day4_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-27" and slot["slot_index"] == 1)
+    day5_dinner = next(slot for slot in slots if slot["day_date"] == "2026-04-28" and slot["slot_index"] == 1)
+
+    assert day1_dinner["recipe_id"] == day2_dinner["recipe_id"] == day3_dinner["recipe_id"]
+    assert day4_dinner["recipe_id"] == day5_dinner["recipe_id"]
+
+
+def test_autogenerate_batch_cooking_missing_meal_type_equals_explicit_one(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_cooking_missing_equals_one@example.com",
+        username="autoplan_batch_cooking_missing_equals_one",
+    )
+
+    lunch_food_a = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch One Lunch A",
+        kcal="470.00",
+        protein="27.00",
+        fat="14.00",
+        carbs="55.00",
+    )
+    lunch_food_b = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch One Lunch B",
+        kcal="475.00",
+        protein="27.00",
+        fat="14.00",
+        carbs="55.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch One Dinner",
+        kcal="660.00",
+        protein="35.00",
+        fat="21.00",
+        carbs="74.00",
+    )
+
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch One Lunch Recipe A", meal_types=["lunch"], food_id=lunch_food_a["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch One Lunch Recipe B", meal_types=["lunch"], food_id=lunch_food_b["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch One Dinner Recipe", meal_types=["dinner"], food_id=dinner_food["id"])
+
+    with_missing = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-29",
+            "days_count": 3,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {},
+        },
+    )
+    with_explicit_one = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-29",
+            "days_count": 3,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"lunch": 1, "dinner": 1},
+        },
+    )
+    assert with_missing.status_code == 201, with_missing.text
+    assert with_explicit_one.status_code == 201, with_explicit_one.text
+
+    missing_signature = [
+        (slot["day_date"], slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"]))
+        for slot in sorted(with_missing.json()["slots"], key=lambda item: (item["day_date"], item["slot_index"], item["id"]))
+    ]
+    explicit_signature = [
+        (slot["day_date"], slot["slot_index"], slot["recipe_id"], str(slot["servings_multiplier"]))
+        for slot in sorted(
+            with_explicit_one.json()["slots"],
+            key=lambda item: (item["day_date"], item["slot_index"], item["id"]),
+        )
+    ]
+    assert missing_signature == explicit_signature
+
+
+def test_autogenerate_batch_cooking_validation_rejects_out_of_range_values(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_cooking_invalid_values@example.com",
+        username="autoplan_batch_cooking_invalid_values",
+    )
+
+    bad_zero_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-30",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"lunch": 0},
+        },
+    )
+    bad_high_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-30",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"dinner": 4},
+        },
+    )
+    bad_key_response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-30",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"brunch": 2},
+        },
+    )
+
+    assert bad_zero_response.status_code == 422, bad_zero_response.text
+    assert bad_high_response.status_code == 422, bad_high_response.text
+    assert bad_key_response.status_code == 422, bad_key_response.text
+    assert any("batch_cooking" in ".".join(str(item) for item in err["loc"]) for err in bad_zero_response.json().get("detail", []))
+    assert any("batch_cooking" in ".".join(str(item) for item in err["loc"]) for err in bad_high_response.json().get("detail", []))
+    assert any("batch_cooking" in ".".join(str(item) for item in err["loc"]) for err in bad_key_response.json().get("detail", []))
+
+
+def test_autogenerate_batch_repeat_not_defeated_by_repeat_penalty(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_repeat_penalty_guard@example.com",
+        username="autoplan_batch_repeat_penalty_guard",
+    )
+
+    lunch_food_a = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Penalty Lunch A",
+        kcal="430.00",
+        protein="26.00",
+        fat="12.00",
+        carbs="49.00",
+    )
+    lunch_food_b = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Penalty Lunch B",
+        kcal="435.00",
+        protein="26.00",
+        fat="12.00",
+        carbs="50.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Batch Penalty Dinner",
+        kcal="640.00",
+        protein="34.00",
+        fat="19.00",
+        carbs="71.00",
+    )
+
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Penalty Lunch Recipe A", meal_types=["lunch"], food_id=lunch_food_a["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Penalty Lunch Recipe B", meal_types=["lunch"], food_id=lunch_food_b["id"])
+    _create_recipe_with_ingredient(client, token, name="Autoplan Batch Penalty Dinner Recipe", meal_types=["dinner"], food_id=dinner_food["id"])
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-01",
+            "days_count": 4,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"lunch": 2},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_day1 = next(slot for slot in slots if slot["day_date"] == "2026-05-01" and slot["slot_index"] == 0)
+    lunch_day2 = next(slot for slot in slots if slot["day_date"] == "2026-05-02" and slot["slot_index"] == 0)
+    lunch_day3 = next(slot for slot in slots if slot["day_date"] == "2026-05-03" and slot["slot_index"] == 0)
+    lunch_day4 = next(slot for slot in slots if slot["day_date"] == "2026-05-04" and slot["slot_index"] == 0)
+
+    assert lunch_day1["recipe_id"] == lunch_day2["recipe_id"]
+    assert lunch_day3["recipe_id"] == lunch_day4["recipe_id"]
+
+
+def _has_identical_run(values: list[int], run_length: int) -> bool:
+    if run_length <= 1:
+        return len(values) > 0
+    streak = 1
+    for idx in range(1, len(values)):
+        if values[idx] == values[idx - 1]:
+            streak += 1
+            if streak >= run_length:
+                return True
+        else:
+            streak = 1
+    return False
+
+
+def test_autogenerate_max_cook_time_20_generates_week_plan_with_demo_pool(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_demo_fast_pool_20@example.com",
+        username="autoplan_demo_fast_pool_20",
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-05",
+            "days_count": 7,
+            "meals_per_day": 2,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "max_cook_time_minutes": 20,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["slots"]) == 14
+
+
+def test_autogenerate_batch_one_lunch_avoids_four_identical_days_when_alternatives_exist(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_one_lunch_diversity@example.com",
+        username="autoplan_batch_one_lunch_diversity",
+    )
+
+    for idx in range(1, 5):
+        lunch_food = create_food_via_api(
+            client,
+            token,
+            name=f"Autoplan Batch1 Lunch Diversity Food {idx}",
+            kcal="440.00",
+            protein="28.00",
+            fat="12.00",
+            carbs="50.00",
+        )
+        _create_recipe_with_ingredient(
+            client,
+            token,
+            name=f"Autoplan Batch1 Lunch Diversity Recipe {idx}",
+            meal_types=["lunch"],
+            food_id=lunch_food["id"],
+        )
+
+    for idx in range(1, 3):
+        dinner_food = create_food_via_api(
+            client,
+            token,
+            name=f"Autoplan Batch1 Lunch Diversity Dinner Food {idx}",
+            kcal="650.00",
+            protein="34.00",
+            fat="20.00",
+            carbs="72.00",
+        )
+        _create_recipe_with_ingredient(
+            client,
+            token,
+            name=f"Autoplan Batch1 Lunch Diversity Dinner Recipe {idx}",
+            meal_types=["dinner"],
+            food_id=dinner_food["id"],
+        )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-12",
+            "days_count": 7,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"lunch": 1},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_recipe_ids = [slot["recipe_id"] for slot in slots if slot["slot_index"] == 0]
+    assert not _has_identical_run(lunch_recipe_ids, 4)
+
+
+def test_autogenerate_batch_one_dinner_avoids_four_identical_days_when_alternatives_exist(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_one_dinner_diversity@example.com",
+        username="autoplan_batch_one_dinner_diversity",
+    )
+
+    for idx in range(1, 5):
+        dinner_food = create_food_via_api(
+            client,
+            token,
+            name=f"Autoplan Batch1 Dinner Diversity Food {idx}",
+            kcal="660.00",
+            protein="35.00",
+            fat="21.00",
+            carbs="73.00",
+        )
+        _create_recipe_with_ingredient(
+            client,
+            token,
+            name=f"Autoplan Batch1 Dinner Diversity Recipe {idx}",
+            meal_types=["dinner"],
+            food_id=dinner_food["id"],
+        )
+
+    for idx in range(1, 3):
+        lunch_food = create_food_via_api(
+            client,
+            token,
+            name=f"Autoplan Batch1 Dinner Diversity Lunch Food {idx}",
+            kcal="430.00",
+            protein="27.00",
+            fat="11.00",
+            carbs="48.00",
+        )
+        _create_recipe_with_ingredient(
+            client,
+            token,
+            name=f"Autoplan Batch1 Dinner Diversity Lunch Recipe {idx}",
+            meal_types=["lunch"],
+            food_id=lunch_food["id"],
+        )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-20",
+            "days_count": 7,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "batch_cooking": {"dinner": 1},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    dinner_recipe_ids = [slot["recipe_id"] for slot in slots if slot["slot_index"] == 1]
+    assert not _has_identical_run(dinner_recipe_ids, 4)
+
+
+def test_autogenerate_returns_friendly_422_when_fast_candidates_too_few_for_diversity(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_fast_candidates_too_few@example.com",
+        username="autoplan_fast_candidates_too_few",
+    )
+
+    for idx in range(1, 3):
+        lunch_food = create_food_via_api(
+            client,
+            token,
+            name=f"Autoplan Fast Few Lunch Food {idx}",
+            kcal="420.00",
+            protein="26.00",
+            fat="11.00",
+            carbs="49.00",
+        )
+        _create_recipe_with_ingredient_and_cook_time(
+            client,
+            token,
+            name=f"Autoplan Fast Few Lunch Recipe {idx}",
+            meal_types=["lunch"],
+            food_id=lunch_food["id"],
+            cook_time_minutes=20,
+        )
+
+    for idx in range(1, 3):
+        dinner_food = create_food_via_api(
+            client,
+            token,
+            name=f"Autoplan Fast Few Dinner Food {idx}",
+            kcal="640.00",
+            protein="34.00",
+            fat="19.00",
+            carbs="70.00",
+        )
+        _create_recipe_with_ingredient_and_cook_time(
+            client,
+            token,
+            name=f"Autoplan Fast Few Dinner Recipe {idx}",
+            meal_types=["dinner"],
+            food_id=dinner_food["id"],
+            cook_time_minutes=20,
+        )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-26",
+            "days_count": 7,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "max_cook_time_minutes": 20,
+            "batch_cooking": {"lunch": 1, "dinner": 1},
+        },
+    )
+    assert response.status_code == 422, response.text
+    detail = response.json().get("detail")
+    assert isinstance(detail, str)
+    assert "Недостаточно быстрых рецептов для разнообразного плана" in detail

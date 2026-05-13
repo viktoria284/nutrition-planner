@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
@@ -18,6 +18,11 @@ type PlanAutogenerateFormState = {
   profile_id: string;
   title: string;
   use_public_recipes: boolean;
+  max_cook_time_minutes: string;
+  batch_breakfast_days: string;
+  batch_lunch_days: string;
+  batch_dinner_days: string;
+  batch_snack_days: string;
   excluded_food_ids: number[];
 };
 
@@ -26,6 +31,7 @@ type PlanAutogenerateFormErrors = {
   days_count?: string;
   meals_per_day?: string;
   profile_id?: string;
+  max_cook_time_minutes?: string;
   form: string[];
 };
 
@@ -35,6 +41,12 @@ const MEAL_TYPE_LABELS: Record<string, string> = {
   dinner: "ужин",
   snack: "перекус",
 };
+
+const BATCH_OPTIONS: Array<{ value: 1 | 2 | 3; label: string }> = [
+  { value: 1, label: "По возможности разные" },
+  { value: 2, label: "Готовить на 2 дня" },
+  { value: 3, label: "Готовить на 3 дня" },
+];
 
 function toTodayIsoDate(): string {
   const now = new Date();
@@ -74,9 +86,31 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
     errors.form.push("Нужно выбрать профиль для автоплана.");
   }
 
+  const maxCookTimeRaw = form.max_cook_time_minutes.trim();
+  let maxCookTime: number | null = null;
+  if (maxCookTimeRaw) {
+    const parsed = Number(maxCookTimeRaw);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 1440) {
+      errors.max_cook_time_minutes = "Введите целое число от 1 до 1440.";
+      errors.form.push("Максимальное время приготовления должно быть целым числом от 1 до 1440.");
+    } else {
+      maxCookTime = parsed;
+    }
+  }
+
   if (errors.form.length > 0) {
     return { payload: null, errors };
   }
+
+  const batchCooking: Partial<Record<"breakfast" | "lunch" | "dinner" | "snack", 2 | 3>> = {};
+  const batchBreakfastDays = Number(form.batch_breakfast_days);
+  const batchLunchDays = Number(form.batch_lunch_days);
+  const batchDinnerDays = Number(form.batch_dinner_days);
+  const batchSnackDays = Number(form.batch_snack_days);
+  if (batchBreakfastDays === 2 || batchBreakfastDays === 3) batchCooking.breakfast = batchBreakfastDays;
+  if (batchLunchDays === 2 || batchLunchDays === 3) batchCooking.lunch = batchLunchDays;
+  if (batchDinnerDays === 2 || batchDinnerDays === 3) batchCooking.dinner = batchDinnerDays;
+  if (batchSnackDays === 2 || batchSnackDays === 3) batchCooking.snack = batchSnackDays;
 
   return {
     payload: {
@@ -88,6 +122,8 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
       use_public_recipes: form.use_public_recipes,
       excluded_recipe_ids: [],
       excluded_food_ids: [...new Set(form.excluded_food_ids)],
+      ...(maxCookTime !== null ? { max_cook_time_minutes: maxCookTime } : {}),
+      ...(Object.keys(batchCooking).length > 0 ? { batch_cooking: batchCooking } : {}),
     },
     errors: { form: [] },
   };
@@ -109,6 +145,12 @@ function mapAutogenerateError(err: unknown): string[] {
       if (err.status === 404) return ["Выбранный профиль недоступен. Выберите другой профиль и попробуйте снова."];
       if (err.status === 422) {
         const detailRaw = typeof err.payload?.detail === "string" ? err.payload.detail.trim() : "";
+        if (detailRaw.toLowerCase().includes("недостаточно быстрых рецептов")) {
+          return [
+            "Недостаточно быстрых рецептов для выбранных условий.",
+            "Попробуйте увеличить время приготовления до 30 минут или выбрать приготовление обедов/ужинов на 2 дня.",
+          ];
+        }
         if (detailRaw.toLowerCase().includes("not enough recipes")) {
           const detailHint = tryBuildNotEnoughRecipesHint(detailRaw);
           return detailHint
@@ -136,10 +178,16 @@ export function PlansAutogeneratePage() {
     profile_id: activeProfileId ? String(activeProfileId) : "",
     title: "",
     use_public_recipes: true,
+    max_cook_time_minutes: "",
+    batch_breakfast_days: "1",
+    batch_lunch_days: "1",
+    batch_dinner_days: "1",
+    batch_snack_days: "1",
     excluded_food_ids: [],
   });
   const [errors, setErrors] = useState<PlanAutogenerateFormErrors>({ form: [] });
   const [saving, setSaving] = useState(false);
+  const [isMaxCookTimeTouchedManually, setIsMaxCookTimeTouchedManually] = useState(false);
   const [excludedFoods, setExcludedFoods] = useState<FoodSearchOption[]>([]);
   const [excludedFoodInputKey, setExcludedFoodInputKey] = useState(0);
 
@@ -172,10 +220,36 @@ export function PlansAutogeneratePage() {
     setProfileId: setAutoProfileId,
   });
 
+  useEffect(() => {
+    if (isMaxCookTimeTouchedManually) return;
+    const profileDefaultValue =
+      selectedProfile && selectedProfile.max_cook_time_minutes !== null
+        ? String(selectedProfile.max_cook_time_minutes)
+        : "";
+
+    setForm((prev) => {
+      if (prev.max_cook_time_minutes === profileDefaultValue) return prev;
+      return { ...prev, max_cook_time_minutes: profileDefaultValue };
+    });
+  }, [isMaxCookTimeTouchedManually, selectedProfile]);
+
   const updateTextField = (
-    field: "start_date" | "days_count" | "meals_per_day" | "profile_id" | "title",
+    field:
+      | "start_date"
+      | "days_count"
+      | "meals_per_day"
+      | "profile_id"
+      | "title"
+      | "max_cook_time_minutes"
+      | "batch_breakfast_days"
+      | "batch_lunch_days"
+      | "batch_dinner_days"
+      | "batch_snack_days",
     value: string,
   ) => {
+    if (field === "max_cook_time_minutes") {
+      setIsMaxCookTimeTouchedManually(true);
+    }
     setForm((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => ({ ...prev, [field]: undefined, form: [] }));
   };
@@ -340,6 +414,28 @@ export function PlansAutogeneratePage() {
             <p className="plans-field-hint">Если оставить пустым, название будет создано автоматически.</p>
           </label>
 
+          <label className="plans-field" htmlFor="autoplan-max-cook-time">
+            <span className="plans-field-label">Максимальное время приготовления, мин</span>
+            <input
+              id="autoplan-max-cook-time"
+              className={`plans-field-input ${errors.max_cook_time_minutes ? "is-invalid" : ""}`}
+              type="number"
+              min={1}
+              max={1440}
+              step={1}
+              value={form.max_cook_time_minutes}
+              onChange={(event) => updateTextField("max_cook_time_minutes", event.target.value)}
+              placeholder="Например, 45"
+              disabled={saving}
+            />
+            <div className="plans-field-error-slot" aria-live="polite">
+              {errors.max_cook_time_minutes && <p className="plans-field-error">{errors.max_cook_time_minutes}</p>}
+            </div>
+            <p className="plans-field-hint">
+              По умолчанию берётся из выбранного профиля. Здесь можно задать значение только для этой генерации.
+            </p>
+          </label>
+
           <label className="plans-checkbox-row" htmlFor="autoplan-use-public">
             <input
               id="autoplan-use-public"
@@ -387,6 +483,82 @@ export function PlansAutogeneratePage() {
               Выбранные продукты не будут использоваться при автогенерации.
             </p>
           </div>
+
+          <details className="plans-advanced-card">
+            <summary className="plans-advanced-summary">Batch cooking и leftovers</summary>
+            <p className="plans-field-hint">
+              Можно зафиксировать повтор блюд на 2–3 дня для выбранных типов приёма пищи.
+            </p>
+            <div className="plans-batch-grid">
+              <label className="plans-field" htmlFor="autoplan-batch-breakfast">
+                <span className="plans-field-label">Завтрак</span>
+                <select
+                  id="autoplan-batch-breakfast"
+                  className="plans-field-input"
+                  value={form.batch_breakfast_days}
+                  onChange={(event) => updateTextField("batch_breakfast_days", event.target.value)}
+                  disabled={saving}
+                >
+                  {BATCH_OPTIONS.map((option) => (
+                    <option key={`batch-breakfast-${option.value}`} value={String(option.value)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="plans-field" htmlFor="autoplan-batch-lunch">
+                <span className="plans-field-label">Обед</span>
+                <select
+                  id="autoplan-batch-lunch"
+                  className="plans-field-input"
+                  value={form.batch_lunch_days}
+                  onChange={(event) => updateTextField("batch_lunch_days", event.target.value)}
+                  disabled={saving}
+                >
+                  {BATCH_OPTIONS.map((option) => (
+                    <option key={`batch-lunch-${option.value}`} value={String(option.value)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="plans-field" htmlFor="autoplan-batch-dinner">
+                <span className="plans-field-label">Ужин</span>
+                <select
+                  id="autoplan-batch-dinner"
+                  className="plans-field-input"
+                  value={form.batch_dinner_days}
+                  onChange={(event) => updateTextField("batch_dinner_days", event.target.value)}
+                  disabled={saving}
+                >
+                  {BATCH_OPTIONS.map((option) => (
+                    <option key={`batch-dinner-${option.value}`} value={String(option.value)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="plans-field" htmlFor="autoplan-batch-snack">
+                <span className="plans-field-label">Перекус</span>
+                <select
+                  id="autoplan-batch-snack"
+                  className="plans-field-input"
+                  value={form.batch_snack_days}
+                  onChange={(event) => updateTextField("batch_snack_days", event.target.value)}
+                  disabled={saving}
+                >
+                  {BATCH_OPTIONS.map((option) => (
+                    <option key={`batch-snack-${option.value}`} value={String(option.value)}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </details>
 
           {shouldShowHighCalorieHint && (
             <p className="plans-inline-hint">

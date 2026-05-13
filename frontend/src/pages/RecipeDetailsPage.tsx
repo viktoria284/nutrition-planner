@@ -886,6 +886,11 @@ export function RecipeDetailsPage() {
                 <p className="recipe-meta-row">
                   <b>Порций:</b> <span>{recipe.servings_count}</span>
                 </p>
+                {typeof recipe.cook_time_minutes === "number" && (
+                  <p className="recipe-meta-row">
+                    <b>Время приготовления:</b> <span>{recipe.cook_time_minutes} мин</span>
+                  </p>
+                )}
                 <div className="recipe-meta-row">
                   <b>Типы:</b>
                   {recipe.meal_types.map((mealType) => (

@@ -74,16 +74,21 @@ def create_recipe_via_api(
     servings_count: int = 2,
     meal_types: list[str] | None = None,
     description: str | None = None,
+    cook_time_minutes: int | None = None,
 ) -> dict:
+    payload: dict[str, object] = {
+        "name": name,
+        "description": description,
+        "servings_count": servings_count,
+        "meal_types": meal_types or ["breakfast"],
+    }
+    if cook_time_minutes is not None:
+        payload["cook_time_minutes"] = cook_time_minutes
+
     response = client.post(
         "/recipes",
         headers=auth_headers(token),
-        json={
-            "name": name,
-            "description": description,
-            "servings_count": servings_count,
-            "meal_types": meal_types or ["breakfast"],
-        },
+        json=payload,
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -130,6 +135,7 @@ def test_create_recipe_ok_without_ingredients(client: TestClient) -> None:
     assert Decimal(str(recipe["total_grams"])) == Decimal("0.00")
     assert Decimal(str(recipe["total_kcal"])) == Decimal("0.00")
     assert Decimal(str(recipe["per_serving_kcal"])) == Decimal("0.00")
+    assert recipe["cook_time_minutes"] is None
 
     list_response = client.get("/recipes", headers=auth_headers(token))
     assert list_response.status_code == 200, list_response.text
@@ -176,6 +182,75 @@ def test_validation_servings_count(client: TestClient) -> None:
     )
     assert response.status_code == 422, response.text
     assert any(err["loc"][-1] == "servings_count" for err in response.json().get("detail", []))
+
+
+def test_create_recipe_with_cook_time_minutes(client: TestClient) -> None:
+    register_user(client, email="cooktime-create@example.com", username="cooktimecreate")
+    token = login_and_get_token(client, identifier="cooktime-create@example.com")
+
+    recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Салат с курицей",
+        meal_types=["lunch"],
+        cook_time_minutes=25,
+    )
+    assert recipe["cook_time_minutes"] == 25
+
+
+def test_patch_recipe_cook_time_minutes(client: TestClient) -> None:
+    register_user(client, email="cooktime-patch@example.com", username="cooktimepatch")
+    token = login_and_get_token(client, identifier="cooktime-patch@example.com")
+
+    recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Тушеные овощи",
+        meal_types=["dinner"],
+    )
+
+    response = client.patch(
+        f"/recipes/{recipe['id']}",
+        headers=auth_headers(token),
+        json={"cook_time_minutes": 40},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["cook_time_minutes"] == 40
+
+
+def test_recipe_cook_time_minutes_invalid_non_positive_returns_422(client: TestClient) -> None:
+    register_user(client, email="cooktime-invalid@example.com", username="cooktimeinvalid")
+    token = login_and_get_token(client, identifier="cooktime-invalid@example.com")
+
+    response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={
+            "name": "Смузи",
+            "servings_count": 1,
+            "meal_types": ["snack"],
+            "cook_time_minutes": 0,
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert any(err["loc"][-1] == "cook_time_minutes" for err in response.json().get("detail", []))
+
+
+def test_get_recipe_returns_cook_time_minutes(client: TestClient) -> None:
+    register_user(client, email="cooktime-get@example.com", username="cooktimeget")
+    token = login_and_get_token(client, identifier="cooktime-get@example.com")
+
+    created = create_recipe_via_api(
+        client,
+        token,
+        name="Паста с тунцом",
+        meal_types=["dinner"],
+        cook_time_minutes=30,
+    )
+
+    response = client.get(f"/recipes/{created['id']}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    assert response.json()["cook_time_minutes"] == 30
 
 
 def test_validation_meal_types_invalid_value(client: TestClient) -> None:

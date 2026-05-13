@@ -42,6 +42,7 @@ class Recipe(Base):
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
     )
+    cook_time_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source: Mapped[FoodSource] = mapped_column(
         SAEnum(FoodSource, name="food_source", native_enum=True),
         nullable=False,
@@ -88,6 +89,10 @@ class Recipe(Base):
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="ck_recipes_name_not_blank"),
         CheckConstraint("servings_count >= 1", name="ck_recipes_servings_count_ge_1"),
+        CheckConstraint(
+            "cook_time_minutes IS NULL OR (cook_time_minutes BETWEEN 1 AND 1440)",
+            name="ck_recipes_cook_time_minutes_range",
+        ),
         Index("ix_recipes_source_status_is_listed", source, status, is_listed),
     )
 

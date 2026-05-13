@@ -194,6 +194,9 @@ export function PublicRecipesPage() {
                         {MEAL_TYPE_LABELS[mealType]}
                       </span>
                     ))}
+                    {typeof recipe.cook_time_minutes === "number" && (
+                      <span className="recipe-row-kcal">{recipe.cook_time_minutes} мин</span>
+                    )}
                     <span className="recipe-row-kcal">{formatMetric(recipe.per_serving_kcal)} ккал/порц.</span>
                   </div>
                 </Link>

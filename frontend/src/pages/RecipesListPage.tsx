@@ -206,6 +206,9 @@ export function RecipesListPage() {
                         {MEAL_TYPE_LABELS[mealType]}
                       </span>
                     ))}
+                    {typeof recipe.cook_time_minutes === "number" && (
+                      <span className="recipe-row-kcal">{recipe.cook_time_minutes} мин</span>
+                    )}
                     <span className="recipe-row-kcal">{formatMetric(recipe.total_kcal)} ккал</span>
                   </div>
                 </Link>

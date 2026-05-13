@@ -2,9 +2,19 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PositiveDecimal = Annotated[Decimal, Field(gt=0)]
+AllowedBatchCookingDays = Annotated[int, Field(ge=1, le=3)]
+
+
+class BatchCookingPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    breakfast: AllowedBatchCookingDays | None = None
+    lunch: AllowedBatchCookingDays | None = None
+    dinner: AllowedBatchCookingDays | None = None
+    snack: AllowedBatchCookingDays | None = None
 
 
 class PlanCreate(BaseModel):
@@ -32,6 +42,8 @@ class PlanAutogenerateRequest(BaseModel):
     use_public_recipes: bool = True
     excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    max_cook_time_minutes: Annotated[int, Field(ge=1, le=1440)] | None = None
+    batch_cooking: BatchCookingPreferences | None = None
 
     @field_validator("title")
     @classmethod
@@ -62,12 +74,14 @@ class ReplacePlanSlotRequest(BaseModel):
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     use_public_recipes: bool = True
     avoid_current_recipe: bool = True
+    max_cook_time_minutes: Annotated[int, Field(ge=1, le=1440)] | None = None
 
 
 class RegeneratePlanDayRequest(BaseModel):
     excluded_recipe_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     use_public_recipes: bool = True
+    max_cook_time_minutes: Annotated[int, Field(ge=1, le=1440)] | None = None
 
 
 class PlanSlotUpdate(BaseModel):

@@ -9,6 +9,7 @@ from app.models.enums import FoodSource, FoodStatus
 ALLOWED_MEAL_TYPES = {"breakfast", "lunch", "dinner", "snack"}
 MealTypes = Annotated[list[str], Field(min_length=1)]
 PositiveDecimal = Annotated[Decimal, Field(gt=0)]
+CookTimeMinutes = Annotated[int, Field(ge=1, le=1440)]
 
 
 def _normalize_meal_types(value: list[str]) -> list[str]:
@@ -30,6 +31,7 @@ class RecipeCreate(BaseModel):
     description: str | None = None
     servings_count: Annotated[int, Field(ge=1)]
     meal_types: MealTypes
+    cook_time_minutes: CookTimeMinutes | None = None
 
     @field_validator("name")
     @classmethod
@@ -58,6 +60,7 @@ class RecipeUpdate(BaseModel):
     description: str | None = None
     servings_count: Annotated[int, Field(ge=1)] | None = None
     meal_types: list[str] | None = None
+    cook_time_minutes: CookTimeMinutes | None = None
 
     @field_validator("name")
     @classmethod
@@ -184,6 +187,7 @@ class RecipeRead(BaseModel):
     description: str | None
     servings_count: int
     meal_types: list[str]
+    cook_time_minutes: int | None
     source: FoodSource
     status: FoodStatus
     reports_count: int

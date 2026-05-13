@@ -30,6 +30,14 @@ function normalizeCreatePayload(payload: PlanCreatePayload): PlanCreatePayload {
 
 function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAutogeneratePayload {
   const title = payload.title?.trim();
+  const normalizedBatchCookingEntries = Object.entries(payload.batch_cooking ?? {}).filter(
+    ([, value]) => value === 1 || value === 2 || value === 3,
+  );
+  const normalizedBatchCooking =
+    normalizedBatchCookingEntries.length > 0
+      ? Object.fromEntries(normalizedBatchCookingEntries)
+      : undefined;
+
   return {
     start_date: payload.start_date,
     days_count: payload.days_count,
@@ -39,6 +47,8 @@ function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAut
     use_public_recipes: payload.use_public_recipes,
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
+    ...(payload.max_cook_time_minutes ? { max_cook_time_minutes: payload.max_cook_time_minutes } : {}),
+    ...(normalizedBatchCooking ? { batch_cooking: normalizedBatchCooking } : {}),
   };
 }
 
@@ -48,6 +58,7 @@ function normalizeReplaceSlotPayload(payload: PlanReplaceSlotPayload): PlanRepla
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
     avoid_current_recipe: payload.avoid_current_recipe ?? true,
+    ...(payload.max_cook_time_minutes ? { max_cook_time_minutes: payload.max_cook_time_minutes } : {}),
   };
 }
 
@@ -56,6 +67,7 @@ function normalizeRegenerateDayPayload(payload: PlanRegenerateDayPayload): PlanR
     use_public_recipes: payload.use_public_recipes,
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
+    ...(payload.max_cook_time_minutes ? { max_cook_time_minutes: payload.max_cook_time_minutes } : {}),
   };
 }
 

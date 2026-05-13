@@ -82,6 +82,8 @@ export type PlanAutogeneratePayload = {
   use_public_recipes: boolean;
   excluded_recipe_ids?: number[];
   excluded_food_ids?: number[];
+  max_cook_time_minutes?: number | null;
+  batch_cooking?: Partial<Record<"breakfast" | "lunch" | "dinner" | "snack", 1 | 2 | 3>>;
 };
 
 export type PlanReplaceSlotPayload = {
@@ -89,12 +91,14 @@ export type PlanReplaceSlotPayload = {
   excluded_recipe_ids?: number[];
   excluded_food_ids?: number[];
   avoid_current_recipe?: boolean;
+  max_cook_time_minutes?: number | null;
 };
 
 export type PlanRegenerateDayPayload = {
   use_public_recipes: boolean;
   excluded_recipe_ids?: number[];
   excluded_food_ids?: number[];
+  max_cook_time_minutes?: number | null;
 };
 
 export type PlanSlotPatchPayload = {

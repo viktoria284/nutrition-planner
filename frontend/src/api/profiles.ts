@@ -10,6 +10,10 @@ export type Profile = {
   target_protein: number | null;
   target_fat: number | null;
   target_carbs: number | null;
+  excluded_food_ids: number[];
+  preferred_food_ids: number[];
+  preferred_categories: string[];
+  max_cook_time_minutes: number | null;
 };
 
 export type ProfileUpdatePayload = {
@@ -18,6 +22,10 @@ export type ProfileUpdatePayload = {
   target_protein?: number | null;
   target_fat?: number | null;
   target_carbs?: number | null;
+  excluded_food_ids?: number[];
+  preferred_food_ids?: number[];
+  preferred_categories?: string[];
+  max_cook_time_minutes?: number | null;
 };
 
 export type ProfileCreatePayload = {
@@ -26,6 +34,10 @@ export type ProfileCreatePayload = {
   target_protein?: number | null;
   target_fat?: number | null;
   target_carbs?: number | null;
+  excluded_food_ids?: number[];
+  preferred_food_ids?: number[];
+  preferred_categories?: string[];
+  max_cook_time_minutes?: number | null;
 };
 
 function getToken() {

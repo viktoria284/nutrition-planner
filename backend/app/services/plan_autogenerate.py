@@ -59,6 +59,15 @@ class FeasibilityEstimate:
     max_daily_carbs: Decimal
 
 
+@dataclass(frozen=True)
+class AutoplanPreferences:
+    excluded_food_ids: set[int]
+    preferred_food_ids: set[int]
+    preferred_categories: set[str]
+    max_cook_time_minutes: int | None
+    batch_cooking: dict[str, int]
+
+
 SLOT_TEMPLATES_BY_MEALS_PER_DAY: dict[int, tuple[SlotTemplate, ...]] = {
     2: (
         SlotTemplate(meal_type="lunch", weight=Decimal("0.45")),
@@ -167,6 +176,21 @@ DAY_PATTERN_PREFIX_PENALTY = Decimal("10")
 DAY_PATTERN_EXACT_REPEAT_PENALTY = Decimal("260")
 RECIPE_NAME_SIMILARITY_THRESHOLD = Decimal("0.65")
 RECIPE_NAME_SIMILARITY_PENALTY = Decimal("800")
+PREFERRED_FOOD_BONUS = Decimal("38")
+PREFERRED_CATEGORY_BONUS = Decimal("16")
+PREFERRED_BONUS_CAP = Decimal("140")
+UNKNOWN_COOK_TIME_PENALTY_WHEN_LIMITED = Decimal("12")
+BATCH_ONE_RECENT_REPEAT_PENALTY_BY_DISTANCE: dict[int, Decimal] = {
+    1: Decimal("320"),
+    2: Decimal("220"),
+    3: Decimal("140"),
+}
+BATCH_ONE_SAME_DAY_CROSS_SLOT_REPEAT_PENALTY = Decimal("240")
+DIVERSITY_PRECHECK_FRIENDLY_MESSAGE = (
+    "Недостаточно быстрых рецептов для разнообразного плана. "
+    "Увеличьте максимальное время приготовления или разрешите приготовление на 2 дня."
+)
+DIVERSITY_PRECHECK_MEAL_TYPES = ("lunch", "dinner")
 MONTHS_RU_GENITIVE = {
     1: "января",
     2: "февраля",
@@ -263,9 +287,14 @@ def _resolve_profile_for_autogenerate(
 ) -> Profile:
     if profile_id is not None:
         profile = db.execute(
-            select(Profile).where(
+            select(Profile)
+            .where(
                 Profile.id == profile_id,
                 Profile.user_id == user_id,
+            )
+            .options(
+                selectinload(Profile.excluded_food_links),
+                selectinload(Profile.preferred_food_links),
             )
         ).scalar_one_or_none()
         if profile is None:
@@ -275,6 +304,10 @@ def _resolve_profile_for_autogenerate(
     profile = db.execute(
         select(Profile)
         .where(Profile.user_id == user_id)
+        .options(
+            selectinload(Profile.excluded_food_links),
+            selectinload(Profile.preferred_food_links),
+        )
         .order_by(Profile.id.asc())
         .limit(1)
     ).scalar_one_or_none()
@@ -326,6 +359,73 @@ def select_profile_targets(
 def select_plan_snapshot_targets(plan: Plan) -> PlanTargets:
     """Read immutable target snapshot from an already created plan."""
     return _resolve_targets_from_plan(plan)
+
+
+def _normalized_batch_cooking_config(batch_cooking: object | None) -> dict[str, int]:
+    if batch_cooking is None:
+        return {}
+
+    config: dict[str, int] = {}
+    for meal_type in ("breakfast", "lunch", "dinner", "snack"):
+        value = getattr(batch_cooking, meal_type, None)
+        if value is None:
+            continue
+        config[meal_type] = int(value)
+    return config
+
+
+def build_autoplan_preferences(
+    *,
+    profile: Profile,
+    payload: PlanAutogenerateRequest | None,
+) -> AutoplanPreferences:
+    profile_excluded = set(profile.excluded_food_ids)
+    profile_preferred = set(profile.preferred_food_ids)
+    profile_categories = {value.strip() for value in profile.preferred_categories if value and value.strip()}
+
+    payload_excluded = set(payload.excluded_food_ids if payload is not None else [])
+    max_cook_time = (
+        payload.max_cook_time_minutes
+        if payload is not None and payload.max_cook_time_minutes is not None
+        else profile.max_cook_time_minutes
+    )
+    batch_cooking = _normalized_batch_cooking_config(payload.batch_cooking if payload is not None else None)
+
+    return AutoplanPreferences(
+        excluded_food_ids=profile_excluded.union(payload_excluded),
+        preferred_food_ids=profile_preferred,
+        preferred_categories=profile_categories,
+        max_cook_time_minutes=max_cook_time,
+        batch_cooking=batch_cooking,
+    )
+
+
+def build_plan_preferences_for_slot_operations(
+    *,
+    profile: Profile | None,
+    payload_excluded_food_ids: list[int],
+    payload_max_cook_time_minutes: int | None = None,
+) -> AutoplanPreferences:
+    resolved_max_cook_time = payload_max_cook_time_minutes
+    if profile is None:
+        return AutoplanPreferences(
+            excluded_food_ids=set(payload_excluded_food_ids),
+            preferred_food_ids=set(),
+            preferred_categories=set(),
+            max_cook_time_minutes=resolved_max_cook_time,
+            batch_cooking={},
+        )
+
+    if resolved_max_cook_time is None:
+        resolved_max_cook_time = profile.max_cook_time_minutes
+
+    return AutoplanPreferences(
+        excluded_food_ids=set(profile.excluded_food_ids).union(payload_excluded_food_ids),
+        preferred_food_ids=set(profile.preferred_food_ids),
+        preferred_categories={value.strip() for value in profile.preferred_categories if value and value.strip()},
+        max_cook_time_minutes=resolved_max_cook_time,
+        batch_cooking={},
+    )
 
 
 def _normalize_recipe_meal_types(recipe: Recipe) -> set[str]:
@@ -391,6 +491,7 @@ def filter_candidates(
     expected_meal_type: str,
     excluded_recipe_ids: list[int] | set[int],
     excluded_food_ids: list[int] | set[int],
+    max_cook_time_minutes: int | None = None,
     avoid_recipe_ids: set[int] | None = None,
 ) -> list[Recipe]:
     """
@@ -411,6 +512,12 @@ def filter_candidates(
             continue
         if excluded_food_ids_set and any(ingredient.food_id in excluded_food_ids_set for ingredient in recipe.ingredients):
             continue
+        if (
+            max_cook_time_minutes is not None
+            and recipe.cook_time_minutes is not None
+            and recipe.cook_time_minutes > max_cook_time_minutes
+        ):
+            continue
         filtered_candidates.append(recipe)
     return filtered_candidates
 
@@ -423,6 +530,7 @@ def get_accessible_recipe_candidates(
     use_public_recipes: bool,
     excluded_recipe_ids: list[int],
     excluded_food_ids: list[int],
+    max_cook_time_minutes: int | None = None,
 ) -> list[Recipe]:
     accessible_recipes = _load_accessible_recipes(
         db,
@@ -434,6 +542,7 @@ def get_accessible_recipe_candidates(
         expected_meal_type=meal_type,
         excluded_recipe_ids=excluded_recipe_ids,
         excluded_food_ids=excluded_food_ids,
+        max_cook_time_minutes=max_cook_time_minutes,
     )
 
 
@@ -448,7 +557,8 @@ def _load_plan_with_slots_for_user(db: Session, *, user_id: int, plan_id: int) -
         select(Plan)
         .where(Plan.id == plan_id, Plan.owner_user_id == user_id)
         .options(
-            selectinload(Plan.profile),
+            selectinload(Plan.profile).selectinload(Profile.excluded_food_links),
+            selectinload(Plan.profile).selectinload(Profile.preferred_food_links),
             selectinload(Plan.slots)
             .selectinload(PlanSlot.recipe)
             .selectinload(Recipe.ingredients)
@@ -937,6 +1047,43 @@ def _build_low_feasibility_message(
     return " ".join(message_parts)
 
 
+def _recommended_candidates_for_batch(
+    *,
+    days_count: int,
+    batch_days: int,
+) -> int:
+    if batch_days <= 1:
+        return min(days_count, 4)
+    if batch_days == 2:
+        return 3 if days_count >= 5 else 2
+    return 2
+
+
+def _ensure_autogenerate_diversity_feasibility(
+    *,
+    days_count: int,
+    slot_templates: tuple[SlotTemplate, ...],
+    candidates_by_meal_type: dict[str, list[Recipe]],
+    batch_cooking: dict[str, int],
+    max_cook_time_minutes: int | None,
+) -> None:
+    if max_cook_time_minutes is None:
+        return
+
+    meal_types_in_plan = {template.meal_type for template in slot_templates}
+    for meal_type in DIVERSITY_PRECHECK_MEAL_TYPES:
+        if meal_type not in meal_types_in_plan:
+            continue
+        candidate_count = len(candidates_by_meal_type.get(meal_type, []))
+        batch_days = int(batch_cooking.get(meal_type, 1))
+        recommended_count = _recommended_candidates_for_batch(
+            days_count=days_count,
+            batch_days=batch_days,
+        )
+        if candidate_count < recommended_count:
+            raise PlanAutogenerateNotEnoughRecipesError(DIVERSITY_PRECHECK_FRIENDLY_MESSAGE)
+
+
 def _ensure_autogenerate_feasibility(
     *,
     meals_per_day: int,
@@ -987,13 +1134,23 @@ def _ensure_autogenerate_feasibility(
 
 def run_feasibility_check(
     *,
+    days_count: int,
     meals_per_day: int,
     slot_templates: tuple[SlotTemplate, ...],
     targets: PlanTargets,
     candidates_by_meal_type: dict[str, list[Recipe]],
     recipe_nutrients_cache: dict[int, dict[str, Decimal]],
+    batch_cooking: dict[str, int],
+    max_cook_time_minutes: int | None,
 ) -> None:
     """Precheck high-calorie scenarios before generating slots."""
+    _ensure_autogenerate_diversity_feasibility(
+        days_count=days_count,
+        slot_templates=slot_templates,
+        candidates_by_meal_type=candidates_by_meal_type,
+        batch_cooking=batch_cooking,
+        max_cook_time_minutes=max_cook_time_minutes,
+    )
     _ensure_autogenerate_feasibility(
         meals_per_day=meals_per_day,
         slot_templates=slot_templates,
@@ -1031,6 +1188,59 @@ def _calculate_repeat_penalty(
     return penalty
 
 
+def _batch_one_recent_repeat_penalty(
+    *,
+    recipe_id: int,
+    slot_index: int,
+    day_date: date,
+    slot_recipe_dates: dict[int, dict[int, list[date]]],
+    current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None,
+) -> Decimal:
+    penalty = Decimal("0")
+    same_slot_dates = slot_recipe_dates.get(slot_index, {}).get(recipe_id, [])
+    for existing_day in same_slot_dates:
+        if existing_day >= day_date:
+            continue
+        distance = (day_date - existing_day).days
+        if distance in BATCH_ONE_RECENT_REPEAT_PENALTY_BY_DISTANCE:
+            penalty += BATCH_ONE_RECENT_REPEAT_PENALTY_BY_DISTANCE[distance]
+
+    if current_day_selected_recipe_ids_by_slot_index:
+        for existing_slot_index, selected_recipe_id in current_day_selected_recipe_ids_by_slot_index.items():
+            if existing_slot_index == slot_index:
+                continue
+            if selected_recipe_id == recipe_id:
+                penalty += BATCH_ONE_SAME_DAY_CROSS_SLOT_REPEAT_PENALTY
+                break
+    return penalty
+
+
+def _preference_bonus_for_recipe(
+    *,
+    recipe: Recipe,
+    preferred_food_ids: set[int],
+    preferred_categories: set[str],
+) -> Decimal:
+    if not preferred_food_ids and not preferred_categories:
+        return Decimal("0")
+
+    bonus = Decimal("0")
+    seen_food_ids: set[int] = set()
+    seen_categories: set[str] = set()
+
+    for ingredient in recipe.ingredients:
+        if ingredient.food_id in preferred_food_ids and ingredient.food_id not in seen_food_ids:
+            seen_food_ids.add(ingredient.food_id)
+            bonus += PREFERRED_FOOD_BONUS
+
+        category = ingredient.food.category.strip() if ingredient.food is not None else ""
+        if category and category in preferred_categories and category not in seen_categories:
+            seen_categories.add(category)
+            bonus += PREFERRED_CATEGORY_BONUS
+
+    return min(bonus, PREFERRED_BONUS_CAP)
+
+
 def _score_recipe_candidate(
     recipe: Recipe,
     *,
@@ -1046,9 +1256,13 @@ def _score_recipe_candidate(
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
     recipe_nutrients: dict[str, Decimal],
+    preferred_food_ids: set[int] | None = None,
+    preferred_categories: set[str] | None = None,
+    max_cook_time_minutes: int | None = None,
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    batch_days: int = 1,
 ) -> RecipeScore:
     nutrients = recipe_nutrients
 
@@ -1294,6 +1508,23 @@ def _score_recipe_candidate(
         recipe_name=recipe.name,
         reference_recipe_names=similarity_reference_names,
     )
+    preference_bonus = _preference_bonus_for_recipe(
+        recipe=recipe,
+        preferred_food_ids=preferred_food_ids or set(),
+        preferred_categories=preferred_categories or set(),
+    )
+    cook_time_penalty = Decimal("0")
+    if max_cook_time_minutes is not None and recipe.cook_time_minutes is None:
+        cook_time_penalty = UNKNOWN_COOK_TIME_PENALTY_WHEN_LIMITED
+    batch_one_diversity_penalty = Decimal("0")
+    if batch_days <= 1:
+        batch_one_diversity_penalty = _batch_one_recent_repeat_penalty(
+            recipe_id=recipe.id,
+            slot_index=slot_index,
+            day_date=day_date,
+            slot_recipe_dates=slot_recipe_dates,
+            current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
+        )
 
     macro_penalty = (
         cumulative_macro_penalty
@@ -1305,6 +1536,8 @@ def _score_recipe_candidate(
         + macro_profile_penalty
         + guardrail_penalty
         + name_similarity_penalty
+        + cook_time_penalty
+        + batch_one_diversity_penalty
     )
 
     slot_penalty = Decimal("0")
@@ -1325,7 +1558,7 @@ def _score_recipe_candidate(
     repeat_penalty = min(raw_repeat_penalty, repeat_penalty_cap)
 
     return RecipeScore(
-        total_score=calorie_penalty + macro_penalty + slot_penalty + repeat_penalty,
+        total_score=calorie_penalty + macro_penalty + slot_penalty + repeat_penalty - preference_bonus,
         repeat_penalty=repeat_penalty,
         calorie_penalty=calorie_penalty,
         macro_penalty=macro_penalty,
@@ -1388,9 +1621,13 @@ def score_candidate(
     targets: PlanTargets,
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
+    preferred_food_ids: set[int] | None = None,
+    preferred_categories: set[str] | None = None,
+    max_cook_time_minutes: int | None = None,
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    batch_days: int = 1,
 ) -> RecipeScore:
     """Score layer: deterministic multi-criteria score for a single candidate option."""
     return _score_recipe_candidate(
@@ -1407,9 +1644,13 @@ def score_candidate(
         recipe_usage_counts=recipe_usage_counts,
         slot_recipe_dates=slot_recipe_dates,
         recipe_nutrients=candidate.nutrients,
+        preferred_food_ids=preferred_food_ids,
+        preferred_categories=preferred_categories,
+        max_cook_time_minutes=max_cook_time_minutes,
         similarity_reference_names=similarity_reference_names,
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
+        batch_days=batch_days,
     )
 
 
@@ -1426,9 +1667,13 @@ def choose_best_candidate(
     targets: PlanTargets,
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
+    preferred_food_ids: set[int] | None = None,
+    preferred_categories: set[str] | None = None,
+    max_cook_time_minutes: int | None = None,
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    batch_days: int = 1,
 ) -> CandidateOption:
     """
     Selection layer: choose the best candidate with a stable tie-break.
@@ -1452,9 +1697,13 @@ def choose_best_candidate(
             targets=targets,
             recipe_usage_counts=recipe_usage_counts,
             slot_recipe_dates=slot_recipe_dates,
+            preferred_food_ids=preferred_food_ids,
+            preferred_categories=preferred_categories,
+            max_cook_time_minutes=max_cook_time_minutes,
             similarity_reference_names=similarity_reference_names,
             current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
             historical_day_patterns=historical_day_patterns,
+            batch_days=batch_days,
         )
         candidate_key = (
             score.total_score,
@@ -1487,9 +1736,13 @@ def _select_slot_candidate(
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
     recipe_nutrients_cache: dict[int, dict[str, Decimal]],
+    preferred_food_ids: set[int] | None = None,
+    preferred_categories: set[str] | None = None,
+    max_cook_time_minutes: int | None = None,
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    batch_days: int = 1,
 ) -> tuple[Recipe, Decimal]:
     candidate_pool = build_candidate_pool(
         candidates=candidates,
@@ -1512,9 +1765,13 @@ def _select_slot_candidate(
         targets=targets,
         recipe_usage_counts=recipe_usage_counts,
         slot_recipe_dates=slot_recipe_dates,
+        preferred_food_ids=preferred_food_ids,
+        preferred_categories=preferred_categories,
+        max_cook_time_minutes=max_cook_time_minutes,
         similarity_reference_names=similarity_reference_names,
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
+        batch_days=batch_days,
     )
     return best_candidate.recipe, best_candidate.servings_multiplier
 
@@ -1527,6 +1784,7 @@ def build_candidate_pool_by_meal_type(
     use_public_recipes: bool,
     excluded_recipe_ids: list[int],
     excluded_food_ids: list[int],
+    max_cook_time_minutes: int | None = None,
 ) -> dict[str, list[Recipe]]:
     """
     Build candidate recipes per meal type once, then reuse for all slots.
@@ -1540,6 +1798,7 @@ def build_candidate_pool_by_meal_type(
             use_public_recipes=use_public_recipes,
             excluded_recipe_ids=excluded_recipe_ids,
             excluded_food_ids=excluded_food_ids,
+            max_cook_time_minutes=max_cook_time_minutes,
         )
     return candidates_by_meal_type
 
@@ -1555,6 +1814,7 @@ def build_autogenerated_plan(
         user_id=user_id,
         profile_id=payload.profile_id,
     )
+    preferences = build_autoplan_preferences(profile=selected_profile, payload=payload)
 
     slot_templates = get_slot_templates(payload.meals_per_day)
     candidates_by_meal_type = build_candidate_pool_by_meal_type(
@@ -1563,22 +1823,29 @@ def build_autogenerated_plan(
         slot_templates=slot_templates,
         use_public_recipes=payload.use_public_recipes,
         excluded_recipe_ids=payload.excluded_recipe_ids,
-        excluded_food_ids=payload.excluded_food_ids,
+        excluded_food_ids=sorted(preferences.excluded_food_ids),
+        max_cook_time_minutes=preferences.max_cook_time_minutes,
     )
 
     recipe_nutrients_cache: dict[int, dict[str, Decimal]] = {}
     run_feasibility_check(
+        days_count=payload.days_count,
         meals_per_day=payload.meals_per_day,
         slot_templates=slot_templates,
         targets=targets,
         candidates_by_meal_type=candidates_by_meal_type,
         recipe_nutrients_cache=recipe_nutrients_cache,
+        batch_cooking=preferences.batch_cooking,
+        max_cook_time_minutes=preferences.max_cook_time_minutes,
     )
 
     planned_slots: list[tuple[date, int, int, Decimal]] = []
     recipe_usage_counts: dict[int, int] = defaultdict(int)
     slot_recipe_dates: dict[int, dict[int, list[date]]] = defaultdict(lambda: defaultdict(list))
     historical_day_patterns: set[tuple[int, ...]] = set()
+    batch_remaining_by_slot_index: dict[int, int] = defaultdict(int)
+    batch_selected_recipe_id_by_slot_index: dict[int, int] = {}
+    batch_selected_multiplier_by_slot_index: dict[int, Decimal] = {}
 
     for day_offset in range(payload.days_count):
         day_date = payload.start_date + timedelta(days=day_offset)
@@ -1588,23 +1855,45 @@ def build_autogenerated_plan(
         cumulative_weight = Decimal("0")
         for slot_index, template in enumerate(slot_templates):
             cumulative_weight += template.weight
-            selected_recipe, selected_multiplier = _select_slot_candidate(
-                candidates=candidates_by_meal_type[template.meal_type],
-                multiplier_candidates=_candidate_multipliers(),
-                meals_per_day=payload.meals_per_day,
-                expected_meal_type=template.meal_type,
-                day_date=day_date,
-                slot_index=slot_index,
-                day_totals_before_slot=day_totals,
-                slot_weight=template.weight,
-                cumulative_weight=cumulative_weight,
-                targets=targets,
-                recipe_usage_counts=recipe_usage_counts,
-                slot_recipe_dates=slot_recipe_dates,
-                recipe_nutrients_cache=recipe_nutrients_cache,
-                current_day_selected_recipe_ids_by_slot_index=selected_day_recipe_ids_by_slot_index,
-                historical_day_patterns=historical_day_patterns,
-            )
+            batch_days = preferences.batch_cooking.get(template.meal_type, 1)
+            if batch_days >= 2 and batch_remaining_by_slot_index[slot_index] > 0:
+                selected_recipe_id = batch_selected_recipe_id_by_slot_index.get(slot_index)
+                if selected_recipe_id is None:
+                    _raise_not_enough_recipes_error(meal_type=template.meal_type, day_date=day_date)
+                selected_recipe = next(
+                    (candidate for candidate in candidates_by_meal_type[template.meal_type] if candidate.id == selected_recipe_id),
+                    None,
+                )
+                if selected_recipe is None:
+                    _raise_not_enough_recipes_error(meal_type=template.meal_type, day_date=day_date)
+                selected_multiplier = batch_selected_multiplier_by_slot_index.get(slot_index, Decimal("1"))
+                batch_remaining_by_slot_index[slot_index] -= 1
+            else:
+                selected_recipe, selected_multiplier = _select_slot_candidate(
+                    candidates=candidates_by_meal_type[template.meal_type],
+                    multiplier_candidates=_candidate_multipliers(),
+                    meals_per_day=payload.meals_per_day,
+                    expected_meal_type=template.meal_type,
+                    day_date=day_date,
+                    slot_index=slot_index,
+                    day_totals_before_slot=day_totals,
+                    slot_weight=template.weight,
+                    cumulative_weight=cumulative_weight,
+                    targets=targets,
+                    recipe_usage_counts=recipe_usage_counts,
+                    slot_recipe_dates=slot_recipe_dates,
+                    recipe_nutrients_cache=recipe_nutrients_cache,
+                    preferred_food_ids=preferences.preferred_food_ids,
+                    preferred_categories=preferences.preferred_categories,
+                    max_cook_time_minutes=preferences.max_cook_time_minutes,
+                    current_day_selected_recipe_ids_by_slot_index=selected_day_recipe_ids_by_slot_index,
+                    historical_day_patterns=historical_day_patterns,
+                    batch_days=batch_days,
+                )
+                if batch_days >= 2:
+                    batch_selected_recipe_id_by_slot_index[slot_index] = selected_recipe.id
+                    batch_selected_multiplier_by_slot_index[slot_index] = selected_multiplier
+                    batch_remaining_by_slot_index[slot_index] = batch_days - 1
 
             selected_nutrients = _recipe_nutrients_per_serving(
                 selected_recipe,
@@ -1675,6 +1964,11 @@ def replace_plan_slot(
     payload: ReplacePlanSlotRequest,
 ) -> Plan:
     plan = _load_plan_with_slots_for_user(db, user_id=user_id, plan_id=plan_id)
+    preferences = build_plan_preferences_for_slot_operations(
+        profile=plan.profile,
+        payload_excluded_food_ids=payload.excluded_food_ids,
+        payload_max_cook_time_minutes=payload.max_cook_time_minutes,
+    )
     slot = next((value for value in plan.slots if value.id == slot_id), None)
     if slot is None:
         raise PlanAutogenerateSlotNotFoundError("Plan slot not found")
@@ -1704,7 +1998,8 @@ def replace_plan_slot(
         candidates=accessible_recipes,
         expected_meal_type=template.meal_type,
         excluded_recipe_ids=payload.excluded_recipe_ids,
-        excluded_food_ids=payload.excluded_food_ids,
+        excluded_food_ids=sorted(preferences.excluded_food_ids),
+        max_cook_time_minutes=preferences.max_cook_time_minutes,
         avoid_recipe_ids=avoid_recipe_ids,
     )
     if not candidates:
@@ -1747,6 +2042,9 @@ def replace_plan_slot(
             recipe_usage_counts=recipe_usage_counts,
             slot_recipe_dates=slot_recipe_dates,
             recipe_nutrients_cache=recipe_nutrients_cache,
+            preferred_food_ids=preferences.preferred_food_ids,
+            preferred_categories=preferences.preferred_categories,
+            max_cook_time_minutes=preferences.max_cook_time_minutes,
             similarity_reference_names=similarity_reference_names,
         )
     except PlanAutogenerateNotEnoughRecipesError as exc:
@@ -1775,6 +2073,7 @@ def _select_day_slot_candidates(
     mutable_slots: list[PlanSlot],
     targets: PlanTargets,
     payload: RegeneratePlanDayRequest,
+    preferences: AutoplanPreferences,
     recipe_usage_counts: dict[int, int],
     slot_recipe_dates: dict[int, dict[int, list[date]]],
     avoid_current_recipes: bool,
@@ -1797,7 +2096,8 @@ def _select_day_slot_candidates(
             meal_type=template.meal_type,
             use_public_recipes=payload.use_public_recipes,
             excluded_recipe_ids=payload.excluded_recipe_ids,
-            excluded_food_ids=payload.excluded_food_ids,
+            excluded_food_ids=sorted(preferences.excluded_food_ids),
+            max_cook_time_minutes=preferences.max_cook_time_minutes,
         )
 
         if avoid_current_recipes and slot.recipe_id is not None:
@@ -1805,7 +2105,8 @@ def _select_day_slot_candidates(
                 candidates=candidates,
                 expected_meal_type=template.meal_type,
                 excluded_recipe_ids=payload.excluded_recipe_ids,
-                excluded_food_ids=payload.excluded_food_ids,
+                excluded_food_ids=sorted(preferences.excluded_food_ids),
+                max_cook_time_minutes=preferences.max_cook_time_minutes,
                 avoid_recipe_ids={slot.recipe_id},
             )
             if variation_candidates:
@@ -1842,6 +2143,9 @@ def _select_day_slot_candidates(
                 recipe_usage_counts=local_recipe_usage_counts,
                 slot_recipe_dates=local_slot_recipe_dates,
                 recipe_nutrients_cache=recipe_nutrients_cache,
+                preferred_food_ids=preferences.preferred_food_ids,
+                preferred_categories=preferences.preferred_categories,
+                max_cook_time_minutes=preferences.max_cook_time_minutes,
             )
         except PlanAutogenerateNotEnoughRecipesError:
             if strict_require_candidates:
@@ -1864,6 +2168,11 @@ def regenerate_plan_day(
     payload: RegeneratePlanDayRequest,
 ) -> Plan:
     plan = _load_plan_with_slots_for_user(db, user_id=user_id, plan_id=plan_id)
+    preferences = build_plan_preferences_for_slot_operations(
+        profile=plan.profile,
+        payload_excluded_food_ids=payload.excluded_food_ids,
+        payload_max_cook_time_minutes=payload.max_cook_time_minutes,
+    )
     end_date = plan.start_date + timedelta(days=plan.days_count - 1)
     if day_date < plan.start_date or day_date > end_date:
         raise PlanAutogenerateDayOutOfRangeError(
@@ -1905,6 +2214,7 @@ def regenerate_plan_day(
         mutable_slots=mutable_slots,
         targets=targets,
         payload=payload,
+        preferences=preferences,
         recipe_usage_counts=recipe_usage_counts,
         slot_recipe_dates=slot_recipe_dates,
         avoid_current_recipes=True,
@@ -1939,23 +2249,29 @@ def regenerate_plan_day(
                 selected_slot_candidate_by_slot_id = variation_selected_map
 
     if selected_slot_candidate_by_slot_id is None:
-        fallback_selection = _select_day_slot_candidates(
-            db,
-            user_id=user_id,
-            plan=plan,
-            day_date=day_date,
-            day_slots=day_slots,
-            mutable_slots=mutable_slots,
-            targets=targets,
-            payload=payload,
-            recipe_usage_counts=recipe_usage_counts,
-            slot_recipe_dates=slot_recipe_dates,
-            avoid_current_recipes=False,
-            strict_require_candidates=True,
-        )
+        try:
+            fallback_selection = _select_day_slot_candidates(
+                db,
+                user_id=user_id,
+                plan=plan,
+                day_date=day_date,
+                day_slots=day_slots,
+                mutable_slots=mutable_slots,
+                targets=targets,
+                payload=payload,
+                preferences=preferences,
+                recipe_usage_counts=recipe_usage_counts,
+                slot_recipe_dates=slot_recipe_dates,
+                avoid_current_recipes=False,
+                strict_require_candidates=True,
+            )
+        except PlanAutogenerateNotEnoughRecipesError as exc:
+            raise PlanAutogenerateNotEnoughRecipesError(
+                "Не удалось подобрать блюда для выбранного дня с текущими ограничениями."
+            ) from exc
         if fallback_selection is None:
             raise PlanAutogenerateNotEnoughRecipesError(
-                f"Not enough recipes for day {day_date.isoformat()}"
+                "Не удалось подобрать блюда для выбранного дня с текущими ограничениями."
             )
         selected_slot_candidate_by_slot_id, _ = fallback_selection
 

@@ -2160,3 +2160,345 @@ def test_regenerate_day_out_of_plan_range_returns_422(
         payload={},
     )
     assert response.status_code == 422, response.text
+
+
+def test_replace_slot_respects_profile_excluded_foods(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_profile_excluded_foods@example.com",
+        username="replace_profile_excluded_foods",
+    )
+
+    allowed_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Profile Allowed Food",
+        kcal="180.00",
+        protein="14.00",
+        fat="7.00",
+        carbs="20.00",
+    )
+    blocked_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Profile Blocked Food",
+        kcal="180.00",
+        protein="14.00",
+        fat="7.00",
+        carbs="20.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Profile Dinner Food",
+        kcal="360.00",
+        protein="26.00",
+        fat="12.00",
+        carbs="40.00",
+    )
+
+    lunch_a = _create_recipe_with_ingredient(
+        client, token, name="Replace Profile Lunch A", meal_types=["lunch"], food_id=allowed_food["id"]
+    )
+    blocked_lunch = _create_recipe_with_ingredient(
+        client, token, name="Replace Profile Blocked Lunch", meal_types=["lunch"], food_id=blocked_food["id"]
+    )
+    lunch_b = _create_recipe_with_ingredient(
+        client, token, name="Replace Profile Lunch B", meal_types=["lunch"], food_id=allowed_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Replace Profile Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
+    )
+
+    profiles_response = client.get("/profiles", headers=auth_headers(token))
+    assert profiles_response.status_code == 200, profiles_response.text
+    profile_id = profiles_response.json()[0]["id"]
+    _patch_profile_via_api(client, token, profile_id, {"excluded_food_ids": [blocked_food["id"]]})
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-02",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [lunch_b["id"]],
+            "excluded_food_ids": [],
+        },
+    )
+    lunch_slot = _find_slot(plan, day_date="2026-05-02", slot_index=0)
+    assert lunch_slot["recipe_id"] == lunch_a["id"]
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_lunch_slot = _find_slot(replace_response.json(), day_date="2026-05-02", slot_index=0)
+    assert replaced_lunch_slot["recipe_id"] == lunch_b["id"]
+    assert replaced_lunch_slot["recipe_id"] != blocked_lunch["id"]
+
+
+def test_regenerate_day_respects_profile_excluded_foods(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regenerate_profile_excluded_foods@example.com",
+        username="regenerate_profile_excluded_foods",
+    )
+
+    allowed_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Profile Allowed Food",
+        kcal="170.00",
+        protein="13.00",
+        fat="6.00",
+        carbs="19.00",
+    )
+    blocked_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Profile Blocked Food",
+        kcal="170.00",
+        protein="13.00",
+        fat="6.00",
+        carbs="19.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Profile Dinner Food",
+        kcal="330.00",
+        protein="24.00",
+        fat="10.00",
+        carbs="38.00",
+    )
+
+    lunch_a = _create_recipe_with_ingredient(
+        client, token, name="Regenerate Profile Lunch A", meal_types=["lunch"], food_id=allowed_food["id"]
+    )
+    blocked_lunch = _create_recipe_with_ingredient(
+        client, token, name="Regenerate Profile Blocked Lunch", meal_types=["lunch"], food_id=blocked_food["id"]
+    )
+    lunch_b = _create_recipe_with_ingredient(
+        client, token, name="Regenerate Profile Lunch B", meal_types=["lunch"], food_id=allowed_food["id"]
+    )
+    _create_recipe_with_ingredient(
+        client, token, name="Regenerate Profile Dinner", meal_types=["dinner"], food_id=dinner_food["id"]
+    )
+
+    profiles_response = client.get("/profiles", headers=auth_headers(token))
+    assert profiles_response.status_code == 200, profiles_response.text
+    profile_id = profiles_response.json()[0]["id"]
+    _patch_profile_via_api(client, token, profile_id, {"excluded_food_ids": [blocked_food["id"]]})
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-03",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [lunch_b["id"]],
+            "excluded_food_ids": [],
+        },
+    )
+    lunch_before = _find_slot(plan, day_date="2026-05-03", slot_index=0)["recipe_id"]
+    assert lunch_before == lunch_a["id"]
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-05-03",
+        payload={"excluded_recipe_ids": [lunch_a["id"]]},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+    lunch_after = _find_slot(regenerate_response.json(), day_date="2026-05-03", slot_index=0)["recipe_id"]
+    assert lunch_after == lunch_b["id"]
+    assert lunch_after != blocked_lunch["id"]
+
+
+def test_replace_and_regenerate_respect_max_cook_time_override(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="replace_regen_max_cook_override@example.com",
+        username="replace_regen_max_cook_override",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Regen Max Cook Lunch Food",
+        kcal="200.00",
+        protein="16.00",
+        fat="8.00",
+        carbs="24.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Replace Regen Max Cook Dinner Food",
+        kcal="360.00",
+        protein="26.00",
+        fat="12.00",
+        carbs="40.00",
+    )
+
+    fast_a_response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={"name": "Replace Regen Fast Lunch A", "servings_count": 1, "meal_types": ["lunch"], "cook_time_minutes": 20},
+    )
+    assert fast_a_response.status_code == 201, fast_a_response.text
+    fast_a = fast_a_response.json()
+    add_ingredient_via_api(client, token, recipe_id=fast_a["id"], food_id=lunch_food["id"], grams="100")
+
+    slow_response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={"name": "Replace Regen Slow Lunch", "servings_count": 1, "meal_types": ["lunch"], "cook_time_minutes": 60},
+    )
+    assert slow_response.status_code == 201, slow_response.text
+    slow_lunch = slow_response.json()
+    add_ingredient_via_api(client, token, recipe_id=slow_lunch["id"], food_id=lunch_food["id"], grams="100")
+
+    fast_b_response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={"name": "Replace Regen Fast Lunch B", "servings_count": 1, "meal_types": ["lunch"], "cook_time_minutes": 25},
+    )
+    assert fast_b_response.status_code == 201, fast_b_response.text
+    fast_b = fast_b_response.json()
+    add_ingredient_via_api(client, token, recipe_id=fast_b["id"], food_id=lunch_food["id"], grams="100")
+
+    _create_recipe_with_ingredient(client, token, name="Replace Regen Max Cook Dinner", meal_types=["dinner"], food_id=dinner_food["id"])
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-04",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [fast_b["id"]],
+            "excluded_food_ids": [],
+        },
+    )
+    lunch_slot = _find_slot(plan, day_date="2026-05-04", slot_index=0)
+    assert lunch_slot["recipe_id"] == fast_a["id"]
+
+    replace_response = _replace_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"max_cook_time_minutes": 30},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+    replaced_lunch = _find_slot(replace_response.json(), day_date="2026-05-04", slot_index=0)
+    assert replaced_lunch["recipe_id"] == fast_b["id"]
+    assert replaced_lunch["recipe_id"] != slow_lunch["id"]
+
+    regen_plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-05",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [fast_b["id"]],
+            "excluded_food_ids": [],
+        },
+    )
+    regen_response = _regenerate_day(
+        client,
+        token,
+        plan_id=regen_plan["id"],
+        day_date="2026-05-05",
+        payload={"excluded_recipe_ids": [fast_a["id"]], "max_cook_time_minutes": 30},
+    )
+    assert regen_response.status_code == 200, regen_response.text
+    regenerated_lunch = _find_slot(regen_response.json(), day_date="2026-05-05", slot_index=0)
+    assert regenerated_lunch["recipe_id"] == fast_b["id"]
+    assert regenerated_lunch["recipe_id"] != slow_lunch["id"]
+
+
+def test_regenerate_day_returns_friendly_422_when_restrictions_filter_all_candidates(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regenerate_friendly_422_restrictions@example.com",
+        username="regenerate_friendly_422_restrictions",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Friendly 422 Lunch Food",
+        kcal="220.00",
+        protein="17.00",
+        fat="8.00",
+        carbs="25.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Friendly 422 Dinner Food",
+        kcal="360.00",
+        protein="25.00",
+        fat="12.00",
+        carbs="39.00",
+    )
+
+    lunch_response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={"name": "Regenerate Friendly 422 Slow Lunch", "servings_count": 1, "meal_types": ["lunch"], "cook_time_minutes": 80},
+    )
+    assert lunch_response.status_code == 201, lunch_response.text
+    slow_lunch = lunch_response.json()
+    add_ingredient_via_api(client, token, recipe_id=slow_lunch["id"], food_id=lunch_food["id"], grams="100")
+    _create_recipe_with_ingredient(client, token, name="Regenerate Friendly 422 Dinner", meal_types=["dinner"], food_id=dinner_food["id"])
+
+    plan = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-06",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-05-06",
+        payload={"max_cook_time_minutes": 30},
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Не удалось подобрать блюда для выбранного дня с текущими ограничениями."

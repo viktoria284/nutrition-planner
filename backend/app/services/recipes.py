@@ -250,6 +250,78 @@ DEMO_BREAKFAST_RECIPES = [
             ("Помидор", "120"),
         ],
     },
+    {
+        "name": "Скрембл с томатом и тостом",
+        "description": "Яичный скрембл с томатом и цельнозерновым тостом",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 10,
+        "ingredients": [
+            ("Яйцо куриное", "120"),
+            ("Помидор", "120"),
+            ("Хлеб цельнозерновой", "70"),
+        ],
+    },
+    {
+        "name": "Творожный боул с грушей",
+        "description": "Творог с грушей и ложкой йогурта",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 7,
+        "ingredients": [
+            ("Творог 5%", "170"),
+            ("Груша", "130"),
+            ("Йогурт греческий", "70"),
+        ],
+    },
+    {
+        "name": "Йогурт с яблоком и арахисовой пастой",
+        "description": "Греческий йогурт с яблоком и арахисовой пастой",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 6,
+        "ingredients": [
+            ("Йогурт греческий", "200"),
+            ("Яблоко", "120"),
+            ("Арахисовая паста", "15"),
+        ],
+    },
+    {
+        "name": "Тост с тунцом и огурцом",
+        "description": "Цельнозерновой тост с тунцом и свежим огурцом",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 8,
+        "ingredients": [
+            ("Хлеб цельнозерновой", "80"),
+            ("Тунец консервированный", "90"),
+            ("Огурец", "120"),
+        ],
+    },
+    {
+        "name": "Кефирный смузи с бананом и овсянкой",
+        "description": "Кефир, банан и овсяные хлопья в блендере",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 5,
+        "ingredients": [
+            ("Кефир 1%", "260"),
+            ("Банан", "100"),
+            ("Овсяные хлопья", "25"),
+        ],
+    },
+    {
+        "name": "Омлет с брокколи и сыром",
+        "description": "Омлет с брокколи и тёртым сыром",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 12,
+        "ingredients": [
+            ("Яйцо куриное", "120"),
+            ("Брокколи", "120"),
+            ("Сыр твердый", "20"),
+        ],
+    },
 ]
 
 DEMO_LUNCH_RECIPES = [
@@ -493,6 +565,109 @@ DEMO_LUNCH_RECIPES = [
             ("Индейка филе", "150"),
             ("Фасоль красная вареная", "160"),
             ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Тёплый боул с индейкой и огурцом",
+        "description": "Индейка с рисом, огурцом и лёгкой овощной подачей",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 15,
+        "ingredients": [
+            ("Индейка филе", "150"),
+            ("Рис отварной", "170"),
+            ("Огурец", "130"),
+            ("Помидор", "100"),
+        ],
+    },
+    {
+        "name": "Салат с тунцом и фасолью",
+        "description": "Тунец с фасолью, томатами и огурцом",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 12,
+        "ingredients": [
+            ("Тунец консервированный", "130"),
+            ("Фасоль красная вареная", "140"),
+            ("Помидор", "130"),
+            ("Огурец", "130"),
+            ("Оливковое масло", "8"),
+        ],
+    },
+    {
+        "name": "Гречка с яйцом и брокколи",
+        "description": "Гречка с яйцом и брокколи как быстрый обед",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 14,
+        "ingredients": [
+            ("Гречка отварная", "220"),
+            ("Яйцо куриное", "120"),
+            ("Брокколи", "130"),
+        ],
+    },
+    {
+        "name": "Паста с тунцом и томатами",
+        "description": "Макароны с тунцом и свежими томатами",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 18,
+        "ingredients": [
+            ("Макароны отварные", "200"),
+            ("Тунец консервированный", "120"),
+            ("Помидор", "140"),
+        ],
+    },
+    {
+        "name": "Курица с булгуром и огурцом",
+        "description": "Куриная грудка с булгуром и огурцом",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 19,
+        "ingredients": [
+            ("Куриная грудка", "150"),
+            ("Булгур отварной", "220"),
+            ("Огурец", "130"),
+        ],
+    },
+    {
+        "name": "Картофельный салат с индейкой",
+        "description": "Тёплый картофельный салат с индейкой и овощами",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 20,
+        "ingredients": [
+            ("Картофель отварной", "240"),
+            ("Индейка филе", "130"),
+            ("Огурец", "110"),
+            ("Помидор", "110"),
+            ("Оливковое масло", "7"),
+        ],
+    },
+    {
+        "name": "Нут с овощами и яйцом",
+        "description": "Нут с томатами, огурцом и варёным яйцом",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 15,
+        "ingredients": [
+            ("Нут вареный", "170"),
+            ("Яйцо куриное", "100"),
+            ("Помидор", "130"),
+            ("Огурец", "120"),
+        ],
+    },
+    {
+        "name": "Лаваш с курицей и брокколи",
+        "description": "Лаваш с курицей, брокколи и лёгкой заправкой",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 17,
+        "ingredients": [
+            ("Лаваш тонкий", "110"),
+            ("Куриная грудка", "140"),
+            ("Брокколи", "120"),
+            ("Йогурт греческий", "60"),
         ],
     },
 ]
@@ -740,6 +915,103 @@ DEMO_DINNER_RECIPES = [
             ("Помидор", "120"),
         ],
     },
+    {
+        "name": "Индейка с томатами и кускусом",
+        "description": "Быстрый ужин: индейка с кускусом и томатами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 18,
+        "ingredients": [
+            ("Индейка филе", "150"),
+            ("Кускус отварной", "210"),
+            ("Помидор", "140"),
+        ],
+    },
+    {
+        "name": "Тунец с гречкой и огурцом",
+        "description": "Тунец с гречкой и свежим огурцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 14,
+        "ingredients": [
+            ("Тунец консервированный", "130"),
+            ("Гречка отварная", "200"),
+            ("Огурец", "140"),
+        ],
+    },
+    {
+        "name": "Курица с брокколи и рисом",
+        "description": "Куриная грудка с рисом и брокколи",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 19,
+        "ingredients": [
+            ("Куриная грудка", "150"),
+            ("Рис отварной", "180"),
+            ("Брокколи", "140"),
+        ],
+    },
+    {
+        "name": "Фасоль с яйцом и томатами",
+        "description": "Фасоль с яйцом и томатами как быстрый ужин",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 12,
+        "ingredients": [
+            ("Фасоль красная вареная", "170"),
+            ("Яйцо куриное", "110"),
+            ("Помидор", "130"),
+        ],
+    },
+    {
+        "name": "Лосось с кускусом и огурцом",
+        "description": "Лосось с кускусом и огурцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [
+            ("Лосось", "130"),
+            ("Кускус отварной", "200"),
+            ("Огурец", "130"),
+        ],
+    },
+    {
+        "name": "Говядина с кускусом и томатом",
+        "description": "Постная говядина с кускусом и томатами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [
+            ("Говядина постная", "140"),
+            ("Кускус отварной", "220"),
+            ("Помидор", "130"),
+        ],
+    },
+    {
+        "name": "Нут с индейкой и огурцом",
+        "description": "Нут с индейкой и огурцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 16,
+        "ingredients": [
+            ("Нут вареный", "160"),
+            ("Индейка филе", "130"),
+            ("Огурец", "130"),
+        ],
+    },
+    {
+        "name": "Лаваш с тунцом и овощами",
+        "description": "Лаваш с тунцом, томатами и огурцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 15,
+        "ingredients": [
+            ("Лаваш тонкий", "110"),
+            ("Тунец консервированный", "120"),
+            ("Помидор", "120"),
+            ("Огурец", "120"),
+        ],
+    },
 ]
 
 DEMO_SNACK_RECIPES = [
@@ -947,6 +1219,53 @@ DEMO_SNACK_RECIPES = [
             ("Яблоко", "120"),
         ],
     },
+    {
+        "name": "Творог с апельсином",
+        "description": "Творог 5% с дольками апельсина",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 5,
+        "ingredients": [
+            ("Творог 5%", "150"),
+            ("Апельсин", "140"),
+        ],
+    },
+    {
+        "name": "Кефир с бананом и арахисовой пастой",
+        "description": "Кефир, банан и немного арахисовой пасты",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 8,
+        "ingredients": [
+            ("Кефир 1%", "250"),
+            ("Банан", "90"),
+            ("Арахисовая паста", "12"),
+        ],
+    },
+    {
+        "name": "Тост с творогом и огурцом",
+        "description": "Цельнозерновой тост с творогом и огурцом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 7,
+        "ingredients": [
+            ("Хлеб цельнозерновой", "70"),
+            ("Творог 5%", "90"),
+            ("Огурец", "110"),
+        ],
+    },
+    {
+        "name": "Яйцо с огурцом и томатом",
+        "description": "Варёное яйцо с огурцом и томатом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 10,
+        "ingredients": [
+            ("Яйцо куриное", "100"),
+            ("Огурец", "100"),
+            ("Помидор", "100"),
+        ],
+    },
 ]
 
 DEMO_PUBLIC_RECIPES = [
@@ -955,6 +1274,12 @@ DEMO_PUBLIC_RECIPES = [
     *DEMO_DINNER_RECIPES,
     *DEMO_SNACK_RECIPES,
 ]
+DEMO_COOK_TIME_RANGES_BY_MEAL_TYPE: dict[str, tuple[int, int]] = {
+    "breakfast": (5, 20),
+    "snack": (5, 20),
+    "lunch": (20, 60),
+    "dinner": (20, 60),
+}
 
 
 class RecipeNotFoundError(ValueError):
@@ -987,6 +1312,21 @@ class RecipeReportConflictError(ValueError):
 
 class RecipeReportNotAllowedError(ValueError):
     pass
+
+
+def _assign_demo_cook_time_minutes() -> None:
+    for recipe_index, payload in enumerate(DEMO_PUBLIC_RECIPES):
+        if payload.get("cook_time_minutes") is not None:
+            continue
+
+        meal_types = payload.get("meal_types") or []
+        primary_meal_type = meal_types[0] if meal_types else "lunch"
+        lower, upper = DEMO_COOK_TIME_RANGES_BY_MEAL_TYPE.get(primary_meal_type, (20, 60))
+        span = max(1, upper - lower + 1)
+        payload["cook_time_minutes"] = lower + (recipe_index % span)
+
+
+_assign_demo_cook_time_minutes()
 
 
 class RecipeReportSelfError(ValueError):
@@ -1041,6 +1381,7 @@ def create_recipe(db: Session, owner_id: int, data: RecipeCreate) -> Recipe:
         description=data.description,
         servings_count=data.servings_count,
         meal_types=data.meal_types,
+        cook_time_minutes=data.cook_time_minutes,
         source=FoodSource.private,
         status=FoodStatus.draft,
         is_listed=True,
@@ -1497,6 +1838,7 @@ def seed_demo_public_recipes(
             description=payload["description"],
             servings_count=payload["servings_count"],
             meal_types=payload["meal_types"],
+            cook_time_minutes=payload.get("cook_time_minutes"),
             source=FoodSource.community,
             status=FoodStatus.approved,
             is_listed=True,
@@ -1605,6 +1947,7 @@ def build_recipe_read(recipe: Recipe) -> RecipeRead:
             "description": recipe.description,
             "servings_count": recipe.servings_count,
             "meal_types": recipe.meal_types,
+            "cook_time_minutes": recipe.cook_time_minutes,
             "source": recipe.source,
             "status": recipe.status,
             "reports_count": recipe.reports_count,
