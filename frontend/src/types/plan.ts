@@ -111,6 +111,45 @@ export type PlanSlotPatchPayload = {
   pinned?: boolean;
 };
 
+export type PlanSlotIngredientOverrideBaseItem = {
+  recipe_ingredient_id: number;
+  food_id?: number;
+  grams?: DecimalString;
+  is_excluded?: boolean;
+};
+
+export type PlanSlotManualIngredientItem = {
+  food_id: number;
+  grams: DecimalString;
+};
+
+export type PlanSlotIngredientOverridesReplacePayload = {
+  base_overrides?: PlanSlotIngredientOverrideBaseItem[];
+  manual_items?: PlanSlotManualIngredientItem[];
+};
+
+export type PlanSlotEffectiveIngredient = {
+  recipe_ingredient_id: number | null;
+  override_id: number | null;
+  source: "base" | "overridden" | "manual";
+  food_id: number;
+  food_name: string;
+  grams: DecimalString;
+  kcal: DecimalString;
+  protein: DecimalString;
+  fat: DecimalString;
+  carbs: DecimalString;
+  fiber: DecimalString;
+};
+
+export type PlanSlotEffectiveIngredientsResponse = {
+  slot_id: number;
+  recipe_id: number;
+  has_overrides: boolean;
+  excluded_recipe_ingredient_ids: number[];
+  items: PlanSlotEffectiveIngredient[];
+};
+
 export type PlanBulkDeletePayload = {
   plan_ids: number[];
 };

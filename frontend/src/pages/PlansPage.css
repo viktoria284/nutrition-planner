@@ -721,6 +721,87 @@
   font-size: 0.86rem;
 }
 
+.plan-slot-ingredients-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fafafa;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.plan-slot-ingredients-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-slot-ingredients-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.plan-slot-ingredients-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-dark);
+  font-size: 0.78rem;
+  line-height: 1;
+  font-weight: 700;
+  padding: 5px 8px;
+}
+
+.plan-slot-ingredients-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-slot-ingredient-row {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) 120px auto;
+  align-items: start;
+}
+
+.plan-slot-ingredient-row.is-excluded {
+  opacity: 0.7;
+}
+
+.plan-slot-ingredient-main {
+  min-width: 0;
+}
+
+.plan-slot-ingredient-grams-wrap .plans-field-input {
+  min-height: 40px;
+}
+
+.plan-slot-ingredient-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.plan-slot-ingredient-actions .btn {
+  white-space: nowrap;
+}
+
+.plan-slot-ingredients-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .plan-recipe-picker {
   position: relative;
   display: grid;
@@ -1222,5 +1303,13 @@
 
   .plans-batch-grid {
     grid-template-columns: 1fr;
+  }
+
+  .plan-slot-ingredient-row {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-slot-ingredient-actions {
+    justify-content: flex-start;
   }
 }

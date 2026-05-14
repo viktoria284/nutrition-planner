@@ -7,6 +7,8 @@ import type {
   PlanRegenerateDayPayload,
   PlanRead,
   PlanReplaceSlotPayload,
+  PlanSlotEffectiveIngredientsResponse,
+  PlanSlotIngredientOverridesReplacePayload,
   PlanSlotPatchPayload,
 } from "../types/plan";
 import { ApiError, apiRequest } from "./http";
@@ -68,6 +70,23 @@ function normalizeRegenerateDayPayload(payload: PlanRegenerateDayPayload): PlanR
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
     ...(payload.max_cook_time_minutes ? { max_cook_time_minutes: payload.max_cook_time_minutes } : {}),
+  };
+}
+
+function normalizeSlotIngredientOverridesPayload(
+  payload: PlanSlotIngredientOverridesReplacePayload,
+): PlanSlotIngredientOverridesReplacePayload {
+  return {
+    base_overrides: (payload.base_overrides ?? []).map((item) => ({
+      recipe_ingredient_id: item.recipe_ingredient_id,
+      ...(item.food_id ? { food_id: item.food_id } : {}),
+      ...(item.grams ? { grams: item.grams } : {}),
+      ...(item.is_excluded ? { is_excluded: true } : {}),
+    })),
+    manual_items: (payload.manual_items ?? []).map((item) => ({
+      food_id: item.food_id,
+      grams: item.grams,
+    })),
   };
 }
 
@@ -187,6 +206,47 @@ export async function regeneratePlanDay(
       path: `/plans/${planId}/days/${dayDate}/regenerate`,
       token: getToken(),
       body: normalizeRegenerateDayPayload(payload),
+    }),
+  );
+}
+
+export async function getPlanSlotIngredients(
+  planId: number | string,
+  slotId: number | string,
+): Promise<PlanSlotEffectiveIngredientsResponse> {
+  return requestWithApiError(
+    apiRequest<PlanSlotEffectiveIngredientsResponse>({
+      method: "GET",
+      path: `/plans/${planId}/slots/${slotId}/ingredients`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function replacePlanSlotIngredientOverrides(
+  planId: number | string,
+  slotId: number | string,
+  payload: PlanSlotIngredientOverridesReplacePayload,
+): Promise<PlanSlotEffectiveIngredientsResponse> {
+  return requestWithApiError(
+    apiRequest<PlanSlotEffectiveIngredientsResponse>({
+      method: "PUT",
+      path: `/plans/${planId}/slots/${slotId}/ingredient-overrides`,
+      token: getToken(),
+      body: normalizeSlotIngredientOverridesPayload(payload),
+    }),
+  );
+}
+
+export async function clearPlanSlotIngredientOverrides(
+  planId: number | string,
+  slotId: number | string,
+): Promise<PlanSlotEffectiveIngredientsResponse> {
+  return requestWithApiError(
+    apiRequest<PlanSlotEffectiveIngredientsResponse>({
+      method: "DELETE",
+      path: `/plans/${planId}/slots/${slotId}/ingredient-overrides`,
+      token: getToken(),
     }),
   );
 }

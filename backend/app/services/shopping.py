@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.constants import DEFAULT_FOOD_CATEGORY
 from app.models.foods import FoodItem
 from app.models.plan import Plan
-from app.models.plan_slot import PlanSlot
+from app.models.plan_slot import PlanSlot, PlanSlotIngredientOverride
 from app.models.recipe import Recipe, RecipeIngredient
 from app.models.shopping import ShoppingList, ShoppingListItem, ShoppingListSource
 from app.schemas.shopping import (
@@ -25,6 +25,7 @@ from app.schemas.shopping import (
     ShoppingListSummaryRead,
     ShoppingManualItemCreate,
 )
+from app.services.plan_slot_ingredients import build_slot_effective_items
 
 
 class ShoppingPlanNotFoundError(ValueError):
@@ -79,7 +80,10 @@ def _get_plan_or_404(
             selectinload(Plan.slots)
             .selectinload(PlanSlot.recipe)
             .selectinload(Recipe.ingredients)
-            .selectinload(RecipeIngredient.food)
+            .selectinload(RecipeIngredient.food),
+            selectinload(Plan.slots)
+            .selectinload(PlanSlot.ingredient_overrides)
+            .selectinload(PlanSlotIngredientOverride.food),
         )
     plan = db.execute(stmt).scalar_one_or_none()
     if plan is None:
@@ -92,31 +96,60 @@ def _build_computed_food_totals(plan: Plan) -> dict[int, dict[str, object]]:
     for slot in plan.slots:
         if slot.recipe_id is None or slot.recipe is None:
             continue
+
+        for effective_item in build_slot_effective_items(slot):
+            food_id = int(effective_item["food_id"])
+            bucket = grouped.get(food_id)
+            if bucket is None:
+                bucket = {
+                    "food_id": food_id,
+                    "name_snapshot": str(effective_item["food_name"]),
+                    "category": DEFAULT_FOOD_CATEGORY,
+                    "planned_grams": Decimal("0"),
+                }
+                grouped[food_id] = bucket
+
+            bucket["planned_grams"] = bucket["planned_grams"] + Decimal(effective_item["grams"])
+
+        # Update categories from loaded foods for more stable grouping labels.
         for ingredient in slot.recipe.ingredients:
             if ingredient.food is None:
                 continue
-            bucket = grouped.get(ingredient.food_id)
-            if bucket is None:
-                bucket = {
-                    "food_id": ingredient.food_id,
-                    "name_snapshot": ingredient.food.name,
-                    "category": ingredient.food.category or DEFAULT_FOOD_CATEGORY,
-                    "planned_grams": Decimal("0"),
-                }
-                grouped[ingredient.food_id] = bucket
-            bucket["planned_grams"] = bucket["planned_grams"] + (ingredient.grams * slot.servings_multiplier)
+            if ingredient.food_id in grouped:
+                grouped[ingredient.food_id]["category"] = ingredient.food.category or DEFAULT_FOOD_CATEGORY
+        for override in slot.ingredient_overrides:
+            if override.food is None:
+                continue
+            if override.food_id in grouped:
+                grouped[override.food_id]["category"] = override.food.category or DEFAULT_FOOD_CATEGORY
     return grouped
 
 
 def _compute_plan_source_signature(plan: Plan) -> str:
     slot_payload = []
     for slot in sorted(plan.slots, key=lambda value: (value.id, value.day_date, value.slot_index)):
+        overrides_payload = []
+        for override in sorted(
+            slot.ingredient_overrides,
+            key=lambda value: (value.is_manual, value.recipe_ingredient_id or 0, value.food_id or 0, value.id),
+        ):
+            overrides_payload.append(
+                {
+                    "recipe_ingredient_id": override.recipe_ingredient_id,
+                    "food_id": override.food_id,
+                    "grams": str(override.grams) if override.grams is not None else None,
+                    "is_excluded": override.is_excluded,
+                    "is_manual": override.is_manual,
+                    "updated_at": override.updated_at.isoformat() if override.updated_at is not None else None,
+                }
+            )
         slot_payload.append(
             {
                 "slot_id": slot.id,
                 "recipe_id": slot.recipe_id,
                 "servings_multiplier": str(slot.servings_multiplier),
                 "updated_at": slot.updated_at.isoformat() if slot.updated_at is not None else None,
+                "ingredient_overrides": overrides_payload,
             }
         )
     raw = json.dumps(slot_payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)

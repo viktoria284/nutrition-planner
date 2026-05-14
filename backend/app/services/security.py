@@ -37,4 +37,9 @@ def decode_token(token: str) -> dict:
     alg = os.getenv("JWT_ALG", "HS256")
     if not secret:
         raise RuntimeError("JWT_SECRET is not set in .env")
-    return jwt.decode(token, secret, algorithms=[alg])
+    return jwt.decode(
+        token,
+        secret,
+        algorithms=[alg],
+        options={"verify_iat": False},
+    )

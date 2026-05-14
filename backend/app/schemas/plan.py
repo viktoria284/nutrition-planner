@@ -116,6 +116,62 @@ class PlanSlotRead(BaseModel):
         from_attributes = True
 
 
+class PlanSlotIngredientOverrideBaseItem(BaseModel):
+    recipe_ingredient_id: Annotated[int, Field(ge=1)]
+    food_id: Annotated[int, Field(ge=1)] | None = None
+    grams: PositiveDecimal | None = None
+    is_excluded: bool = False
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> "PlanSlotIngredientOverrideBaseItem":
+        if self.is_excluded:
+            return self
+        if self.food_id is None and self.grams is None:
+            raise ValueError("override must include grams or food_id or set is_excluded=true")
+        return self
+
+
+class PlanSlotManualIngredientItem(BaseModel):
+    food_id: Annotated[int, Field(ge=1)]
+    grams: PositiveDecimal
+
+
+class PlanSlotIngredientOverridesReplaceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    base_overrides: list[PlanSlotIngredientOverrideBaseItem] = Field(default_factory=list)
+    manual_items: list[PlanSlotManualIngredientItem] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_no_duplicate_base_items(self) -> "PlanSlotIngredientOverridesReplaceRequest":
+        recipe_ingredient_ids = [item.recipe_ingredient_id for item in self.base_overrides]
+        if len(recipe_ingredient_ids) != len(set(recipe_ingredient_ids)):
+            raise ValueError("duplicate recipe_ingredient_id is not allowed")
+        return self
+
+
+class PlanSlotEffectiveIngredientRead(BaseModel):
+    recipe_ingredient_id: int | None
+    override_id: int | None
+    source: str
+    food_id: int
+    food_name: str
+    grams: Decimal
+    kcal: Decimal
+    protein: Decimal
+    fat: Decimal
+    carbs: Decimal
+    fiber: Decimal
+
+
+class PlanSlotEffectiveIngredientsResponse(BaseModel):
+    slot_id: int
+    recipe_id: int
+    has_overrides: bool
+    excluded_recipe_ingredient_ids: list[int] = Field(default_factory=list)
+    items: list[PlanSlotEffectiveIngredientRead]
+
+
 class NutritionTotalsRead(BaseModel):
     kcal: Decimal
     protein: Decimal

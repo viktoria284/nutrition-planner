@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.plan import Plan
-from app.models.plan_slot import PlanSlot
+from app.models.plan_slot import PlanSlot, PlanSlotIngredientOverride
 from app.models.profile import Profile
 from app.models.recipe import Recipe, RecipeIngredient
 from app.schemas.plan import (
@@ -18,6 +18,7 @@ from app.schemas.plan import (
     RegeneratePlanDayRequest,
     ReplacePlanSlotRequest,
 )
+from app.services.plan_slot_ingredients import clear_slot_ingredient_overrides
 from app.services.recipes import build_accessible_recipes_condition, calculate_recipe_nutrients
 
 
@@ -585,6 +586,9 @@ def _load_plan_with_slots_for_user(db: Session, *, user_id: int, plan_id: int) -
             .selectinload(PlanSlot.recipe)
             .selectinload(Recipe.ingredients)
             .selectinload(RecipeIngredient.food),
+            selectinload(Plan.slots)
+            .selectinload(PlanSlot.ingredient_overrides)
+            .selectinload(PlanSlotIngredientOverride.food),
         )
     ).scalar_one_or_none()
     if plan is None:
@@ -2213,6 +2217,7 @@ def replace_plan_slot(
             "Не удалось найти другую подходящую замену для этого слота."
         ) from exc
 
+    clear_slot_ingredient_overrides(db, slot_id=slot.id)
     slot.recipe_id = selected_recipe.id
     slot.servings_multiplier = selected_multiplier
     try:
@@ -2437,7 +2442,10 @@ def regenerate_plan_day(
         selected_slot_candidate_by_slot_id, _ = fallback_selection
 
     for slot in mutable_slots:
+        previous_recipe_id = slot.recipe_id
         selected_recipe_id, selected_multiplier = selected_slot_candidate_by_slot_id[slot.id]
+        if selected_recipe_id != previous_recipe_id:
+            clear_slot_ingredient_overrides(db, slot_id=slot.id)
         slot.recipe_id = selected_recipe_id
         slot.servings_multiplier = selected_multiplier
 

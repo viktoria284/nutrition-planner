@@ -971,3 +971,115 @@ def test_merge_creates_materialized_list_and_filters_source_items(
     updated_summaries = _list_shopping_lists(client, token)
     merged_summary = next(summary for summary in updated_summaries if summary["id"] == merged["id"])
     assert merged_summary["is_outdated"] is True
+
+def test_shopping_list_uses_slot_ingredient_overrides(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="shopping_slot_overrides@example.com",
+        username="shopping_slot_overrides",
+    )
+
+    food_base = create_food_via_api(
+        client,
+        token,
+        name="Shopping Override Base",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+    )
+    food_replacement = create_food_via_api(
+        client,
+        token,
+        name="Shopping Override Replacement",
+        kcal="180.00",
+        protein="12.00",
+        fat="8.00",
+        carbs="10.00",
+    )
+    food_manual = create_food_via_api(
+        client,
+        token,
+        name="Shopping Override Manual",
+        kcal="50.00",
+        protein="3.00",
+        fat="1.00",
+        carbs="8.00",
+    )
+
+    recipe = create_recipe_via_api(client, token, name="Shopping Override Recipe", servings_count=1, meal_types=["lunch"])
+    ingredient_a = add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food_base["id"], grams="100")
+    ingredient_b = add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food_replacement["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+    _patch_plan_slot(client, token, plan_id=plan["id"], slot_id=slot_id, payload={"recipe_id": recipe["id"]})
+
+    put_response = client.put(
+        f"/plans/{plan['id']}/slots/{slot_id}/ingredient-overrides",
+        headers=auth_headers(token),
+        json={
+            "base_overrides": [
+                {"recipe_ingredient_id": ingredient_a["id"], "grams": "40"},
+                {"recipe_ingredient_id": ingredient_b["id"], "is_excluded": True},
+            ],
+            "manual_items": [{"food_id": food_manual["id"], "grams": "60"}],
+        },
+    )
+    assert put_response.status_code == 200, put_response.text
+
+    shopping = _create_shopping_list_from_plan(client, token, plan_id=plan["id"])
+    computed = _computed_items(shopping)
+    by_food = {item["food_id"]: item for item in computed}
+
+    assert set(by_food) == {food_base["id"], food_manual["id"]}
+    assert Decimal(str(by_food[food_base["id"]]["planned_grams"])) == Decimal("40.00")
+    assert Decimal(str(by_food[food_manual["id"]]["planned_grams"])) == Decimal("60.00")
+    assert food_replacement["id"] not in by_food
+
+
+def test_shopping_list_becomes_outdated_after_slot_overrides_update(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="shopping_slot_overrides_outdated@example.com",
+        username="shopping_slot_overrides_outdated",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Shopping Override Outdated Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+    )
+
+    recipe = create_recipe_via_api(client, token, name="Shopping Override Outdated Recipe", servings_count=1, meal_types=["dinner"])
+    ingredient = add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+    _patch_plan_slot(client, token, plan_id=plan["id"], slot_id=slot_id, payload={"recipe_id": recipe["id"]})
+
+    shopping = _create_shopping_list_from_plan(client, token, plan_id=plan["id"])
+    assert shopping["is_outdated"] is False
+
+    put_response = client.put(
+        f"/plans/{plan['id']}/slots/{slot_id}/ingredient-overrides",
+        headers=auth_headers(token),
+        json={
+            "base_overrides": [{"recipe_ingredient_id": ingredient["id"], "grams": "55"}],
+            "manual_items": [],
+        },
+    )
+    assert put_response.status_code == 200, put_response.text
+
+    opened = _get_shopping_list(client, token, shopping["id"])
+    assert opened["is_outdated"] is True

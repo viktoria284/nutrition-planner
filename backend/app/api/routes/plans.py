@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.plan import (
+    PlanSlotEffectiveIngredientsResponse,
+    PlanSlotIngredientOverridesReplaceRequest,
     PlanAutogenerateRequest,
     PlanAutogenerateResponse,
     PlanBulkDeleteRequest,
@@ -47,6 +49,16 @@ from app.services.plans import (
     get_plan_for_user,
     list_plans_for_user,
     update_plan_slot,
+)
+from app.services.plan_slot_ingredients import (
+    PlanSlotIngredientsFoodNotFoundError,
+    PlanSlotIngredientsPlanNotFoundError,
+    PlanSlotIngredientsRecipeIngredientInvalidError,
+    PlanSlotIngredientsRecipeRequiredError,
+    PlanSlotIngredientsSlotNotFoundError,
+    delete_slot_ingredient_overrides,
+    get_slot_effective_ingredients,
+    replace_slot_ingredient_overrides,
 )
 from app.services.shopping import (
     ShoppingPlanNotFoundError,
@@ -210,6 +222,78 @@ def patch_plan_slot(
     except PlanSlotRecipeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
     return build_plan_slot_read(slot)
+
+
+@router.get("/{plan_id}/slots/{slot_id}/ingredients", response_model=PlanSlotEffectiveIngredientsResponse)
+def get_plan_slot_ingredients(
+    plan_id: int,
+    slot_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return get_slot_effective_ingredients(
+            db,
+            user_id=current_user.id,
+            plan_id=plan_id,
+            slot_id=slot_id,
+        )
+    except PlanSlotIngredientsPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    except PlanSlotIngredientsSlotNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan slot not found") from exc
+    except PlanSlotIngredientsRecipeRequiredError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.put("/{plan_id}/slots/{slot_id}/ingredient-overrides", response_model=PlanSlotEffectiveIngredientsResponse)
+def put_plan_slot_ingredient_overrides(
+    plan_id: int,
+    slot_id: int,
+    payload: PlanSlotIngredientOverridesReplaceRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return replace_slot_ingredient_overrides(
+            db,
+            user_id=current_user.id,
+            plan_id=plan_id,
+            slot_id=slot_id,
+            payload=payload,
+        )
+    except PlanSlotIngredientsPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    except PlanSlotIngredientsSlotNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan slot not found") from exc
+    except PlanSlotIngredientsRecipeRequiredError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except PlanSlotIngredientsRecipeIngredientInvalidError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except PlanSlotIngredientsFoodNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete("/{plan_id}/slots/{slot_id}/ingredient-overrides", response_model=PlanSlotEffectiveIngredientsResponse)
+def delete_plan_slot_ingredient_overrides(
+    plan_id: int,
+    slot_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return delete_slot_ingredient_overrides(
+            db,
+            user_id=current_user.id,
+            plan_id=plan_id,
+            slot_id=slot_id,
+        )
+    except PlanSlotIngredientsPlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    except PlanSlotIngredientsSlotNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan slot not found") from exc
+    except PlanSlotIngredientsRecipeRequiredError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.get("/{plan_id}/shopping-list", response_model=ShoppingListRead)

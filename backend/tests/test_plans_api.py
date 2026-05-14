@@ -1425,3 +1425,496 @@ def test_patch_plan_slot_servings_multiplier_validation(
         json={"servings_multiplier": "-1"},
     )
     assert negative_response.status_code == 422, negative_response.text
+
+def _get_plan_slot_ingredients(
+    client: TestClient,
+    token: str,
+    *,
+    plan_id: int,
+    slot_id: int,
+):
+    return client.get(
+        f"/plans/{plan_id}/slots/{slot_id}/ingredients",
+        headers=auth_headers(token),
+    )
+
+
+def _put_plan_slot_ingredient_overrides(
+    client: TestClient,
+    token: str,
+    *,
+    plan_id: int,
+    slot_id: int,
+    payload: dict,
+):
+    return client.put(
+        f"/plans/{plan_id}/slots/{slot_id}/ingredient-overrides",
+        headers=auth_headers(token),
+        json=payload,
+    )
+
+
+def _delete_plan_slot_ingredient_overrides(
+    client: TestClient,
+    token: str,
+    *,
+    plan_id: int,
+    slot_id: int,
+):
+    return client.delete(
+        f"/plans/{plan_id}/slots/{slot_id}/ingredient-overrides",
+        headers=auth_headers(token),
+    )
+
+
+def _get_recipe_by_id(client: TestClient, token: str, recipe_id: int) -> dict:
+    response = client.get(f"/recipes/{recipe_id}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_plan_slot_ingredient_overrides_update_totals_and_do_not_mutate_recipe(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="slot_overrides_totals@example.com",
+        username="slot_overrides_totals",
+    )
+
+    food_a = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Food A",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+        fiber="2.00",
+    )
+    food_b = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Food B",
+        kcal="100.00",
+        protein="5.00",
+        fat="2.00",
+        carbs="12.00",
+        fiber="1.00",
+    )
+
+    recipe = create_recipe_via_api(client, token, name="Slot Override Recipe", servings_count=2, meal_types=["lunch"])
+    add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food_a["id"], grams="200")
+    add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food_b["id"], grams="100")
+
+    recipe_read = _get_recipe_by_id(client, token, recipe["id"])
+    ingredient_a = next(item for item in recipe_read["ingredients"] if item["food_id"] == food_a["id"])
+
+    plan = create_plan_via_api(client, token, days_count=1, meals_per_day=2)
+    first_slot_id = plan["slots"][0]["id"]
+    second_slot_id = plan["slots"][1]["id"]
+
+    first_patch = client.patch(
+        f"/plans/{plan['id']}/slots/{first_slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe["id"], "servings_multiplier": "1"},
+    )
+    assert first_patch.status_code == 200, first_patch.text
+
+    second_patch = client.patch(
+        f"/plans/{plan['id']}/slots/{second_slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe["id"], "servings_multiplier": "1"},
+    )
+    assert second_patch.status_code == 200, second_patch.text
+
+    before_plan = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert before_plan.status_code == 200, before_plan.text
+    before_payload = before_plan.json()
+    before_first_slot = next(slot for slot in before_payload["slots"] if slot["id"] == first_slot_id)
+    before_second_slot = next(slot for slot in before_payload["slots"] if slot["id"] == second_slot_id)
+    assert Decimal(str(before_first_slot["slot_kcal"])) == Decimal("150.00")
+    assert Decimal(str(before_second_slot["slot_kcal"])) == Decimal("150.00")
+
+    put_response = _put_plan_slot_ingredient_overrides(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=first_slot_id,
+        payload={
+            "base_overrides": [
+                {
+                    "recipe_ingredient_id": ingredient_a["id"],
+                    "grams": "50",
+                    "is_excluded": False,
+                }
+            ],
+            "manual_items": [],
+        },
+    )
+    assert put_response.status_code == 200, put_response.text
+
+    ingredients_payload = put_response.json()
+    assert ingredients_payload["has_overrides"] is True
+    updated_item = next(item for item in ingredients_payload["items"] if item["recipe_ingredient_id"] == ingredient_a["id"])
+    assert Decimal(str(updated_item["grams"])) == Decimal("50.00")
+
+    after_plan = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert after_plan.status_code == 200, after_plan.text
+    after_payload = after_plan.json()
+    after_first_slot = next(slot for slot in after_payload["slots"] if slot["id"] == first_slot_id)
+    after_second_slot = next(slot for slot in after_payload["slots"] if slot["id"] == second_slot_id)
+
+    assert Decimal(str(after_first_slot["slot_kcal"])) == Decimal("100.00")
+    assert Decimal(str(after_second_slot["slot_kcal"])) == Decimal("150.00")
+    assert Decimal(str(after_payload["days"][0]["totals"]["kcal"])) == Decimal("250.00")
+
+    recipe_read_after = _get_recipe_by_id(client, token, recipe["id"])
+    ingredient_a_after = next(item for item in recipe_read_after["ingredients"] if item["id"] == ingredient_a["id"])
+    assert Decimal(str(ingredient_a_after["grams"])) == Decimal("200")
+
+
+def test_plan_slot_ingredient_overrides_exclude_manual_replace_and_clear(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="slot_overrides_manual@example.com",
+        username="slot_overrides_manual",
+    )
+
+    base_food = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Base Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+        fiber="2.00",
+    )
+    replace_food = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Replace Food",
+        kcal="250.00",
+        protein="20.00",
+        fat="10.00",
+        carbs="5.00",
+        fiber="0.50",
+    )
+    manual_food = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Manual Food",
+        kcal="80.00",
+        protein="2.00",
+        fat="1.00",
+        carbs="14.00",
+        fiber="3.50",
+    )
+
+    recipe = create_recipe_via_api(client, token, name="Slot Override Rich Recipe", servings_count=1, meal_types=["dinner"])
+    ingredient_one = add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=base_food["id"], grams="100")
+    ingredient_two = add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=replace_food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    set_slot = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe["id"]},
+    )
+    assert set_slot.status_code == 200, set_slot.text
+
+    put_response = _put_plan_slot_ingredient_overrides(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={
+            "base_overrides": [
+                {"recipe_ingredient_id": ingredient_one["id"], "is_excluded": True},
+                {
+                    "recipe_ingredient_id": ingredient_two["id"],
+                    "food_id": base_food["id"],
+                    "grams": "60",
+                    "is_excluded": False,
+                },
+            ],
+            "manual_items": [{"food_id": manual_food["id"], "grams": "40"}],
+        },
+    )
+    assert put_response.status_code == 200, put_response.text
+    payload = put_response.json()
+
+    assert payload["has_overrides"] is True
+    assert ingredient_one["id"] in payload["excluded_recipe_ingredient_ids"]
+    assert any(item["source"] == "manual" and item["food_id"] == manual_food["id"] for item in payload["items"])
+
+    plan_response = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert plan_response.status_code == 200, plan_response.text
+    slot_payload = next(item for item in plan_response.json()["slots"] if item["id"] == slot_id)
+    assert Decimal(str(slot_payload["slot_kcal"])) == Decimal("92.00")
+
+    cleared_response = _delete_plan_slot_ingredient_overrides(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+    )
+    assert cleared_response.status_code == 200, cleared_response.text
+    assert cleared_response.json()["has_overrides"] is False
+
+    plan_after_clear = client.get(f"/plans/{plan['id']}", headers=auth_headers(token))
+    assert plan_after_clear.status_code == 200, plan_after_clear.text
+    slot_after_clear = next(item for item in plan_after_clear.json()["slots"] if item["id"] == slot_id)
+    assert Decimal(str(slot_after_clear["slot_kcal"])) == Decimal("350.00")
+
+
+def test_plan_slot_ingredient_overrides_access_and_validation_errors(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="slot_overrides_owner@example.com",
+        username="slot_overrides_owner",
+    )
+    _other, other_token = create_user_with_token(
+        db_session_factory,
+        email="slot_overrides_other@example.com",
+        username="slot_overrides_other",
+    )
+
+    owner_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Slot Override Owner Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+    )
+    other_food = create_food_via_api(
+        client,
+        other_token,
+        name="Slot Override Other Private Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+    )
+
+    recipe = create_recipe_via_api(client, owner_token, name="Slot Override Validation Recipe", servings_count=1, meal_types=["lunch"])
+    ingredient = add_ingredient_via_api(client, owner_token, recipe_id=recipe["id"], food_id=owner_food["id"], grams="100")
+
+    plan = create_plan_via_api(client, owner_token, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+    set_slot = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(owner_token),
+        json={"recipe_id": recipe["id"]},
+    )
+    assert set_slot.status_code == 200, set_slot.text
+
+    foreign_get = _get_plan_slot_ingredients(
+        client,
+        other_token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+    )
+    assert foreign_get.status_code == 404, foreign_get.text
+
+    invalid_recipe_ingredient = _put_plan_slot_ingredient_overrides(
+        client,
+        owner_token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={
+            "base_overrides": [{"recipe_ingredient_id": 999999, "grams": "20"}],
+            "manual_items": [],
+        },
+    )
+    assert invalid_recipe_ingredient.status_code == 422, invalid_recipe_ingredient.text
+
+    foreign_private_food = _put_plan_slot_ingredient_overrides(
+        client,
+        owner_token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={
+            "base_overrides": [{"recipe_ingredient_id": ingredient["id"], "food_id": other_food["id"], "grams": "20"}],
+            "manual_items": [],
+        },
+    )
+    assert foreign_private_food.status_code == 404, foreign_private_food.text
+
+    invalid_grams = _put_plan_slot_ingredient_overrides(
+        client,
+        owner_token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={
+            "base_overrides": [{"recipe_ingredient_id": ingredient["id"], "grams": "0"}],
+            "manual_items": [],
+        },
+    )
+    assert invalid_grams.status_code == 422, invalid_grams.text
+
+
+def test_plan_slot_ingredient_overrides_clear_on_recipe_change_but_preserved_on_multiplier_change(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="slot_overrides_recipe_change@example.com",
+        username="slot_overrides_recipe_change",
+    )
+
+    food_a = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Change Food A",
+        kcal="100.00",
+        protein="10.00",
+        fat="1.00",
+        carbs="10.00",
+    )
+    food_b = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Change Food B",
+        kcal="130.00",
+        protein="12.00",
+        fat="2.00",
+        carbs="12.00",
+    )
+
+    recipe_one = create_recipe_via_api(client, token, name="Slot Override Recipe One", servings_count=1, meal_types=["lunch"])
+    ingredient_one = add_ingredient_via_api(client, token, recipe_id=recipe_one["id"], food_id=food_a["id"], grams="100")
+
+    recipe_two = create_recipe_via_api(client, token, name="Slot Override Recipe Two", servings_count=1, meal_types=["lunch"])
+    add_ingredient_via_api(client, token, recipe_id=recipe_two["id"], food_id=food_b["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    set_recipe_one = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe_one["id"]},
+    )
+    assert set_recipe_one.status_code == 200, set_recipe_one.text
+
+    set_override = _put_plan_slot_ingredient_overrides(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={
+            "base_overrides": [{"recipe_ingredient_id": ingredient_one["id"], "grams": "60"}],
+            "manual_items": [],
+        },
+    )
+    assert set_override.status_code == 200, set_override.text
+    assert set_override.json()["has_overrides"] is True
+
+    patch_multiplier = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"servings_multiplier": "2"},
+    )
+    assert patch_multiplier.status_code == 200, patch_multiplier.text
+
+    after_multiplier_get = _get_plan_slot_ingredients(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+    )
+    assert after_multiplier_get.status_code == 200, after_multiplier_get.text
+    assert after_multiplier_get.json()["has_overrides"] is True
+
+    patch_recipe = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe_two["id"]},
+    )
+    assert patch_recipe.status_code == 200, patch_recipe.text
+
+    after_recipe_change_get = _get_plan_slot_ingredients(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+    )
+    assert after_recipe_change_get.status_code == 200, after_recipe_change_get.text
+    assert after_recipe_change_get.json()["has_overrides"] is False
+
+def test_plan_slot_replace_clears_ingredient_overrides(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="slot_overrides_replace_clears@example.com",
+        username="slot_overrides_replace_clears",
+    )
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Slot Override Replace Clears Food",
+        kcal="120.00",
+        protein="10.00",
+        fat="2.00",
+        carbs="12.00",
+    )
+
+    recipe_a = create_recipe_via_api(client, token, name="Slot Override Replace Recipe A", servings_count=1, meal_types=["lunch"])
+    ingredient_a = add_ingredient_via_api(client, token, recipe_id=recipe_a["id"], food_id=food["id"], grams="100")
+
+    recipe_b = create_recipe_via_api(client, token, name="Slot Override Replace Recipe B", servings_count=1, meal_types=["lunch"])
+    add_ingredient_via_api(client, token, recipe_id=recipe_b["id"], food_id=food["id"], grams="100")
+
+    dinner_recipe = create_recipe_via_api(client, token, name="Slot Override Replace Dinner", servings_count=1, meal_types=["dinner"])
+    add_ingredient_via_api(client, token, recipe_id=dinner_recipe["id"], food_id=food["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-03-24", days_count=1, meals_per_day=2)
+    slot_id = plan["slots"][0]["id"]
+
+    patch_slot = client.patch(
+        f"/plans/{plan['id']}/slots/{slot_id}",
+        headers=auth_headers(token),
+        json={"recipe_id": recipe_a["id"]},
+    )
+    assert patch_slot.status_code == 200, patch_slot.text
+
+    set_override = _put_plan_slot_ingredient_overrides(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=slot_id,
+        payload={
+            "base_overrides": [{"recipe_ingredient_id": ingredient_a["id"], "grams": "55"}],
+            "manual_items": [],
+        },
+    )
+    assert set_override.status_code == 200, set_override.text
+    assert set_override.json()["has_overrides"] is True
+
+    replace_response = client.post(
+        f"/plans/{plan['id']}/slots/{slot_id}/replace",
+        headers=auth_headers(token),
+        json={"use_public_recipes": False, "excluded_recipe_ids": [recipe_a["id"]], "excluded_food_ids": []},
+    )
+    assert replace_response.status_code == 200, replace_response.text
+
+    after_replace = _get_plan_slot_ingredients(client, token, plan_id=plan["id"], slot_id=slot_id)
+    assert after_replace.status_code == 200, after_replace.text
+    assert after_replace.json()["has_overrides"] is False

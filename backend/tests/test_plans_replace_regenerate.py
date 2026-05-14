@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from test_plans_api import (
     add_ingredient_via_api,
     auth_headers,
+    create_plan_via_api,
     create_food_via_api,
     create_recipe_via_api,
     create_user_with_token,
@@ -2502,3 +2503,178 @@ def test_regenerate_day_returns_friendly_422_when_restrictions_filter_all_candid
     )
     assert response.status_code == 422, response.text
     assert response.json()["detail"] == "Не удалось подобрать блюда для выбранного дня с текущими ограничениями."
+
+def test_regenerate_day_preserves_pinned_slot_overrides_and_clears_changed_non_pinned_overrides(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="regenerate_slot_overrides_state@example.com",
+        username="regenerate_slot_overrides_state",
+    )
+
+    breakfast_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Override Breakfast Food",
+        kcal="100.00",
+        protein="10.00",
+        fat="3.00",
+        carbs="10.00",
+    )
+    dinner_food_a = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Override Dinner Food A",
+        kcal="220.00",
+        protein="20.00",
+        fat="8.00",
+        carbs="18.00",
+    )
+    dinner_food_b = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Override Dinner Food B",
+        kcal="210.00",
+        protein="18.00",
+        fat="7.00",
+        carbs="20.00",
+    )
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Regenerate Override Lunch Food",
+        kcal="180.00",
+        protein="15.00",
+        fat="6.00",
+        carbs="20.00",
+    )
+
+    breakfast_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Regenerate Override Breakfast",
+        servings_count=1,
+        meal_types=["breakfast"],
+    )
+    breakfast_ingredient = add_ingredient_via_api(
+        client,
+        token,
+        recipe_id=breakfast_recipe["id"],
+        food_id=breakfast_food["id"],
+        grams="100",
+    )
+
+    lunch_recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Regenerate Override Lunch",
+        servings_count=1,
+        meal_types=["lunch"],
+    )
+    add_ingredient_via_api(client, token, recipe_id=lunch_recipe["id"], food_id=lunch_food["id"], grams="100")
+
+    dinner_recipe_a = create_recipe_via_api(
+        client,
+        token,
+        name="Regenerate Override Dinner A",
+        servings_count=1,
+        meal_types=["dinner"],
+    )
+    dinner_ingredient_a = add_ingredient_via_api(
+        client,
+        token,
+        recipe_id=dinner_recipe_a["id"],
+        food_id=dinner_food_a["id"],
+        grams="100",
+    )
+
+    dinner_recipe_b = create_recipe_via_api(
+        client,
+        token,
+        name="Regenerate Override Dinner B",
+        servings_count=1,
+        meal_types=["dinner"],
+    )
+    add_ingredient_via_api(client, token, recipe_id=dinner_recipe_b["id"], food_id=dinner_food_b["id"], grams="100")
+
+    plan = create_plan_via_api(client, token, start_date="2026-05-07", days_count=1, meals_per_day=3)
+    breakfast_slot = _find_slot(plan, day_date="2026-05-07", slot_index=0)
+    lunch_slot = _find_slot(plan, day_date="2026-05-07", slot_index=1)
+    dinner_slot = _find_slot(plan, day_date="2026-05-07", slot_index=2)
+
+    breakfast_set = _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=breakfast_slot["id"],
+        payload={"recipe_id": breakfast_recipe["id"], "pinned": True},
+    )
+    assert breakfast_set["pinned"] is True
+
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=lunch_slot["id"],
+        payload={"recipe_id": lunch_recipe["id"]},
+    )
+    _patch_plan_slot(
+        client,
+        token,
+        plan_id=plan["id"],
+        slot_id=dinner_slot["id"],
+        payload={"recipe_id": dinner_recipe_a["id"]},
+    )
+
+    breakfast_override = client.put(
+        f"/plans/{plan['id']}/slots/{breakfast_slot['id']}/ingredient-overrides",
+        headers=auth_headers(token),
+        json={
+            "base_overrides": [{"recipe_ingredient_id": breakfast_ingredient["id"], "grams": "80"}],
+            "manual_items": [],
+        },
+    )
+    assert breakfast_override.status_code == 200, breakfast_override.text
+
+    dinner_override = client.put(
+        f"/plans/{plan['id']}/slots/{dinner_slot['id']}/ingredient-overrides",
+        headers=auth_headers(token),
+        json={
+            "base_overrides": [{"recipe_ingredient_id": dinner_ingredient_a["id"], "grams": "70"}],
+            "manual_items": [],
+        },
+    )
+    assert dinner_override.status_code == 200, dinner_override.text
+
+    regenerate_response = _regenerate_day(
+        client,
+        token,
+        plan_id=plan["id"],
+        day_date="2026-05-07",
+        payload={"excluded_recipe_ids": [dinner_recipe_a["id"]]},
+    )
+    assert regenerate_response.status_code == 200, regenerate_response.text
+
+    regenerated_plan = regenerate_response.json()
+    regenerated_breakfast_slot = _find_slot(regenerated_plan, day_date="2026-05-07", slot_index=0)
+    regenerated_dinner_slot = _find_slot(regenerated_plan, day_date="2026-05-07", slot_index=2)
+
+    assert regenerated_breakfast_slot["recipe_id"] == breakfast_recipe["id"]
+    assert regenerated_breakfast_slot["pinned"] is True
+    assert regenerated_dinner_slot["recipe_id"] == dinner_recipe_b["id"]
+
+    breakfast_override_state = client.get(
+        f"/plans/{plan['id']}/slots/{breakfast_slot['id']}/ingredients",
+        headers=auth_headers(token),
+    )
+    assert breakfast_override_state.status_code == 200, breakfast_override_state.text
+    assert breakfast_override_state.json()["has_overrides"] is True
+
+    dinner_override_state = client.get(
+        f"/plans/{plan['id']}/slots/{dinner_slot['id']}/ingredients",
+        headers=auth_headers(token),
+    )
+    assert dinner_override_state.status_code == 200, dinner_override_state.text
+    assert dinner_override_state.json()["has_overrides"] is False

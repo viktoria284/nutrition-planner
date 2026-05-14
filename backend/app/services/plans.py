@@ -8,7 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.plan import Plan
-from app.models.plan_slot import PlanSlot
+from app.models.plan_slot import PlanSlot, PlanSlotIngredientOverride
 from app.models.profile import Profile
 from app.models.recipe import Recipe, RecipeIngredient
 from app.models.shopping import ShoppingListSource
@@ -22,7 +22,12 @@ from app.schemas.plan import (
     PlanSlotRead,
     PlanSlotUpdate,
 )
-from app.services.recipes import calculate_recipe_nutrients, get_accessible_recipe_by_id
+from app.services.recipes import get_accessible_recipe_by_id
+from app.services.plan_slot_ingredients import (
+    build_slot_effective_items,
+    calculate_effective_items_totals,
+    clear_slot_ingredient_overrides,
+)
 
 
 class PlanNotFoundError(ValueError):
@@ -65,21 +70,7 @@ def _sort_slots(slots: list[PlanSlot]) -> list[PlanSlot]:
     )
 
 
-def _build_slot_payload(
-    slot: PlanSlot,
-    *,
-    recipe_per_serving_cache: dict[int, dict[str, Decimal]],
-) -> dict:
-    totals = _zero_nutrition_totals()
-    if slot.recipe_id is not None:
-        recipe_totals = recipe_per_serving_cache.get(slot.recipe_id)
-        if recipe_totals:
-            totals["kcal"] = recipe_totals["kcal"] * slot.servings_multiplier
-            totals["protein"] = recipe_totals["protein"] * slot.servings_multiplier
-            totals["fat"] = recipe_totals["fat"] * slot.servings_multiplier
-            totals["carbs"] = recipe_totals["carbs"] * slot.servings_multiplier
-            totals["fiber"] = recipe_totals["fiber"] * slot.servings_multiplier
-
+def _build_slot_payload(slot: PlanSlot, *, slot_totals: dict[str, Decimal]) -> dict:
     return {
         "id": slot.id,
         "plan_id": slot.plan_id,
@@ -87,11 +78,11 @@ def _build_slot_payload(
         "slot_index": slot.slot_index,
         "recipe_id": slot.recipe_id,
         "servings_multiplier": slot.servings_multiplier,
-        "slot_kcal": _quantize_nutrient(totals["kcal"]),
-        "slot_protein": _quantize_nutrient(totals["protein"]),
-        "slot_fat": _quantize_nutrient(totals["fat"]),
-        "slot_carbs": _quantize_nutrient(totals["carbs"]),
-        "slot_fiber": _quantize_nutrient(totals["fiber"]),
+        "slot_kcal": _quantize_nutrient(slot_totals["kcal"]),
+        "slot_protein": _quantize_nutrient(slot_totals["protein"]),
+        "slot_fat": _quantize_nutrient(slot_totals["fat"]),
+        "slot_carbs": _quantize_nutrient(slot_totals["carbs"]),
+        "slot_fiber": _quantize_nutrient(slot_totals["fiber"]),
         "pinned": slot.pinned,
         "created_at": slot.created_at,
         "updated_at": slot.updated_at,
@@ -109,7 +100,10 @@ def _get_plan_or_404(db: Session, user_id: int, plan_id: int, *, with_slots: boo
             selectinload(Plan.slots)
             .selectinload(PlanSlot.recipe)
             .selectinload(Recipe.ingredients)
-            .selectinload(RecipeIngredient.food)
+            .selectinload(RecipeIngredient.food),
+            selectinload(Plan.slots)
+            .selectinload(PlanSlot.ingredient_overrides)
+            .selectinload(PlanSlotIngredientOverride.food),
         )
 
     plan = db.execute(stmt).scalar_one_or_none()
@@ -136,23 +130,16 @@ def build_plan_read(plan: Plan) -> PlanRead:
     for slot in sorted_slots:
         day_buckets[slot.day_date].append(slot)
 
-    recipe_per_serving_cache: dict[int, dict[str, Decimal]] = {}
+    slot_totals_by_id: dict[int, dict[str, Decimal]] = {}
     for slot in sorted_slots:
         if slot.recipe_id is None or slot.recipe is None:
+            slot_totals_by_id[slot.id] = _zero_nutrition_totals()
             continue
-        if slot.recipe_id in recipe_per_serving_cache:
-            continue
-        nutrients = calculate_recipe_nutrients(slot.recipe)
-        recipe_per_serving_cache[slot.recipe_id] = {
-            "kcal": nutrients["per_serving_kcal"],
-            "protein": nutrients["per_serving_protein"],
-            "fat": nutrients["per_serving_fat"],
-            "carbs": nutrients["per_serving_carbs"],
-            "fiber": nutrients["per_serving_fiber"],
-        }
+        effective_items = build_slot_effective_items(slot)
+        slot_totals_by_id[slot.id] = calculate_effective_items_totals(effective_items)
 
     slot_payload_by_id = {
-        slot.id: _build_slot_payload(slot, recipe_per_serving_cache=recipe_per_serving_cache)
+        slot.id: _build_slot_payload(slot, slot_totals=slot_totals_by_id[slot.id])
         for slot in sorted_slots
     }
 
@@ -161,16 +148,14 @@ def build_plan_read(plan: Plan) -> PlanRead:
         day_slots = _sort_slots(day_buckets[day_date])
         totals = _zero_nutrition_totals()
         for slot in day_slots:
-            if slot.recipe_id is None:
+            slot_totals = slot_totals_by_id.get(slot.id)
+            if not slot_totals:
                 continue
-            recipe_totals = recipe_per_serving_cache.get(slot.recipe_id)
-            if not recipe_totals:
-                continue
-            totals["kcal"] += recipe_totals["kcal"] * slot.servings_multiplier
-            totals["protein"] += recipe_totals["protein"] * slot.servings_multiplier
-            totals["fat"] += recipe_totals["fat"] * slot.servings_multiplier
-            totals["carbs"] += recipe_totals["carbs"] * slot.servings_multiplier
-            totals["fiber"] += recipe_totals["fiber"] * slot.servings_multiplier
+            totals["kcal"] += slot_totals["kcal"]
+            totals["protein"] += slot_totals["protein"]
+            totals["fat"] += slot_totals["fat"]
+            totals["carbs"] += slot_totals["carbs"]
+            totals["fiber"] += slot_totals["fiber"]
 
         days_payload.append(
             PlanDayRead.model_validate(
@@ -214,18 +199,11 @@ def build_plan_read(plan: Plan) -> PlanRead:
 
 
 def build_plan_slot_read(slot: PlanSlot) -> PlanSlotRead:
-    recipe_per_serving_cache: dict[int, dict[str, Decimal]] = {}
+    slot_totals = _zero_nutrition_totals()
     if slot.recipe_id is not None and slot.recipe is not None:
-        nutrients = calculate_recipe_nutrients(slot.recipe)
-        recipe_per_serving_cache[slot.recipe_id] = {
-            "kcal": nutrients["per_serving_kcal"],
-            "protein": nutrients["per_serving_protein"],
-            "fat": nutrients["per_serving_fat"],
-            "carbs": nutrients["per_serving_carbs"],
-            "fiber": nutrients["per_serving_fiber"],
-        }
+        slot_totals = calculate_effective_items_totals(build_slot_effective_items(slot))
     return PlanSlotRead.model_validate(
-        _build_slot_payload(slot, recipe_per_serving_cache=recipe_per_serving_cache)
+        _build_slot_payload(slot, slot_totals=slot_totals)
     )
 
 
@@ -365,6 +343,7 @@ def update_plan_slot(
 
     if "recipe_id" in update_data:
         recipe_id = update_data["recipe_id"]
+        previous_recipe_id = slot.recipe_id
         if recipe_id is None:
             slot.recipe_id = None
         else:
@@ -372,6 +351,9 @@ def update_plan_slot(
             if not recipe:
                 raise PlanSlotRecipeNotFoundError("Recipe not found")
             slot.recipe_id = recipe.id
+
+        if slot.recipe_id != previous_recipe_id:
+            clear_slot_ingredient_overrides(db, slot_id=slot.id)
 
     if "servings_multiplier" in update_data:
         slot.servings_multiplier = update_data["servings_multiplier"]
@@ -386,7 +368,8 @@ def update_plan_slot(
         .options(
             selectinload(PlanSlot.recipe)
             .selectinload(Recipe.ingredients)
-            .selectinload(RecipeIngredient.food)
+            .selectinload(RecipeIngredient.food),
+            selectinload(PlanSlot.ingredient_overrides).selectinload(PlanSlotIngredientOverride.food),
         )
     ).scalar_one()
     return refreshed_slot
