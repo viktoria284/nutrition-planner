@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { ApiError } from "../../api/http";
 import { replacePlanSlot, updatePlanSlot } from "../../api/plans";
-import type { RecipeRead } from "../../api/recipes";
+import { getRecipe, resolveRecipeImageSrc, type RecipeRead } from "../../api/recipes";
 import { FormErrorSummary } from "../FormErrorSummary";
 import type { PlanSlot } from "../../types/plan";
 import { formatDecimal } from "../../pages/plans";
@@ -72,6 +73,10 @@ export function EditPlanSlotModal({
   const [pinned, setPinned] = useState(false);
   const [busyAction, setBusyAction] = useState<"save" | "clear" | "replace" | null>(null);
   const [formErrors, setFormErrors] = useState<string[]>([]);
+  const [previewRecipe, setPreviewRecipe] = useState<RecipeRead | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewImageBroken, setPreviewImageBroken] = useState(false);
   const isBusy = busyAction !== null;
 
   useEffect(() => {
@@ -81,7 +86,41 @@ export function EditPlanSlotModal({
     setPinned(slot.pinned);
     setFormErrors([]);
     setBusyAction(null);
+    setPreviewImageBroken(false);
   }, [isOpen, slot]);
+
+  useEffect(() => {
+    if (!isOpen || selectedRecipeId === null) {
+      setPreviewRecipe(null);
+      setPreviewError(null);
+      setPreviewLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewImageBroken(false);
+
+    void getRecipe(selectedRecipeId)
+      .then((payload) => {
+        if (cancelled) return;
+        setPreviewRecipe(payload);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPreviewRecipe(null);
+        setPreviewError(toFriendlySaveError(err));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setPreviewLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, selectedRecipeId]);
 
   const recipeOptions = useMemo<RecipePickerOption[]>(() => {
     const options: RecipePickerOption[] = recipes.map((recipe) => ({
@@ -98,7 +137,7 @@ export function EditPlanSlotModal({
       if (!exists) {
         options.push({
           id: slot.recipe_id,
-          name: recipeNamesById[slot.recipe_id] ?? `Рецепт #${slot.recipe_id}`,
+          name: recipeNamesById[slot.recipe_id] ?? "Рецепт недоступен",
         });
       }
     }
@@ -192,6 +231,11 @@ export function EditPlanSlotModal({
 
   if (!isOpen || !slot) return null;
 
+  const multiplierNumeric = Number(multiplier.replace(",", "."));
+  const normalizedMultiplier = Number.isFinite(multiplierNumeric) && multiplierNumeric > 0 ? multiplierNumeric : 1;
+  const previewIngredients = (previewRecipe?.ingredients ?? []).slice(0, 5);
+  const previewIngredientsHiddenCount = Math.max(0, (previewRecipe?.ingredients?.length ?? 0) - previewIngredients.length);
+
   return (
     <div
       className="plans-modal-backdrop"
@@ -225,6 +269,51 @@ export function EditPlanSlotModal({
               onChange={setSelectedRecipeId}
             />
           </label>
+
+          {selectedRecipeId !== null && (
+            <section className="plan-slot-preview" aria-label="Текущий рецепт в слоте">
+              <div className="plan-slot-preview-head">
+                <div className="plan-slot-preview-cover">
+                  {previewRecipe?.image_url && !previewImageBroken ? (
+                    <img
+                      src={resolveRecipeImageSrc(previewRecipe.image_url) ?? undefined}
+                      alt={`Фото блюда: ${previewRecipe.name}`}
+                      className="plan-slot-preview-cover-image"
+                      onError={() => setPreviewImageBroken(true)}
+                    />
+                  ) : (
+                    <div className="plan-slot-preview-cover-fallback" aria-hidden="true">
+                      {(previewRecipe?.name ?? recipeNamesById[selectedRecipeId] ?? "Р").slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="plan-slot-preview-main">
+                  <Link className="plan-slot-preview-title-link" to={`/recipes/${selectedRecipeId}`}>
+                    {previewRecipe?.name ?? recipeNamesById[selectedRecipeId] ?? "Рецепт"}
+                  </Link>
+                  {typeof previewRecipe?.cook_time_minutes === "number" && (
+                    <p className="plan-slot-preview-meta">Время приготовления: {previewRecipe.cook_time_minutes} мин</p>
+                  )}
+                </div>
+              </div>
+
+              {previewLoading && <p className="plans-note">Загружаем краткий состав...</p>}
+              {previewError && !previewLoading && <p className="plans-field-error">{previewError}</p>}
+              {!previewLoading && !previewError && previewIngredients.length > 0 && (
+                <ul className="plan-slot-preview-ingredients">
+                  {previewIngredients.map((ingredient) => (
+                    <li key={ingredient.id} className="plan-slot-preview-ingredient-row">
+                      <span>{ingredient.food?.name ?? "Продукт"}</span>
+                      <b>{formatDecimal(Number(ingredient.grams) * normalizedMultiplier)} г</b>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {!previewLoading && !previewError && previewIngredientsHiddenCount > 0 && (
+                <p className="plans-note">и ещё {previewIngredientsHiddenCount}</p>
+              )}
+            </section>
+          )}
 
           <label className="plans-field" htmlFor="slot-multiplier">
             <span className="plans-field-label">Множитель порции</span>

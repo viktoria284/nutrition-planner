@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createRecipe, type MealType } from "../api/recipes";
 import { FormErrorSummary } from "../components/FormErrorSummary";
+import { MarkdownTextarea } from "../components/MarkdownTextarea";
 import {
   EMPTY_RECIPE_FORM,
   RECIPE_MEAL_TYPE_OPTIONS,
@@ -109,6 +110,15 @@ export function RecipeCreatePage() {
               disabled={submitting}
             />
           </label>
+
+          <MarkdownTextarea
+            id="recipe_instructions"
+            label="Способ приготовления (опционально)"
+            value={form.instructions}
+            onChange={(next) => updateField("instructions", next)}
+            placeholder="Опишите основные шаги приготовления"
+            disabled={submitting}
+          />
 
           <label className="recipes-field" htmlFor="recipe_servings_count">
             <span className="recipes-field-label">Количество порций</span>

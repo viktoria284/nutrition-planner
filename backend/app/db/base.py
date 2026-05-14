@@ -3,6 +3,6 @@ from app.models.foods import FoodItem, FoodReport, FoodServing  # noqa: F401
 from app.models.plan import Plan  # noqa: F401
 from app.models.plan_slot import PlanSlot  # noqa: F401
 from app.models.profile import Profile, ProfileExcludedFood, ProfilePreferredFood  # noqa: F401
-from app.models.recipe import Recipe, RecipeIngredient, RecipeReport  # noqa: F401
+from app.models.recipe import Recipe, RecipeIngredient, RecipeNote, RecipeReport, RecipeStep  # noqa: F401
 from app.models.shopping import ShoppingList, ShoppingListItem, ShoppingListSource  # noqa: F401
 from app.models.user import User  # noqa: F401

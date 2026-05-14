@@ -37,6 +37,8 @@ class Recipe(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     servings_count: Mapped[int] = mapped_column(Integer, nullable=False)
     meal_types: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
@@ -85,6 +87,19 @@ class Recipe(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    notes: Mapped[list["RecipeNote"]] = relationship(
+        "RecipeNote",
+        back_populates="recipe",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    steps: Mapped[list["RecipeStep"]] = relationship(
+        "RecipeStep",
+        back_populates="recipe",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="RecipeStep.position",
+    )
 
     __table_args__ = (
         CheckConstraint("length(trim(name)) > 0", name="ck_recipes_name_not_blank"),
@@ -105,6 +120,20 @@ class Recipe(Base):
 
     @validates("description")
     def _validate_description(self, _key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @validates("instructions")
+    def _validate_instructions(self, _key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+    @validates("image_url")
+    def _validate_image_url(self, _key: str, value: str | None) -> str | None:
         if value is None:
             return None
         normalized = value.strip()
@@ -178,3 +207,95 @@ class RecipeReport(Base):
     __table_args__ = (
         UniqueConstraint("recipe_id", "reporter_user_id", name="uq_recipe_reports_recipe_reporter"),
     )
+
+
+class RecipeNote(Base):
+    __tablename__ = "recipe_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    recipe_id: Mapped[int] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    recipe: Mapped[Recipe] = relationship("Recipe", back_populates="notes")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "recipe_id", name="uq_recipe_notes_user_recipe"),
+        CheckConstraint("length(trim(note)) > 0", name="ck_recipe_notes_note_not_blank"),
+    )
+
+    @validates("note")
+    def _validate_note(self, _key: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Recipe note cannot be empty")
+        return normalized
+
+
+class RecipeStep(Base):
+    __tablename__ = "recipe_steps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    recipe_id: Mapped[int] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    recipe: Mapped[Recipe] = relationship("Recipe", back_populates="steps")
+
+    __table_args__ = (
+        UniqueConstraint("recipe_id", "position", name="uq_recipe_steps_recipe_position"),
+        CheckConstraint("position >= 1", name="ck_recipe_steps_position_ge_1"),
+        CheckConstraint("length(trim(text)) > 0", name="ck_recipe_steps_text_not_blank"),
+    )
+
+    @validates("text")
+    def _validate_text(self, _key: str, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Recipe step text cannot be empty")
+        return normalized
+
+    @validates("note")
+    def _validate_note(self, _key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None

@@ -485,9 +485,9 @@ export function PlansAutogeneratePage() {
           </div>
 
           <details className="plans-advanced-card">
-            <summary className="plans-advanced-summary">Batch cooking и leftovers</summary>
+            <summary className="plans-advanced-summary">Приготовление на несколько дней</summary>
             <p className="plans-field-hint">
-              Можно зафиксировать повтор блюд на 2–3 дня для выбранных типов приёма пищи.
+              Если выбрать приготовление на 2–3 дня, блюдо может повторяться несколько дней подряд — это считается запланированным повтором.
             </p>
             <div className="plans-batch-grid">
               <label className="plans-field" htmlFor="autoplan-batch-breakfast">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
+from typing import cast
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -8,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.enums import FoodSource, FoodStatus
 from app.models.foods import FoodItem, FoodServing
-from app.models.recipe import Recipe, RecipeIngredient, RecipeReport
+from app.models.recipe import Recipe, RecipeIngredient, RecipeNote, RecipeReport, RecipeStep
 from app.models.user import User
 from app.schemas.recipes import (
     RecipeCreate,
@@ -16,9 +17,12 @@ from app.schemas.recipes import (
     RecipeIngredientUpdate,
     RecipeRead,
     RecipeReportCreate,
+    RecipeStepRead,
+    RecipeStepsReplace,
     RecipeUpdate,
 )
 from app.services.foods import get_accessible_food_by_id, seed_verified_foods
+from app.services.media import maybe_delete_media_file, save_uploaded_recipe_image
 
 NUTRIENT_QUANT = Decimal("0.01")
 HUNDRED_GRAMS = Decimal("100")
@@ -1314,6 +1318,14 @@ class RecipeReportNotAllowedError(ValueError):
     pass
 
 
+class RecipeNoteBlankError(ValueError):
+    pass
+
+
+class RecipeStepNotFoundError(ValueError):
+    pass
+
+
 def _assign_demo_cook_time_minutes() -> None:
     for recipe_index, payload in enumerate(DEMO_PUBLIC_RECIPES):
         if payload.get("cook_time_minutes") is not None:
@@ -1327,6 +1339,30 @@ def _assign_demo_cook_time_minutes() -> None:
 
 
 _assign_demo_cook_time_minutes()
+
+
+def _build_demo_instructions(payload: dict) -> str:
+    ingredient_names = [cast(tuple[str, str], item)[0] for item in payload.get("ingredients", [])]
+    if not ingredient_names:
+        return "1. Подготовьте ингредиенты.\n2. Смешайте и доведите до готовности.\n3. Подавайте сразу."
+    primary = ingredient_names[0]
+    secondary = ingredient_names[1] if len(ingredient_names) > 1 else ingredient_names[0]
+    tertiary = ingredient_names[2] if len(ingredient_names) > 2 else secondary
+    return (
+        f"1. Подготовьте {primary.lower()} и {secondary.lower()}.\n"
+        f"2. Соедините ингредиенты и готовьте до мягкости, периодически помешивая.\n"
+        f"3. Добавьте {tertiary.lower()} в конце и подавайте блюдо тёплым."
+    )
+
+
+def _assign_demo_instructions() -> None:
+    for payload in DEMO_PUBLIC_RECIPES:
+        if payload.get("instructions"):
+            continue
+        payload["instructions"] = _build_demo_instructions(payload)
+
+
+_assign_demo_instructions()
 
 
 class RecipeReportSelfError(ValueError):
@@ -1379,6 +1415,8 @@ def create_recipe(db: Session, owner_id: int, data: RecipeCreate) -> Recipe:
         owner_user_id=owner_id,
         name=data.name,
         description=data.description,
+        instructions=data.instructions,
+        image_url=data.image_url,
         servings_count=data.servings_count,
         meal_types=data.meal_types,
         cook_time_minutes=data.cook_time_minutes,
@@ -1411,6 +1449,33 @@ def build_accessible_recipes_condition(
     )
 
 
+def _recipe_matches_filters(
+    recipe: Recipe,
+    *,
+    meal_type: str | None = None,
+    min_cook_time_minutes: int | None = None,
+    max_cook_time_minutes: int | None = None,
+) -> bool:
+    if meal_type is not None:
+        normalized = meal_type.strip().lower()
+        if normalized not in {value.strip().lower() for value in recipe.meal_types}:
+            return False
+
+    if min_cook_time_minutes is not None:
+        if recipe.cook_time_minutes is None:
+            return False
+        if recipe.cook_time_minutes < min_cook_time_minutes:
+            return False
+
+    if max_cook_time_minutes is not None:
+        if recipe.cook_time_minutes is None:
+            return False
+        if recipe.cook_time_minutes > max_cook_time_minutes:
+            return False
+
+    return True
+
+
 def list_my_recipes(
     db: Session,
     owner_id: int,
@@ -1428,7 +1493,8 @@ def list_my_recipes(
     )
     if include_ingredients:
         query = query.options(
-            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
+            selectinload(Recipe.steps),
         )
     return db.execute(query).scalars().all()
 
@@ -1440,6 +1506,9 @@ def list_accessible_recipes(
     include_public: bool,
     limit: int = 50,
     offset: int = 0,
+    meal_type: str | None = None,
+    min_cook_time_minutes: int | None = None,
+    max_cook_time_minutes: int | None = None,
     include_ingredients: bool = False,
 ) -> list[Recipe]:
     stmt = (
@@ -1451,14 +1520,24 @@ def list_accessible_recipes(
             )
         )
         .order_by(Recipe.updated_at.desc(), Recipe.id.desc())
-        .limit(limit)
-        .offset(offset)
     )
     if include_ingredients:
         stmt = stmt.options(
-            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
+            selectinload(Recipe.steps),
         )
-    return db.execute(stmt).scalars().all()
+    recipes = db.execute(stmt).scalars().all()
+    filtered = [
+        recipe
+        for recipe in recipes
+        if _recipe_matches_filters(
+            recipe,
+            meal_type=meal_type,
+            min_cook_time_minutes=min_cook_time_minutes,
+            max_cook_time_minutes=max_cook_time_minutes,
+        )
+    ]
+    return filtered[offset : offset + limit]
 
 
 def get_my_recipe_or_404(
@@ -1474,7 +1553,8 @@ def get_my_recipe_or_404(
     )
     if include_ingredients:
         stmt = stmt.options(
-            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
+            selectinload(Recipe.steps),
         )
     result = db.execute(stmt)
     recipe = result.scalar_one_or_none()
@@ -1496,7 +1576,8 @@ def get_owned_recipe_or_none(
     )
     if include_ingredients:
         stmt = stmt.options(
-            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
+            selectinload(Recipe.steps),
         )
     result = db.execute(stmt)
     return result.scalar_one_or_none()
@@ -1512,7 +1593,8 @@ def get_accessible_recipe_by_id(
     stmt = select(Recipe).where(Recipe.id == recipe_id)
     if include_ingredients:
         stmt = stmt.options(
-            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food)
+            selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
+            selectinload(Recipe.steps),
         )
 
     stmt = stmt.where(
@@ -1536,6 +1618,271 @@ def update_my_recipe(db: Session, owner_id: int, recipe_id: int, data: RecipeUpd
     db.commit()
     db.refresh(recipe)
     return recipe
+
+
+def get_recipe_note(db: Session, user_id: int, recipe_id: int) -> RecipeNote | None:
+    return db.execute(
+        select(RecipeNote).where(
+            RecipeNote.user_id == user_id,
+            RecipeNote.recipe_id == recipe_id,
+        )
+    ).scalar_one_or_none()
+
+
+def upsert_recipe_note(db: Session, user_id: int, recipe_id: int, note: str) -> RecipeNote:
+    accessible_recipe = get_accessible_recipe_by_id(
+        db,
+        user_id,
+        recipe_id,
+        include_ingredients=False,
+    )
+    if not accessible_recipe:
+        raise RecipeNotFoundError("Recipe not found")
+
+    normalized_note = note.strip()
+    if not normalized_note:
+        raise RecipeNoteBlankError("Note cannot be blank")
+
+    recipe_note = get_recipe_note(db, user_id, recipe_id)
+    if recipe_note is None:
+        recipe_note = RecipeNote(
+            user_id=user_id,
+            recipe_id=recipe_id,
+            note=normalized_note,
+        )
+        db.add(recipe_note)
+    else:
+        recipe_note.note = normalized_note
+
+    db.commit()
+    db.refresh(recipe_note)
+    return recipe_note
+
+
+def delete_recipe_note(db: Session, user_id: int, recipe_id: int) -> None:
+    accessible_recipe = get_accessible_recipe_by_id(
+        db,
+        user_id,
+        recipe_id,
+        include_ingredients=False,
+    )
+    if not accessible_recipe:
+        raise RecipeNotFoundError("Recipe not found")
+
+    recipe_note = get_recipe_note(db, user_id, recipe_id)
+    if recipe_note is None:
+        return
+
+    db.delete(recipe_note)
+    db.commit()
+
+
+def copy_accessible_recipe(db: Session, user_id: int, recipe_id: int) -> Recipe:
+    source_recipe = get_accessible_recipe_by_id(
+        db,
+        user_id,
+        recipe_id,
+        include_ingredients=True,
+    )
+    if not source_recipe:
+        raise RecipeNotFoundError("Recipe not found")
+
+    copied_recipe = Recipe(
+        owner_user_id=user_id,
+        name=source_recipe.name,
+        description=source_recipe.description,
+        instructions=source_recipe.instructions,
+        image_url=source_recipe.image_url,
+        servings_count=source_recipe.servings_count,
+        meal_types=list(source_recipe.meal_types),
+        cook_time_minutes=source_recipe.cook_time_minutes,
+        source=FoodSource.private,
+        status=FoodStatus.draft,
+        is_listed=False,
+        reports_count=0,
+    )
+    db.add(copied_recipe)
+    db.flush()
+
+    for ingredient in source_recipe.ingredients:
+        db.add(
+            RecipeIngredient(
+                recipe_id=copied_recipe.id,
+                food_id=ingredient.food_id,
+                grams=ingredient.grams,
+                serving_id=ingredient.serving_id,
+                multiplier=ingredient.multiplier,
+            )
+        )
+
+    source_steps = db.execute(
+        select(RecipeStep).where(RecipeStep.recipe_id == source_recipe.id).order_by(RecipeStep.position.asc())
+    ).scalars().all()
+    for step in source_steps:
+        db.add(
+            RecipeStep(
+                recipe_id=copied_recipe.id,
+                position=step.position,
+                text=step.text,
+                note=step.note,
+                image_url=step.image_url,
+            )
+        )
+
+    db.commit()
+    db.refresh(copied_recipe)
+    return get_my_recipe_or_404(
+        db,
+        user_id,
+        copied_recipe.id,
+        include_ingredients=True,
+    )
+
+
+def list_recipe_steps(db: Session, user_id: int, recipe_id: int) -> list[RecipeStep]:
+    recipe = get_accessible_recipe_by_id(db, user_id, recipe_id, include_ingredients=False)
+    if not recipe:
+        raise RecipeNotFoundError("Recipe not found")
+    return db.execute(
+        select(RecipeStep)
+        .where(RecipeStep.recipe_id == recipe_id)
+        .order_by(RecipeStep.position.asc(), RecipeStep.id.asc())
+    ).scalars().all()
+
+
+def replace_recipe_steps(
+    db: Session,
+    user_id: int,
+    recipe_id: int,
+    payload: RecipeStepsReplace,
+) -> list[RecipeStep]:
+    recipe = get_my_recipe_or_404(db, user_id, recipe_id, include_ingredients=False)
+    ensure_recipe_editable(recipe)
+
+    existing_steps = db.execute(
+        select(RecipeStep).where(RecipeStep.recipe_id == recipe_id)
+    ).scalars().all()
+    existing_by_id = {step.id: step for step in existing_steps}
+    used_ids: set[int] = set()
+
+    # Avoid transient unique conflicts on (recipe_id, position) when reordering
+    # existing steps by assigning temporary high positions first.
+    referenced_existing_ids: list[int] = []
+    for step_input in payload.steps:
+        if step_input.id is not None and step_input.id in existing_by_id:
+            referenced_existing_ids.append(step_input.id)
+    temporary_start_position = max(
+        len(existing_steps) + len(payload.steps) + 1,
+        max((step.position for step in existing_steps), default=0) + len(existing_steps) + 1,
+    )
+    for offset, step_id in enumerate(referenced_existing_ids):
+        existing_by_id[step_id].position = temporary_start_position + offset
+    db.flush()
+
+    for index, step_input in enumerate(payload.steps, start=1):
+        if step_input.id is not None and step_input.id in existing_by_id:
+            step = existing_by_id[step_input.id]
+            step.position = index
+            step.text = step_input.text
+            step.note = step_input.note
+            used_ids.add(step.id)
+            continue
+
+        db.add(
+            RecipeStep(
+                recipe_id=recipe_id,
+                position=index,
+                text=step_input.text,
+                note=step_input.note,
+                image_url=None,
+            )
+        )
+
+    for step in existing_steps:
+        if step.id not in used_ids:
+            maybe_delete_media_file(step.image_url)
+            db.delete(step)
+
+    db.commit()
+    return db.execute(
+        select(RecipeStep)
+        .where(RecipeStep.recipe_id == recipe_id)
+        .order_by(RecipeStep.position.asc(), RecipeStep.id.asc())
+    ).scalars().all()
+
+
+def _get_my_recipe_step_or_404(db: Session, user_id: int, recipe_id: int, step_id: int) -> RecipeStep:
+    recipe = get_my_recipe_or_404(db, user_id, recipe_id, include_ingredients=False)
+    ensure_recipe_editable(recipe)
+
+    step = db.execute(
+        select(RecipeStep).where(
+            RecipeStep.id == step_id,
+            RecipeStep.recipe_id == recipe_id,
+        )
+    ).scalar_one_or_none()
+    if step is None:
+        raise RecipeStepNotFoundError("Recipe step not found")
+    return step
+
+
+def upload_recipe_cover_image(
+    db: Session,
+    user_id: int,
+    recipe_id: int,
+    upload_file,
+) -> Recipe:
+    recipe = get_my_recipe_or_404(db, user_id, recipe_id, include_ingredients=False)
+    ensure_recipe_editable(recipe)
+
+    old_image_url = recipe.image_url
+    recipe.image_url = save_uploaded_recipe_image(upload_file)
+    db.commit()
+    db.refresh(recipe)
+    maybe_delete_media_file(old_image_url)
+    return recipe
+
+
+def delete_recipe_cover_image(db: Session, user_id: int, recipe_id: int) -> Recipe:
+    recipe = get_my_recipe_or_404(db, user_id, recipe_id, include_ingredients=False)
+    ensure_recipe_editable(recipe)
+    old_image_url = recipe.image_url
+    recipe.image_url = None
+    db.commit()
+    db.refresh(recipe)
+    maybe_delete_media_file(old_image_url)
+    return recipe
+
+
+def upload_recipe_step_image(
+    db: Session,
+    user_id: int,
+    recipe_id: int,
+    step_id: int,
+    upload_file,
+) -> RecipeStep:
+    step = _get_my_recipe_step_or_404(db, user_id, recipe_id, step_id)
+    old_image_url = step.image_url
+    step.image_url = save_uploaded_recipe_image(upload_file)
+    db.commit()
+    db.refresh(step)
+    maybe_delete_media_file(old_image_url)
+    return step
+
+
+def delete_recipe_step_image(
+    db: Session,
+    user_id: int,
+    recipe_id: int,
+    step_id: int,
+) -> RecipeStep:
+    step = _get_my_recipe_step_or_404(db, user_id, recipe_id, step_id)
+    old_image_url = step.image_url
+    step.image_url = None
+    db.commit()
+    db.refresh(step)
+    maybe_delete_media_file(old_image_url)
+    return step
 
 
 def delete_my_recipe(db: Session, owner_id: int, recipe_id: int) -> None:
@@ -1836,6 +2183,8 @@ def seed_demo_public_recipes(
             owner_user_id=demo_user.id,
             name=payload["name"],
             description=payload["description"],
+            instructions=payload.get("instructions"),
+            image_url=payload.get("image_url"),
             servings_count=payload["servings_count"],
             meal_types=payload["meal_types"],
             cook_time_minutes=payload.get("cook_time_minutes"),
@@ -1939,12 +2288,29 @@ def build_recipe_read(recipe: Recipe) -> RecipeRead:
             }
         )
 
+    steps_payload = []
+    for step in sorted(recipe.steps, key=lambda value: (value.position, value.id)):
+        steps_payload.append(
+            {
+                "id": step.id,
+                "recipe_id": step.recipe_id,
+                "position": step.position,
+                "text": step.text,
+                "note": step.note,
+                "image_url": step.image_url,
+                "created_at": step.created_at,
+                "updated_at": step.updated_at,
+            }
+        )
+
     return RecipeRead.model_validate(
         {
             "id": recipe.id,
             "owner_user_id": recipe.owner_user_id,
             "name": recipe.name,
             "description": recipe.description,
+            "instructions": recipe.instructions,
+            "image_url": recipe.image_url,
             "servings_count": recipe.servings_count,
             "meal_types": recipe.meal_types,
             "cook_time_minutes": recipe.cook_time_minutes,
@@ -1953,6 +2319,7 @@ def build_recipe_read(recipe: Recipe) -> RecipeRead:
             "reports_count": recipe.reports_count,
             "is_listed": recipe.is_listed,
             "ingredients": ingredients_payload,
+            "steps": steps_payload,
             "created_at": recipe.created_at,
             "updated_at": recipe.updated_at,
             **nutrients,

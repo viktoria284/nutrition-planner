@@ -3,6 +3,8 @@ import { type MealType, type RecipeCreate } from "../api/recipes";
 export type RecipeFormState = {
   name: string;
   description: string;
+  instructions: string;
+  image_url: string;
   servings_count: string;
   cook_time_minutes: string;
   meal_types: MealType[];
@@ -12,6 +14,7 @@ export type RecipeFormErrors = {
   name?: string;
   servings_count?: string;
   cook_time_minutes?: string;
+  image_url?: string;
   meal_types?: string;
   form: string[];
 };
@@ -19,6 +22,8 @@ export type RecipeFormErrors = {
 export const EMPTY_RECIPE_FORM: RecipeFormState = {
   name: "",
   description: "",
+  instructions: "",
+  image_url: "",
   servings_count: "1",
   cook_time_minutes: "",
   meal_types: [],
@@ -34,6 +39,8 @@ export const RECIPE_MEAL_TYPE_OPTIONS: Array<{ value: MealType; label: string }>
 export function toRecipeFormState(input: {
   name: string;
   description?: string | null;
+  instructions?: string | null;
+  image_url?: string | null;
   servings_count: number;
   cook_time_minutes?: number | null;
   meal_types: MealType[];
@@ -41,6 +48,8 @@ export function toRecipeFormState(input: {
   return {
     name: input.name,
     description: input.description ?? "",
+    instructions: input.instructions ?? "",
+    image_url: input.image_url ?? "",
     servings_count: String(input.servings_count),
     cook_time_minutes: input.cook_time_minutes === null || input.cook_time_minutes === undefined ? "" : String(input.cook_time_minutes),
     meal_types: input.meal_types,
@@ -80,20 +89,32 @@ export function validateRecipeForm(form: RecipeFormState): { errors: RecipeFormE
     }
   }
 
+  const imageUrl = form.image_url.trim();
+  if (imageUrl) {
+    const isHttpUrl = /^https?:\/\/\S+$/i.test(imageUrl);
+    if (!isHttpUrl) {
+      errors.image_url = "Укажите корректную ссылку http:// или https://.";
+      errors.form.push("Ссылка на изображение должна начинаться с http:// или https://.");
+    }
+  }
+
   if (errors.form.length > 0) {
     return { errors, payload: null };
   }
 
   const description = form.description.trim();
+  const instructions = form.instructions.trim();
 
   return {
     errors: { form: [] },
     payload: {
       name,
+      description: description || null,
+      instructions: instructions || null,
+      image_url: imageUrl || null,
       servings_count: servings,
       meal_types: form.meal_types,
       ...(cookTime !== null ? { cook_time_minutes: cookTime } : {}),
-      ...(description ? { description } : {}),
     },
   };
 }

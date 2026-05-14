@@ -273,7 +273,7 @@ export function PlansListPage() {
                       <span className="sr-only">Выбрать план</span>
                     </label>
 
-                    <div className="plan-list-main">
+                    <Link to={`/plans/${plan.id}`} className="plan-list-main plan-list-main-link">
                       <p className="plan-list-title">{planTitleWithFallback(plan.title, plan.start_date)}</p>
                       <div className="plan-list-meta">
                         <span>Даты: {formatPlanDateRange(plan.start_date, plan.days_count)}</span>
@@ -281,11 +281,8 @@ export function PlansListPage() {
                         <span>Приёмов пищи: {plan.meals_per_day}</span>
                       </div>
                       <p className="plan-profile-summary">{formatProfileSnapshot(plan)}</p>
-                    </div>
+                    </Link>
                     <div className="plan-list-actions plan-select-card-actions">
-                      <Link to={`/plans/${plan.id}`} className="btn btn-secondary">
-                        Открыть
-                      </Link>
                       <button
                         type="button"
                         className="btn btn-secondary"

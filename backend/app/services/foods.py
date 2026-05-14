@@ -372,7 +372,7 @@ def moderate_food(db: Session, food_id: int, action: str) -> FoodItem | None:
     return food
 
 
-def seed_verified_foods(db: Session) -> int:
+def seed_verified_foods(db: Session, *, replace_existing_values: bool = False) -> int:
     created_count = 0
 
     def key(name: str | None, brand: str | None) -> tuple[str, str]:
@@ -390,7 +390,13 @@ def seed_verified_foods(db: Session) -> int:
         inferred_category = infer_verified_food_category(name)
         existing_food = existing_by_key.get(item_key)
         if existing_food is not None:
-            if existing_food.category != inferred_category:
+            if replace_existing_values:
+                existing_food.kcal = item["kcal"]
+                existing_food.protein = item["protein"]
+                existing_food.fat = item["fat"]
+                existing_food.carbs = item["carbs"]
+                existing_food.category = inferred_category
+            elif existing_food.category != inferred_category:
                 existing_food.category = inferred_category
             continue
 

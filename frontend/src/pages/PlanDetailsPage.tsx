@@ -170,7 +170,7 @@ export function PlanDetailsPage() {
           const recipe = await getRecipe(recipeId);
           return { id: recipeId, name: recipe.name };
         } catch {
-          return { id: recipeId, name: `Рецепт #${recipeId}` };
+          return { id: recipeId, name: "Рецепт недоступен" };
         }
       }),
     ).then((pairs) => {
@@ -246,7 +246,7 @@ export function PlanDetailsPage() {
                   Старт: {formatPlanDate(plan.start_date)} · Дней: {plan.days_count} · Слотов в день: {plan.meals_per_day}
                 </p>
                 <p className="plan-profile-summary">
-                  Профиль: {plan.profile_name ?? (plan.profile_id ? `#${plan.profile_id}` : "не указан")}
+                  Профиль: {plan.profile_name ?? (plan.profile_id ? "Профиль недоступен" : "не указан")}
                 </p>
                 <p className="plan-profile-summary">Цель: {buildPlanTargetSummary(plan)}</p>
                 <p className="plan-profile-hint">
@@ -341,7 +341,7 @@ export function PlanDetailsPage() {
                         const recipeName =
                           slot?.recipe_id === null || !slot
                             ? null
-                            : recipeNamesById[slot.recipe_id] ?? `Рецепт #${slot.recipe_id}`;
+                            : recipeNamesById[slot.recipe_id] ?? "Рецепт недоступен";
 
                         return (
                           <td key={`${day.date}-${slotIndex}`}>
@@ -435,7 +435,7 @@ function SlotCell({
         {slot.recipe_id === null ? (
           <p className="plan-slot-empty">Пусто</p>
         ) : (
-          <p className="plan-slot-main">{recipeName ?? `Рецепт #${slot.recipe_id}`}</p>
+          <p className="plan-slot-main">{recipeName ?? "Рецепт недоступен"}</p>
         )}
 
         <p className="plan-slot-meta">x{formatDecimal(slot.servings_multiplier)}</p>

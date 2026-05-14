@@ -85,6 +85,42 @@ def test_seed_demo_recipes_have_meal_type_coverage(
         db.close()
 
 
+def test_seed_creates_public_breakfast_recipes(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        recipes = db.execute(
+            select(Recipe).where(
+                Recipe.source == FoodSource.community,
+                Recipe.status == FoodStatus.approved,
+                Recipe.is_listed.is_(True),
+            )
+        ).scalars().all()
+        assert any("breakfast" in recipe.meal_types for recipe in recipes)
+    finally:
+        db.close()
+
+
+def test_seed_creates_public_lunch_recipes(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        recipes = db.execute(
+            select(Recipe).where(
+                Recipe.source == FoodSource.community,
+                Recipe.status == FoodStatus.approved,
+                Recipe.is_listed.is_(True),
+            )
+        ).scalars().all()
+        assert any("lunch" in recipe.meal_types for recipe in recipes)
+    finally:
+        db.close()
+
+
 def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
     db_session_factory: sessionmaker[Session],
 ) -> None:
@@ -98,6 +134,8 @@ def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
 
         assert len(demo_recipes) == len(DEMO_PUBLIC_RECIPES)
         assert all(recipe.cook_time_minutes is not None for recipe in demo_recipes)
+        assert all(recipe.instructions is not None for recipe in demo_recipes)
+        assert all(str(recipe.instructions).strip() for recipe in demo_recipes)
         fast_lunch_count = 0
         fast_dinner_count = 0
         for recipe in demo_recipes:

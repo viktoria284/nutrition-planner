@@ -5,11 +5,16 @@ import { ApiError } from "../api/http";
 import { useAuth } from "../auth/useAuth";
 import {
   addIngredient,
+  copyRecipe,
+  deleteRecipeNote,
   deleteIngredient,
   deleteRecipe,
   getRecipe,
+  getRecipeNote,
   publishRecipe,
   reportRecipe,
+  resolveRecipeImageSrc,
+  upsertRecipeNote,
   updateIngredient,
   withdrawRecipe,
   type MealType,
@@ -19,6 +24,7 @@ import {
 } from "../api/recipes";
 import { Alert } from "../components/Alert";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
+import { MarkdownContent } from "../components/MarkdownTextarea";
 import { getCurrentUserIdFromJwt } from "../utils/auth";
 import "./RecipesPage.css";
 
@@ -71,6 +77,10 @@ type IngredientRow = {
   errors?: IngredientRowErrors;
 };
 
+type RecipeDetailsLocationState = {
+  flashMessage?: string;
+};
+
 const REPORT_REASON_OPTIONS = ["Неверные данные", "Дубликат", "Спам/мусор", "Оскорбительный контент", "Другое"] as const;
 
 const EMPTY_REPORT_FORM: ReportForm = {
@@ -121,11 +131,14 @@ function resolveActionError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     return mapApiStatusToMessage(err.status) ?? fallback;
   }
-  return fallback;
+  return err instanceof Error ? err.message : fallback;
 }
 
+let localRowCounter = 0;
+
 function createLocalId(): string {
-  return `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  localRowCounter += 1;
+  return `row-${Date.now()}-${localRowCounter}`;
 }
 
 function toFoodSearchOption(ingredient: RecipeIngredientRead): FoodSearchOption | null {
@@ -176,7 +189,7 @@ function ingredientLabel(row: IngredientRow): string {
   if (row.food) {
     return row.food.brand ? `${row.food.name} — ${row.food.brand}` : row.food.name;
   }
-  if (row.food_id !== undefined) return `Продукт #${row.food_id}`;
+  if (row.food_id !== undefined) return "Продукт";
   return "Продукт не выбран";
 }
 
@@ -272,6 +285,16 @@ export function RecipeDetailsPage() {
   const [reportSuccess, setReportSuccess] = useState(false);
   const [reportForm, setReportForm] = useState<ReportForm>(EMPTY_REPORT_FORM);
   const [reportErrors, setReportErrors] = useState<ReportFormErrors>({});
+  const [copying, setCopying] = useState(false);
+
+  const [noteValue, setNoteValue] = useState("");
+  const [noteLoading, setNoteLoading] = useState(false);
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteDeleting, setNoteDeleting] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteSuccess, setNoteSuccess] = useState<string | null>(null);
+  const [recipeImageBroken, setRecipeImageBroken] = useState(false);
+  const [flashMessage, setFlashMessage] = useState<string | null>(null);
 
   const [ingredientRows, setIngredientRows] = useState<IngredientRow[]>([]);
   const [ingredientsSaving, setIngredientsSaving] = useState(false);
@@ -303,13 +326,28 @@ export function RecipeDetailsPage() {
 
     setLoading(true);
     setError(null);
+    setNoteError(null);
+    setNoteSuccess(null);
 
     try {
       const item = await getRecipe(recipeId);
       applyRecipePayload(item);
+      setRecipeImageBroken(false);
+
+      setNoteLoading(true);
+      try {
+        const notePayload = await getRecipeNote(recipeId);
+        setNoteValue(notePayload.note ?? "");
+      } catch (noteErr) {
+        setNoteValue("");
+        setNoteError(resolveActionError(noteErr, "Не удалось загрузить заметку."));
+      } finally {
+        setNoteLoading(false);
+      }
     } catch (err) {
       setRecipe(null);
       setIngredientRows([]);
+      setNoteValue("");
       if (err instanceof ApiError && err.status === 404) {
         setError("Рецепт не найден.");
       } else {
@@ -323,6 +361,13 @@ export function RecipeDetailsPage() {
   useEffect(() => {
     void loadRecipe();
   }, [loadRecipe]);
+
+  useEffect(() => {
+    const state = (location.state as RecipeDetailsLocationState | null) ?? null;
+    if (!state?.flashMessage) return;
+    setFlashMessage(state.flashMessage);
+    navigate(`${location.pathname}${location.hash}`, { replace: true, state: null });
+  }, [location.hash, location.pathname, location.state, navigate]);
 
   useEffect(() => {
     if (!reportSuccess) return undefined;
@@ -348,6 +393,18 @@ export function RecipeDetailsPage() {
     return () => window.clearTimeout(timeoutId);
   }, [ingredientsSuccess]);
 
+  useEffect(() => {
+    if (!noteSuccess) return undefined;
+    const timeoutId = window.setTimeout(() => setNoteSuccess(null), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [noteSuccess]);
+
+  useEffect(() => {
+    if (!flashMessage) return undefined;
+    const timeoutId = window.setTimeout(() => setFlashMessage(null), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [flashMessage]);
+
   const isOwner = Boolean(recipe && currentUserId !== null && recipe.owner_user_id === currentUserId);
   const canEditRecipe = Boolean(recipe && isOwner && recipe.source === "private" && recipe.status === "draft");
   const canPublishRecipe = canEditRecipe;
@@ -358,6 +415,13 @@ export function RecipeDetailsPage() {
   );
   const canReportRecipe = Boolean(
     recipe && !isOwner && recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
+  );
+  const canCopyRecipe = Boolean(
+    recipe &&
+      !isOwner &&
+      recipe.source === "community" &&
+      recipe.status === "approved" &&
+      recipe.is_listed,
   );
   const showModerationBanner = Boolean(recipe && isOwner && recipe.status === "pending" && !recipe.is_listed);
 
@@ -778,6 +842,61 @@ export function RecipeDetailsPage() {
     }
   };
 
+  const onCopyRecipe = async () => {
+    if (!recipe || copying) return;
+    setCopying(true);
+    setNoteError(null);
+    try {
+      const copied = await copyRecipe(recipe.id);
+      navigate(`/recipes/${copied.id}`, {
+        replace: true,
+        state: { flashMessage: "Рецепт скопирован в ваши рецепты." },
+      });
+    } catch (err) {
+      setNoteError(resolveActionError(err, "Не удалось скопировать рецепт."));
+    } finally {
+      setCopying(false);
+    }
+  };
+
+  const onSaveNote = async () => {
+    if (!recipe || noteSaving || noteLoading) return;
+    const normalized = noteValue.trim();
+    if (!normalized) {
+      setNoteError("Введите текст заметки перед сохранением.");
+      return;
+    }
+
+    setNoteSaving(true);
+    setNoteError(null);
+    setNoteSuccess(null);
+    try {
+      const result = await upsertRecipeNote(recipe.id, normalized);
+      setNoteValue(result.note ?? "");
+      setNoteSuccess("Заметка сохранена.");
+    } catch (err) {
+      setNoteError(resolveActionError(err, "Не удалось сохранить заметку."));
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
+  const onDeleteNote = async () => {
+    if (!recipe || noteDeleting || noteLoading || !noteValue.trim()) return;
+    setNoteDeleting(true);
+    setNoteError(null);
+    setNoteSuccess(null);
+    try {
+      await deleteRecipeNote(recipe.id);
+      setNoteValue("");
+      setNoteSuccess("Заметка удалена.");
+    } catch (err) {
+      setNoteError(resolveActionError(err, "Не удалось удалить заметку."));
+    } finally {
+      setNoteDeleting(false);
+    }
+  };
+
   return (
     <section className="recipes-page">
       <div className="recipes-shell">
@@ -798,6 +917,7 @@ export function RecipeDetailsPage() {
         </header>
 
         {loading && <p className="recipes-note">Загрузка...</p>}
+        {flashMessage && <p className="recipes-inline-success">{flashMessage}</p>}
 
         {!loading && error && (
           <div className="recipes-error-block">
@@ -812,12 +932,27 @@ export function RecipeDetailsPage() {
           <>
             <article className="recipe-card">
               <div className="recipe-card-head">
-                <div>
+                <div className="recipe-header-main">
+                  <div className="recipe-cover">
+                    {recipe.image_url && !recipeImageBroken ? (
+                      <img
+                        src={resolveRecipeImageSrc(recipe.image_url) ?? undefined}
+                        alt={`Фото блюда: ${recipe.name}`}
+                        className="recipe-cover-image"
+                        onError={() => setRecipeImageBroken(true)}
+                      />
+                    ) : (
+                      <div className="recipe-cover-fallback" aria-hidden="true">
+                        {recipe.name.slice(0, 1).toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+
                   <h2 className="recipe-card-title">{recipe.name}</h2>
                   {recipe.description && <p className="recipe-description">{recipe.description}</p>}
                 </div>
 
-                {(canPublishRecipe || canEditRecipe || canDeleteRecipe || canWithdrawRecipe || canReportRecipe) && (
+                {(canPublishRecipe || canEditRecipe || canDeleteRecipe || canWithdrawRecipe || canReportRecipe || canCopyRecipe) && (
                   <div className="recipe-action-block">
                     <div className="recipe-action-row">
                       {canPublishRecipe && (
@@ -865,6 +1000,16 @@ export function RecipeDetailsPage() {
                           Пожаловаться
                         </button>
                       )}
+                      {canCopyRecipe && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => void onCopyRecipe()}
+                          disabled={copying}
+                        >
+                          {copying ? "Копируем..." : "Скопировать себе"}
+                        </button>
+                      )}
                     </div>
 
                     {publishError && <p className="recipe-inline-error">{publishError}</p>}
@@ -899,6 +1044,107 @@ export function RecipeDetailsPage() {
                     </span>
                   ))}
                 </div>
+              </div>
+
+              {!recipe.instructions && !(recipe.steps && recipe.steps.length > 0) && isOwner && (
+                <p className="recipes-note">Способ приготовления пока не указан.</p>
+              )}
+              {recipe.instructions && (
+                <section className="recipe-instructions">
+                  <h3 className="recipe-metrics-title">Способ приготовления</h3>
+                  <MarkdownContent value={recipe.instructions} />
+                </section>
+              )}
+              {Array.isArray(recipe.steps) && recipe.steps.length > 0 && (
+                <section className="recipe-steps-display">
+                  <h3 className="recipe-metrics-title">Шаги приготовления</h3>
+                  <ol className="recipe-steps-display-list">
+                    {recipe.steps
+                      .slice()
+                      .sort((left, right) => {
+                        const leftPosition = Number.isFinite(left.position) ? left.position : Number.MAX_SAFE_INTEGER;
+                        const rightPosition = Number.isFinite(right.position) ? right.position : Number.MAX_SAFE_INTEGER;
+                        return leftPosition - rightPosition;
+                      })
+                      .map((step, index) => {
+                        const displayNumber =
+                          typeof step.position === "number" && step.position > 0 ? step.position : index + 1;
+                        return (
+                          <li key={step.id} className="recipe-steps-display-item">
+                            <div className="recipe-step-number" aria-hidden="true">
+                              {displayNumber}
+                            </div>
+                            <div className="recipe-step-content">
+                              <div className="recipe-steps-display-text">
+                                <MarkdownContent value={step.text} />
+                              </div>
+                              {step.image_url && (
+                                <div className="recipe-step-image-wrap">
+                                  <img
+                                    src={resolveRecipeImageSrc(step.image_url) ?? undefined}
+                                    alt={`Шаг ${displayNumber}`}
+                                    className="recipe-step-image"
+                                    onError={(event) => {
+                                      event.currentTarget.style.display = "none";
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              {step.note && (
+                                <div className="recipe-step-note">
+                                  <p className="recipe-step-note-title">Совет</p>
+                                  <MarkdownContent value={step.note} />
+                                </div>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                  </ol>
+                </section>
+              )}
+            </article>
+
+            <article className="recipe-card">
+              <h3 className="recipe-metrics-title">Мои заметки</h3>
+              <p className="recipes-note">Заметка видна только вам.</p>
+              {noteError && (
+                <div className="recipes-form-summary form-error-summary is-error" role="alert">
+                  <p className="recipes-form-error-item">{noteError}</p>
+                </div>
+              )}
+              {noteSuccess && <p className="recipes-inline-success">{noteSuccess}</p>}
+              <label className="recipes-field" htmlFor="recipe-note-textarea">
+                <textarea
+                  id="recipe-note-textarea"
+                  className="recipes-field-textarea"
+                  value={noteValue}
+                  onChange={(event) => {
+                    setNoteValue(event.target.value);
+                    setNoteError(null);
+                    setNoteSuccess(null);
+                  }}
+                  placeholder="Добавьте личную заметку к рецепту"
+                  disabled={noteLoading || noteSaving || noteDeleting}
+                />
+              </label>
+              <div className="recipes-form-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void onDeleteNote()}
+                  disabled={noteLoading || noteSaving || noteDeleting || !noteValue.trim()}
+                >
+                  {noteDeleting ? "Удаляем..." : "Удалить заметку"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void onSaveNote()}
+                  disabled={noteLoading || noteSaving || noteDeleting}
+                >
+                  {noteSaving ? "Сохраняем..." : "Сохранить заметку"}
+                </button>
               </div>
             </article>
 
@@ -1057,7 +1303,7 @@ export function RecipeDetailsPage() {
                               const serving = row.food_id
                                 ? (servingsCache.get(row.food_id) ?? []).find((item) => item.id === row.serving_id)
                                 : null;
-                              const servingName = serving?.name ?? `порция #${row.serving_id}`;
+                              const servingName = serving?.name ?? "порция";
                               return ` · ${servingName} × ${row.multiplier || "1"}`;
                             })()
                           : ""}

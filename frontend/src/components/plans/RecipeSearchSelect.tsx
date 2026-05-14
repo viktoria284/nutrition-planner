@@ -167,17 +167,17 @@ export function RecipeSearchSelect({
 
                       {secondaryLine && <span className="plan-recipe-picker-item-secondary">{secondaryLine}</span>}
                     </button>
-
                     <a
-                      className="plan-recipe-picker-open-link"
                       href={`/recipes/${option.id}`}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
+                      className="plan-recipe-picker-preview-link"
+                      aria-label={`Открыть рецепт ${option.name} в новой вкладке`}
                       onClick={(event) => {
                         event.stopPropagation();
                       }}
                     >
-                      Открыть
+                      Просмотр
                     </a>
                   </li>
                 );

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/http";
-import { listRecipes, type MealType, type RecipeRead } from "../api/recipes";
+import { listRecipes, resolveRecipeImageSrc, type MealType, type RecipeRead } from "../api/recipes";
 import { Alert } from "../components/Alert";
 import "./RecipesPage.css";
 
@@ -18,6 +18,14 @@ const MEAL_TYPE_LABELS: Record<MealType, string> = {
   dinner: "Ужин",
   snack: "Перекус",
 };
+
+const COOK_TIME_FILTER_OPTIONS = [
+  { value: "any", label: "Любое" },
+  { value: "15", label: "До 15 мин" },
+  { value: "30", label: "До 30 мин" },
+  { value: "45", label: "До 45 мин" },
+  { value: "60", label: "До 60 мин" },
+] as const;
 
 function formatMetric(value: string | number): string {
   const numeric = Number(value);
@@ -46,6 +54,7 @@ export function RecipesListPage() {
 
   const [recipes, setRecipes] = useState<RecipeRead[]>([]);
   const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>([]);
+  const [cookTimeFilter, setCookTimeFilter] = useState<(typeof COOK_TIME_FILTER_OPTIONS)[number]["value"]>("any");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
@@ -55,7 +64,11 @@ export function RecipesListPage() {
     setError(null);
 
     try {
-      const items = await listRecipes();
+      const maxCookTime = cookTimeFilter === "any" ? undefined : Number(cookTimeFilter);
+      const items = await listRecipes({
+        maxCookTimeMinutes: Number.isFinite(maxCookTime) ? maxCookTime : undefined,
+        limit: 500,
+      });
       setRecipes(items);
     } catch (err) {
       setRecipes([]);
@@ -63,7 +76,7 @@ export function RecipesListPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [cookTimeFilter]);
 
   useEffect(() => {
     void loadRecipes();
@@ -98,7 +111,10 @@ export function RecipesListPage() {
     );
   };
 
-  const resetFilters = () => setSelectedMealTypes([]);
+  const resetFilters = () => {
+    setSelectedMealTypes([]);
+    setCookTimeFilter("any");
+  };
 
   const isEmpty = !loading && !error && recipes.length === 0;
   const isFilterEmpty = !loading && !error && recipes.length > 0 && filteredRecipes.length === 0;
@@ -126,7 +142,7 @@ export function RecipesListPage() {
         </header>
 
         <section className="recipes-filter-card" aria-label="Фильтр по типу приёма пищи">
-          <p className="recipes-filter-label">Тип приёма пищи</p>
+          <p className="recipes-filter-group-label">Тип приёма пищи</p>
           <div className="recipes-filter-items">
             {MEAL_TYPE_OPTIONS.map((item) => {
               const checked = selectedMealTypes.includes(item.value);
@@ -147,8 +163,32 @@ export function RecipesListPage() {
               );
             })}
           </div>
+          <div className="recipes-field" aria-label="Фильтр по времени приготовления">
+            <span className="recipes-filter-group-label">Время приготовления</span>
+            <div className="recipes-filter-items">
+              {COOK_TIME_FILTER_OPTIONS.map((option) => {
+                const isActive = cookTimeFilter === option.value;
+                return (
+                  <button
+                    key={`cook-time-${option.value}`}
+                    type="button"
+                    className={`recipes-filter-chip recipes-filter-chip-button ${isActive ? "is-active" : ""}`}
+                    aria-pressed={isActive}
+                    onClick={() => setCookTimeFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div>
-            <button type="button" className="btn btn-secondary" onClick={resetFilters} disabled={!selectedMealTypes.length}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={resetFilters}
+              disabled={!selectedMealTypes.length && cookTimeFilter === "any"}
+            >
               Сбросить фильтр
             </button>
           </div>
@@ -193,9 +233,34 @@ export function RecipesListPage() {
               <li key={recipe.id}>
                 <Link to={`/recipes/${recipe.id}`} className="recipe-row-link">
                   <div className="recipe-row-top">
-                    <div>
-                      <p className="recipe-row-title">{recipe.name}</p>
-                      {recipe.description && <p className="recipe-row-description">{recipe.description}</p>}
+                    <div className="recipe-row-main">
+                      <div className="recipe-row-cover">
+                        {recipe.image_url ? (
+                          <>
+                            <img
+                              src={resolveRecipeImageSrc(recipe.image_url) ?? undefined}
+                              alt={`Фото блюда: ${recipe.name}`}
+                              className="recipe-row-cover-image"
+                              onError={(event) => {
+                                event.currentTarget.style.display = "none";
+                                const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
+                                if (fallback) fallback.style.display = "grid";
+                              }}
+                            />
+                            <div className="recipe-row-cover-fallback" style={{ display: "none" }} aria-hidden="true">
+                              {recipe.name.slice(0, 1).toUpperCase()}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="recipe-row-cover-fallback" aria-hidden="true">
+                            {recipe.name.slice(0, 1).toUpperCase()}
+                          </div>
+                        )}
+                      </div>
+                      <div className="recipe-row-text">
+                        <p className="recipe-row-title">{recipe.name}</p>
+                        {recipe.description && <p className="recipe-row-description">{recipe.description}</p>}
+                      </div>
                     </div>
                     <p className="recipe-row-servings">{recipe.servings_count} порц.</p>
                   </div>

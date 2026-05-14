@@ -1,4 +1,4 @@
-import { ApiError, apiRequest } from "./http";
+import { API_URL, ApiError, apiRequest } from "./http";
 
 const TOKEN_KEY = "access_token";
 
@@ -9,7 +9,9 @@ export type RecipeStatus = "draft" | "pending" | "approved" | "rejected";
 
 export type RecipeCreate = {
   name: string;
-  description?: string;
+  description?: string | null;
+  instructions?: string | null;
+  image_url?: string | null;
   servings_count: number;
   meal_types: MealType[];
   cook_time_minutes?: number | null;
@@ -22,6 +24,8 @@ export type RecipeRead = {
   owner_user_id: number;
   name: string;
   description: string | null;
+  instructions: string | null;
+  image_url: string | null;
   servings_count: number;
   meal_types: MealType[];
   cook_time_minutes: number | null;
@@ -30,6 +34,7 @@ export type RecipeRead = {
   reports_count: number;
   is_listed: boolean;
   ingredients?: RecipeIngredientRead[];
+  steps?: RecipeStepRead[];
   total_grams: DecimalValue;
   total_kcal: DecimalValue;
   total_protein: DecimalValue;
@@ -41,6 +46,24 @@ export type RecipeRead = {
   per_serving_carbs: DecimalValue;
   created_at: string;
   updated_at: string;
+};
+
+export type RecipeStepRead = {
+  id: number;
+  recipe_id: number;
+  position: number;
+  text: string;
+  note: string | null;
+  image_url: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RecipeStepInput = {
+  id?: number;
+  position?: number;
+  text: string;
+  note?: string | null;
 };
 
 export type RecipeIngredientCreate = {
@@ -73,8 +96,17 @@ export type RecipeReportPayload = {
   comment?: string | null;
 };
 
+export type RecipeNoteRead = {
+  note: string | null;
+};
+
 export type ListRecipesOptions = {
   includePublic?: boolean;
+  mealType?: MealType;
+  minCookTimeMinutes?: number;
+  maxCookTimeMinutes?: number;
+  limit?: number;
+  offset?: number;
 };
 
 function getToken() {
@@ -95,7 +127,21 @@ function normalizeRecipePayload(payload: RecipeCreate | RecipeUpdate): RecipeCre
   if (Object.prototype.hasOwnProperty.call(normalized, "description")) {
     if (typeof normalized.description === "string") {
       const description = normalized.description.trim();
-      normalized.description = description || undefined;
+      normalized.description = description || null;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "instructions")) {
+    if (typeof normalized.instructions === "string") {
+      const instructions = normalized.instructions.trim();
+      normalized.instructions = instructions || null;
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(normalized, "image_url")) {
+    if (typeof normalized.image_url === "string") {
+      const imageUrl = normalized.image_url.trim();
+      normalized.image_url = imageUrl || null;
     }
   }
 
@@ -127,6 +173,21 @@ export async function listRecipes(options: ListRecipesOptions = {}): Promise<Rec
   if (options.includePublic) {
     params.set("include_public", "true");
   }
+  if (options.mealType) {
+    params.set("meal_type", options.mealType);
+  }
+  if (typeof options.minCookTimeMinutes === "number") {
+    params.set("min_cook_time_minutes", String(options.minCookTimeMinutes));
+  }
+  if (typeof options.maxCookTimeMinutes === "number") {
+    params.set("max_cook_time_minutes", String(options.maxCookTimeMinutes));
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+  if (typeof options.offset === "number") {
+    params.set("offset", String(options.offset));
+  }
   const suffix = params.toString();
   return requestWithApiError(
     apiRequest<RecipeRead[]>({
@@ -138,7 +199,22 @@ export async function listRecipes(options: ListRecipesOptions = {}): Promise<Rec
 }
 
 export async function listPublicRecipes(): Promise<RecipeRead[]> {
-  const items = await listRecipes({ includePublic: true });
+  const items = await listRecipes({ includePublic: true, limit: 500 });
+  return items.filter(
+    (recipe) => recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
+  );
+}
+
+export async function listPublicRecipesFiltered(options: {
+  mealType?: MealType;
+  maxCookTimeMinutes?: number;
+} = {}): Promise<RecipeRead[]> {
+  const items = await listRecipes({
+    includePublic: true,
+    mealType: options.mealType,
+    maxCookTimeMinutes: options.maxCookTimeMinutes,
+    limit: 500,
+  });
   return items.filter(
     (recipe) => recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
   );
@@ -260,4 +336,129 @@ export async function deleteIngredient(recipeId: number | string, ingId: number 
       token: getToken(),
     }),
   );
+}
+
+export async function getRecipeNote(recipeId: number | string): Promise<RecipeNoteRead> {
+  return requestWithApiError(
+    apiRequest<RecipeNoteRead>({
+      method: "GET",
+      path: `/recipes/${recipeId}/note`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function upsertRecipeNote(recipeId: number | string, note: string): Promise<RecipeNoteRead> {
+  return requestWithApiError(
+    apiRequest<RecipeNoteRead>({
+      method: "PUT",
+      path: `/recipes/${recipeId}/note`,
+      token: getToken(),
+      body: { note },
+    }),
+  );
+}
+
+export async function deleteRecipeNote(recipeId: number | string): Promise<void> {
+  await requestWithApiError(
+    apiRequest<void>({
+      method: "DELETE",
+      path: `/recipes/${recipeId}/note`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function copyRecipe(recipeId: number | string): Promise<RecipeRead> {
+  return requestWithApiError(
+    apiRequest<RecipeRead>({
+      method: "POST",
+      path: `/recipes/${recipeId}/copy`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function uploadRecipeCoverImage(recipeId: number | string, file: File): Promise<RecipeRead> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return requestWithApiError(
+    apiRequest<RecipeRead>({
+      method: "POST",
+      path: `/recipes/${recipeId}/cover-image`,
+      token: getToken(),
+      rawBody: formData,
+    }),
+  );
+}
+
+export async function deleteRecipeCoverImage(recipeId: number | string): Promise<RecipeRead> {
+  return requestWithApiError(
+    apiRequest<RecipeRead>({
+      method: "DELETE",
+      path: `/recipes/${recipeId}/cover-image`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function getRecipeSteps(recipeId: number | string): Promise<RecipeStepRead[]> {
+  return requestWithApiError(
+    apiRequest<RecipeStepRead[]>({
+      method: "GET",
+      path: `/recipes/${recipeId}/steps`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function replaceRecipeSteps(
+  recipeId: number | string,
+  steps: RecipeStepInput[],
+): Promise<RecipeStepRead[]> {
+  return requestWithApiError(
+    apiRequest<RecipeStepRead[]>({
+      method: "PUT",
+      path: `/recipes/${recipeId}/steps`,
+      token: getToken(),
+      body: { steps },
+    }),
+  );
+}
+
+export async function uploadRecipeStepImage(
+  recipeId: number | string,
+  stepId: number | string,
+  file: File,
+): Promise<RecipeStepRead> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return requestWithApiError(
+    apiRequest<RecipeStepRead>({
+      method: "POST",
+      path: `/recipes/${recipeId}/steps/${stepId}/image`,
+      token: getToken(),
+      rawBody: formData,
+    }),
+  );
+}
+
+export async function deleteRecipeStepImage(
+  recipeId: number | string,
+  stepId: number | string,
+): Promise<RecipeStepRead> {
+  return requestWithApiError(
+    apiRequest<RecipeStepRead>({
+      method: "DELETE",
+      path: `/recipes/${recipeId}/steps/${stepId}/image`,
+      token: getToken(),
+    }),
+  );
+}
+
+export function resolveRecipeImageSrc(url: string | null | undefined): string | null {
+  if (!url) return null;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("/")) return `${API_URL}${url}`;
+  return `${API_URL}/${url}`;
 }

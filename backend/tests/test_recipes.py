@@ -1,8 +1,18 @@
 from decimal import Decimal
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 TEST_PASSWORD = "Passw0rd!"
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n"
+    b"\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+    b"\x90wS\xde"
+    b"\x00\x00\x00\x0bIDATx\x9cc`\x00\x00\x00\x02\x00\x01"
+    b"\xe2!\xbc3"
+    b"\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
 def register_user(
@@ -74,6 +84,8 @@ def create_recipe_via_api(
     servings_count: int = 2,
     meal_types: list[str] | None = None,
     description: str | None = None,
+    instructions: str | None = None,
+    image_url: str | None = None,
     cook_time_minutes: int | None = None,
 ) -> dict:
     payload: dict[str, object] = {
@@ -84,6 +96,10 @@ def create_recipe_via_api(
     }
     if cook_time_minutes is not None:
         payload["cook_time_minutes"] = cook_time_minutes
+    if instructions is not None:
+        payload["instructions"] = instructions
+    if image_url is not None:
+        payload["image_url"] = image_url
 
     response = client.post(
         "/recipes",
@@ -251,6 +267,145 @@ def test_get_recipe_returns_cook_time_minutes(client: TestClient) -> None:
     response = client.get(f"/recipes/{created['id']}", headers=auth_headers(token))
     assert response.status_code == 200, response.text
     assert response.json()["cook_time_minutes"] == 30
+
+
+def test_create_recipe_with_instructions(client: TestClient) -> None:
+    register_user(client, email="instructions-create@example.com", username="instructionscreate")
+    token = login_and_get_token(client, identifier="instructions-create@example.com")
+
+    recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Паста с томатами",
+        meal_types=["dinner"],
+        instructions="1. Отварите пасту.\n2. Добавьте томаты.\n3. Перемешайте и подавайте.",
+    )
+    assert recipe["instructions"] is not None
+    assert "Отварите пасту" in recipe["instructions"]
+
+
+def test_patch_recipe_instructions(client: TestClient) -> None:
+    register_user(client, email="instructions-patch@example.com", username="instructionspatch")
+    token = login_and_get_token(client, identifier="instructions-patch@example.com")
+    recipe = create_recipe_via_api(client, token, name="Салат", meal_types=["lunch"])
+
+    response = client.patch(
+        f"/recipes/{recipe['id']}",
+        headers=auth_headers(token),
+        json={"instructions": "1. Нарежьте овощи.\n2. Смешайте и подавайте."},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["instructions"] is not None
+    assert "Нарежьте овощи" in response.json()["instructions"]
+
+
+def test_blank_instructions_are_saved_as_null(client: TestClient) -> None:
+    register_user(client, email="instructions-null@example.com", username="instructionsnull")
+    token = login_and_get_token(client, identifier="instructions-null@example.com")
+
+    created = create_recipe_via_api(
+        client,
+        token,
+        name="Каша",
+        meal_types=["breakfast"],
+        instructions="   ",
+    )
+    assert created["instructions"] is None
+
+    patched = client.patch(
+        f"/recipes/{created['id']}",
+        headers=auth_headers(token),
+        json={"instructions": "  "},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["instructions"] is None
+
+
+def test_get_recipe_returns_instructions(client: TestClient) -> None:
+    register_user(client, email="instructions-get@example.com", username="instructionsget")
+    token = login_and_get_token(client, identifier="instructions-get@example.com")
+
+    created = create_recipe_via_api(
+        client,
+        token,
+        name="Суп",
+        meal_types=["lunch"],
+        instructions="1. Смешайте ингредиенты.\n2. Варите 20 минут.",
+    )
+
+    response = client.get(f"/recipes/{created['id']}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    assert response.json()["instructions"] is not None
+
+
+def test_create_recipe_with_image_url(client: TestClient) -> None:
+    register_user(client, email="image-create@example.com", username="imagecreate")
+    token = login_and_get_token(client, identifier="image-create@example.com")
+
+    recipe = create_recipe_via_api(
+        client,
+        token,
+        name="Боул",
+        meal_types=["lunch"],
+        image_url="https://example.com/image.jpg",
+    )
+    assert recipe["image_url"] == "https://example.com/image.jpg"
+
+
+def test_invalid_recipe_image_url_returns_422(client: TestClient) -> None:
+    register_user(client, email="image-invalid@example.com", username="imageinvalid")
+    token = login_and_get_token(client, identifier="image-invalid@example.com")
+
+    response = client.post(
+        "/recipes",
+        headers=auth_headers(token),
+        json={
+            "name": "Смузи",
+            "servings_count": 1,
+            "meal_types": ["snack"],
+            "image_url": "ftp://bad-url.local",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert any(err["loc"][-1] == "image_url" for err in response.json().get("detail", []))
+
+
+def test_blank_image_url_is_saved_as_null(client: TestClient) -> None:
+    register_user(client, email="image-null@example.com", username="imagenull")
+    token = login_and_get_token(client, identifier="image-null@example.com")
+
+    created = create_recipe_via_api(
+        client,
+        token,
+        name="Салат",
+        meal_types=["lunch"],
+        image_url="   ",
+    )
+    assert created["image_url"] is None
+
+    patched = client.patch(
+        f"/recipes/{created['id']}",
+        headers=auth_headers(token),
+        json={"image_url": "   "},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["image_url"] is None
+
+
+def test_get_recipe_returns_image_url(client: TestClient) -> None:
+    register_user(client, email="image-get@example.com", username="imageget")
+    token = login_and_get_token(client, identifier="image-get@example.com")
+    created = create_recipe_via_api(
+        client,
+        token,
+        name="Запеканка",
+        meal_types=["dinner"],
+        image_url="https://images.example.org/casserole.png",
+    )
+
+    response = client.get(f"/recipes/{created['id']}", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    assert response.json()["image_url"] == "https://images.example.org/casserole.png"
 
 
 def test_validation_meal_types_invalid_value(client: TestClient) -> None:
@@ -991,3 +1146,568 @@ def test_recipe_not_editable_after_publish(client: TestClient) -> None:
         json={"food_id": food["id"], "grams": "50"},
     )
     assert add_ingredient_response.status_code == 409, add_ingredient_response.text
+
+
+def test_public_recipes_include_all_meal_types(client: TestClient) -> None:
+    register_user(client, email="public-all-owner@example.com", username="publicallowner")
+    owner_token = login_and_get_token(client, identifier="public-all-owner@example.com")
+    register_user(client, email="public-all-viewer@example.com", username="publicallviewer")
+    viewer_token = login_and_get_token(client, identifier="public-all-viewer@example.com")
+
+    recipes = [
+        create_recipe_via_api(client, owner_token, name="P breakfast", meal_types=["breakfast"]),
+        create_recipe_via_api(client, owner_token, name="P lunch", meal_types=["lunch"]),
+        create_recipe_via_api(client, owner_token, name="P dinner", meal_types=["dinner"]),
+        create_recipe_via_api(client, owner_token, name="P snack", meal_types=["snack"]),
+    ]
+    for recipe in recipes:
+        publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+        assert publish_response.status_code == 200, publish_response.text
+
+    response = client.get("/recipes?include_public=true&limit=100", headers=auth_headers(viewer_token))
+    assert response.status_code == 200, response.text
+    meal_types = {item["meal_types"][0] for item in response.json() if item["name"].startswith("P ")}
+    assert {"breakfast", "lunch", "dinner", "snack"}.issubset(meal_types)
+
+
+def test_public_recipes_filter_by_breakfast(client: TestClient) -> None:
+    register_user(client, email="public-breakfast-owner@example.com", username="publicbreakfastowner")
+    owner_token = login_and_get_token(client, identifier="public-breakfast-owner@example.com")
+    register_user(client, email="public-breakfast-viewer@example.com", username="publicbreakfastviewer")
+    viewer_token = login_and_get_token(client, identifier="public-breakfast-viewer@example.com")
+
+    breakfast = create_recipe_via_api(client, owner_token, name="Breakfast Only", meal_types=["breakfast"])
+    lunch = create_recipe_via_api(client, owner_token, name="Lunch Only", meal_types=["lunch"])
+    for recipe in (breakfast, lunch):
+        publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+        assert publish_response.status_code == 200, publish_response.text
+
+    response = client.get(
+        "/recipes?include_public=true&meal_type=breakfast&limit=100",
+        headers=auth_headers(viewer_token),
+    )
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert breakfast["id"] in ids
+    assert lunch["id"] not in ids
+
+
+def test_public_recipes_filter_by_lunch(client: TestClient) -> None:
+    register_user(client, email="public-lunch-owner@example.com", username="publiclunchowner")
+    owner_token = login_and_get_token(client, identifier="public-lunch-owner@example.com")
+    register_user(client, email="public-lunch-viewer@example.com", username="publiclunchviewer")
+    viewer_token = login_and_get_token(client, identifier="public-lunch-viewer@example.com")
+
+    breakfast = create_recipe_via_api(client, owner_token, name="B only", meal_types=["breakfast"])
+    lunch = create_recipe_via_api(client, owner_token, name="L only", meal_types=["lunch"])
+    for recipe in (breakfast, lunch):
+        publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+        assert publish_response.status_code == 200, publish_response.text
+
+    response = client.get("/recipes?include_public=true&meal_type=lunch&limit=100", headers=auth_headers(viewer_token))
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert lunch["id"] in ids
+    assert breakfast["id"] not in ids
+
+
+def test_max_cook_time_filter_returns_only_recipes_up_to_max(client: TestClient) -> None:
+    register_user(client, email="cook-filter-owner@example.com", username="cookfilterowner")
+    token = login_and_get_token(client, identifier="cook-filter-owner@example.com")
+
+    quick = create_recipe_via_api(client, token, name="Quick", cook_time_minutes=15, meal_types=["dinner"])
+    long = create_recipe_via_api(client, token, name="Long", cook_time_minutes=45, meal_types=["dinner"])
+    unknown = create_recipe_via_api(client, token, name="Unknown", meal_types=["dinner"])
+
+    response = client.get("/recipes?max_cook_time_minutes=30&limit=100", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    ids = {item["id"] for item in response.json()}
+    assert quick["id"] in ids
+    assert long["id"] not in ids
+    assert unknown["id"] not in ids
+
+
+def test_invalid_max_cook_time_filter_returns_422(client: TestClient) -> None:
+    register_user(client, email="cook-filter-invalid@example.com", username="cookfilterinvalid")
+    token = login_and_get_token(client, identifier="cook-filter-invalid@example.com")
+
+    response = client.get("/recipes?max_cook_time_minutes=0", headers=auth_headers(token))
+    assert response.status_code == 422, response.text
+
+
+def test_owner_can_upload_cover_image(client: TestClient, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    register_user(client, email="cover-owner@example.com", username="coverowner")
+    token = login_and_get_token(client, identifier="cover-owner@example.com")
+    recipe = create_recipe_via_api(client, token, name="Cover Recipe", meal_types=["dinner"])
+
+    response = client.post(
+        f"/recipes/{recipe['id']}/cover-image",
+        headers=auth_headers(token),
+        files={"file": ("cover.png", PNG_BYTES, "image/png")},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["image_url"] is not None
+    assert payload["image_url"].startswith("/media/recipes/")
+
+
+def test_non_owner_cannot_upload_cover_image(client: TestClient, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    register_user(client, email="cover-owner-2@example.com", username="coverowner2")
+    owner_token = login_and_get_token(client, identifier="cover-owner-2@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Cover Private", meal_types=["dinner"])
+
+    register_user(client, email="cover-foreign@example.com", username="coverforeign")
+    foreign_token = login_and_get_token(client, identifier="cover-foreign@example.com")
+
+    response = client.post(
+        f"/recipes/{recipe['id']}/cover-image",
+        headers=auth_headers(foreign_token),
+        files={"file": ("cover.png", PNG_BYTES, "image/png")},
+    )
+    assert response.status_code == 404, response.text
+
+
+def test_invalid_cover_content_type_returns_422(client: TestClient, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    register_user(client, email="cover-invalid-type@example.com", username="coverinvalidtype")
+    token = login_and_get_token(client, identifier="cover-invalid-type@example.com")
+    recipe = create_recipe_via_api(client, token, name="Cover Type", meal_types=["dinner"])
+
+    response = client.post(
+        f"/recipes/{recipe['id']}/cover-image",
+        headers=auth_headers(token),
+        files={"file": ("cover.txt", b"hello", "text/plain")},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_too_large_cover_returns_413(client: TestClient, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    register_user(client, email="cover-large@example.com", username="coverlarge")
+    token = login_and_get_token(client, identifier="cover-large@example.com")
+    recipe = create_recipe_via_api(client, token, name="Cover Large", meal_types=["dinner"])
+
+    response = client.post(
+        f"/recipes/{recipe['id']}/cover-image",
+        headers=auth_headers(token),
+        files={"file": ("large.png", b"a" * (5 * 1024 * 1024 + 1), "image/png")},
+    )
+    assert response.status_code == 413, response.text
+
+
+def test_owner_can_replace_recipe_steps(client: TestClient) -> None:
+    register_user(client, email="steps-owner@example.com", username="stepsowner")
+    token = login_and_get_token(client, identifier="steps-owner@example.com")
+    recipe = create_recipe_via_api(client, token, name="Steps Recipe", meal_types=["dinner"])
+
+    response = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(token),
+        json={
+            "steps": [
+                {"text": "Подготовьте ингредиенты", "note": "Нарежьте заранее"},
+                {"text": "Готовьте 15 минут"},
+            ]
+        },
+    )
+    assert response.status_code == 200, response.text
+    steps = response.json()
+    assert len(steps) == 2
+    assert steps[0]["position"] == 1
+    assert steps[1]["position"] == 2
+
+
+def test_recipe_steps_reorder_is_persisted(client: TestClient) -> None:
+    register_user(client, email="steps-reorder@example.com", username="stepsreorder")
+    token = login_and_get_token(client, identifier="steps-reorder@example.com")
+    recipe = create_recipe_via_api(client, token, name="Steps Reorder", meal_types=["dinner"])
+
+    create_response = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(token),
+        json={
+            "steps": [
+                {"text": "Шаг 1"},
+                {"text": "Шаг 2"},
+                {"text": "Шаг 3"},
+            ]
+        },
+    )
+    assert create_response.status_code == 200, create_response.text
+    created_steps = create_response.json()
+    assert [step["text"] for step in created_steps] == ["Шаг 1", "Шаг 2", "Шаг 3"]
+    first_id = created_steps[0]["id"]
+    second_id = created_steps[1]["id"]
+    third_id = created_steps[2]["id"]
+
+    reorder_response = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(token),
+        json={
+            "steps": [
+                {"id": third_id, "position": 3, "text": "Шаг 3"},
+                {"id": first_id, "position": 1, "text": "Шаг 1"},
+                {"id": second_id, "position": 2, "text": "Шаг 2"},
+            ]
+        },
+    )
+    assert reorder_response.status_code == 200, reorder_response.text
+    reordered_steps = reorder_response.json()
+    assert [step["id"] for step in reordered_steps] == [third_id, first_id, second_id]
+    assert [step["position"] for step in reordered_steps] == [1, 2, 3]
+
+    read_steps_response = client.get(f"/recipes/{recipe['id']}/steps", headers=auth_headers(token))
+    assert read_steps_response.status_code == 200, read_steps_response.text
+    read_steps = read_steps_response.json()
+    assert [step["id"] for step in read_steps] == [third_id, first_id, second_id]
+    assert [step["position"] for step in read_steps] == [1, 2, 3]
+
+    recipe_response = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert recipe_response.status_code == 200, recipe_response.text
+    recipe_payload = recipe_response.json()
+    assert [step["id"] for step in recipe_payload["steps"]] == [third_id, first_id, second_id]
+    assert [step["position"] for step in recipe_payload["steps"]] == [1, 2, 3]
+
+
+def test_replace_recipe_steps_blank_text_returns_422(client: TestClient) -> None:
+    register_user(client, email="steps-blank@example.com", username="stepsblank")
+    token = login_and_get_token(client, identifier="steps-blank@example.com")
+    recipe = create_recipe_via_api(client, token, name="Steps Blank", meal_types=["dinner"])
+
+    response = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(token),
+        json={"steps": [{"text": "   "}]},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_public_reader_can_view_steps_but_cannot_edit(client: TestClient) -> None:
+    register_user(client, email="steps-public-owner@example.com", username="stepspublicowner")
+    owner_token = login_and_get_token(client, identifier="steps-public-owner@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Public Steps", meal_types=["dinner"])
+
+    put_owner = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(owner_token),
+        json={"steps": [{"text": "Шаг 1"}]},
+    )
+    assert put_owner.status_code == 200, put_owner.text
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="steps-public-viewer@example.com", username="stepspublicviewer")
+    viewer_token = login_and_get_token(client, identifier="steps-public-viewer@example.com")
+
+    get_response = client.get(f"/recipes/{recipe['id']}/steps", headers=auth_headers(viewer_token))
+    assert get_response.status_code == 200, get_response.text
+    assert len(get_response.json()) == 1
+
+    put_response = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(viewer_token),
+        json={"steps": [{"text": "Чужой шаг"}]},
+    )
+    assert put_response.status_code == 404, put_response.text
+
+
+def test_owner_can_upload_step_image_and_public_can_view(client: TestClient, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("MEDIA_ROOT", str(tmp_path / "media"))
+    register_user(client, email="steps-image-owner@example.com", username="stepsimageowner")
+    owner_token = login_and_get_token(client, identifier="steps-image-owner@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Steps Image", meal_types=["dinner"])
+
+    put_steps = client.put(
+        f"/recipes/{recipe['id']}/steps",
+        headers=auth_headers(owner_token),
+        json={"steps": [{"text": "Шаг с фото"}]},
+    )
+    assert put_steps.status_code == 200, put_steps.text
+    step_id = put_steps.json()[0]["id"]
+
+    upload_response = client.post(
+        f"/recipes/{recipe['id']}/steps/{step_id}/image",
+        headers=auth_headers(owner_token),
+        files={"file": ("step.png", PNG_BYTES, "image/png")},
+    )
+    assert upload_response.status_code == 200, upload_response.text
+    assert upload_response.json()["image_url"] is not None
+
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="steps-image-viewer@example.com", username="stepsimageviewer")
+    viewer_token = login_and_get_token(client, identifier="steps-image-viewer@example.com")
+    get_steps = client.get(f"/recipes/{recipe['id']}/steps", headers=auth_headers(viewer_token))
+    assert get_steps.status_code == 200, get_steps.text
+    assert get_steps.json()[0]["image_url"] is not None
+
+
+def test_user_can_add_note_to_own_recipe(client: TestClient) -> None:
+    register_user(client, email="note-own@example.com", username="noteown")
+    token = login_and_get_token(client, identifier="note-own@example.com")
+    recipe = create_recipe_via_api(client, token, name="Свой рецепт")
+
+    put_response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(token),
+        json={"note": "Готовить на медленном огне 10 минут."},
+    )
+    assert put_response.status_code == 200, put_response.text
+    assert put_response.json()["note"] == "Готовить на медленном огне 10 минут."
+
+    get_response = client.get(f"/recipes/{recipe['id']}/note", headers=auth_headers(token))
+    assert get_response.status_code == 200, get_response.text
+    assert get_response.json()["note"] == "Готовить на медленном огне 10 минут."
+
+
+def test_user_can_add_note_to_public_recipe(client: TestClient) -> None:
+    register_user(client, email="note-public-owner@example.com", username="notepublicowner")
+    owner_token = login_and_get_token(client, identifier="note-public-owner@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Публичный рецепт")
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="note-public-viewer@example.com", username="notepublicviewer")
+    viewer_token = login_and_get_token(client, identifier="note-public-viewer@example.com")
+
+    put_response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(viewer_token),
+        json={"note": "Отлично подходит для ужина."},
+    )
+    assert put_response.status_code == 200, put_response.text
+    assert put_response.json()["note"] == "Отлично подходит для ужина."
+
+
+def test_user_cannot_add_note_to_inaccessible_private_recipe(client: TestClient) -> None:
+    register_user(client, email="note-private-owner@example.com", username="noteprivateowner")
+    owner_token = login_and_get_token(client, identifier="note-private-owner@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Приватный рецепт")
+
+    register_user(client, email="note-private-viewer@example.com", username="noteprivateviewer")
+    viewer_token = login_and_get_token(client, identifier="note-private-viewer@example.com")
+
+    response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(viewer_token),
+        json={"note": "Попытка заметки"},
+    )
+    assert response.status_code == 404, response.text
+
+
+def test_other_user_does_not_see_my_note(client: TestClient) -> None:
+    register_user(client, email="note-owner2@example.com", username="noteowner2")
+    owner_token = login_and_get_token(client, identifier="note-owner2@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Рецепт для заметок")
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="note-user-a@example.com", username="noteusera")
+    user_a_token = login_and_get_token(client, identifier="note-user-a@example.com")
+    register_user(client, email="note-user-b@example.com", username="noteuserb")
+    user_b_token = login_and_get_token(client, identifier="note-user-b@example.com")
+
+    put_response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(user_a_token),
+        json={"note": "Моя личная заметка"},
+    )
+    assert put_response.status_code == 200, put_response.text
+
+    get_response = client.get(f"/recipes/{recipe['id']}/note", headers=auth_headers(user_b_token))
+    assert get_response.status_code == 200, get_response.text
+    assert get_response.json()["note"] is None
+
+
+def test_update_recipe_note(client: TestClient) -> None:
+    register_user(client, email="note-update@example.com", username="noteupdate")
+    token = login_and_get_token(client, identifier="note-update@example.com")
+    recipe = create_recipe_via_api(client, token, name="Рецепт обновления заметки")
+
+    first_response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(token),
+        json={"note": "Первый вариант"},
+    )
+    assert first_response.status_code == 200, first_response.text
+
+    second_response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(token),
+        json={"note": "Обновлённый вариант"},
+    )
+    assert second_response.status_code == 200, second_response.text
+    assert second_response.json()["note"] == "Обновлённый вариант"
+
+
+def test_delete_recipe_note(client: TestClient) -> None:
+    register_user(client, email="note-delete@example.com", username="notedelete")
+    token = login_and_get_token(client, identifier="note-delete@example.com")
+    recipe = create_recipe_via_api(client, token, name="Рецепт удаления заметки")
+
+    put_response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(token),
+        json={"note": "Удаляемая заметка"},
+    )
+    assert put_response.status_code == 200, put_response.text
+
+    delete_response = client.delete(f"/recipes/{recipe['id']}/note", headers=auth_headers(token))
+    assert delete_response.status_code == 204, delete_response.text
+
+    get_response = client.get(f"/recipes/{recipe['id']}/note", headers=auth_headers(token))
+    assert get_response.status_code == 200, get_response.text
+    assert get_response.json()["note"] is None
+
+
+def test_blank_recipe_note_returns_422(client: TestClient) -> None:
+    register_user(client, email="note-blank@example.com", username="noteblank")
+    token = login_and_get_token(client, identifier="note-blank@example.com")
+    recipe = create_recipe_via_api(client, token, name="Рецепт пустой заметки")
+
+    response = client.put(
+        f"/recipes/{recipe['id']}/note",
+        headers=auth_headers(token),
+        json={"note": "   "},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_copy_public_recipe_creates_own_private_draft(client: TestClient) -> None:
+    register_user(client, email="copy-public-owner@example.com", username="copypublicowner")
+    owner_token = login_and_get_token(client, identifier="copy-public-owner@example.com")
+    food = create_food_via_api(
+        client,
+        owner_token,
+        name="Продукт для копии",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="10.00",
+    )
+    source_recipe = create_recipe_via_api(
+        client,
+        owner_token,
+        name="Публичная копия",
+        description="Описание",
+        instructions="Шаг 1. Шаг 2.",
+        image_url="https://example.com/public-copy.jpg",
+        cook_time_minutes=25,
+        meal_types=["dinner"],
+    )
+    add_response = client.post(
+        f"/recipes/{source_recipe['id']}/ingredients",
+        headers=auth_headers(owner_token),
+        json={"food_id": food["id"], "grams": "120"},
+    )
+    assert add_response.status_code == 201, add_response.text
+    steps_response = client.put(
+        f"/recipes/{source_recipe['id']}/steps",
+        headers=auth_headers(owner_token),
+        json={"steps": [{"text": "Подготовьте ингредиенты"}, {"text": "Приготовьте блюдо"}]},
+    )
+    assert steps_response.status_code == 200, steps_response.text
+    publish_response = client.post(f"/recipes/{source_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="copy-public-user@example.com", username="copypublicuser")
+    user_token = login_and_get_token(client, identifier="copy-public-user@example.com")
+
+    copy_response = client.post(f"/recipes/{source_recipe['id']}/copy", headers=auth_headers(user_token))
+    assert copy_response.status_code == 201, copy_response.text
+    copied = copy_response.json()
+    assert copied["owner_user_id"] != source_recipe["owner_user_id"]
+    assert copied["source"] == "private"
+    assert copied["status"] == "draft"
+    assert copied["is_listed"] is False
+    assert copied["description"] == "Описание"
+    assert copied["instructions"] == "Шаг 1. Шаг 2."
+    assert copied["image_url"] == "https://example.com/public-copy.jpg"
+    assert copied["cook_time_minutes"] == 25
+    assert len(copied["ingredients"]) == 1
+    assert copied["ingredients"][0]["food_id"] == food["id"]
+    assert len(copied.get("steps") or []) == 2
+
+
+def test_copied_recipe_can_be_edited_by_new_owner(client: TestClient) -> None:
+    register_user(client, email="copy-edit-owner@example.com", username="copyeditowner")
+    owner_token = login_and_get_token(client, identifier="copy-edit-owner@example.com")
+    source_recipe = create_recipe_via_api(client, owner_token, name="Рецепт для копирования")
+    publish_response = client.post(f"/recipes/{source_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="copy-edit-user@example.com", username="copyedituser")
+    user_token = login_and_get_token(client, identifier="copy-edit-user@example.com")
+
+    copy_response = client.post(f"/recipes/{source_recipe['id']}/copy", headers=auth_headers(user_token))
+    assert copy_response.status_code == 201, copy_response.text
+    copied_id = copy_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/recipes/{copied_id}",
+        headers=auth_headers(user_token),
+        json={"name": "Моя версия рецепта"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["name"] == "Моя версия рецепта"
+
+
+def test_copy_inaccessible_private_recipe_returns_404(client: TestClient) -> None:
+    register_user(client, email="copy-private-owner@example.com", username="copyprivateowner")
+    owner_token = login_and_get_token(client, identifier="copy-private-owner@example.com")
+    source_recipe = create_recipe_via_api(client, owner_token, name="Закрытый рецепт")
+
+    register_user(client, email="copy-private-user@example.com", username="copyprivateuser")
+    user_token = login_and_get_token(client, identifier="copy-private-user@example.com")
+
+    response = client.post(f"/recipes/{source_recipe['id']}/copy", headers=auth_headers(user_token))
+    assert response.status_code == 404, response.text
+
+
+def test_copy_does_not_modify_original(client: TestClient) -> None:
+    register_user(client, email="copy-original-owner@example.com", username="copyoriginalowner")
+    owner_token = login_and_get_token(client, identifier="copy-original-owner@example.com")
+    source_recipe = create_recipe_via_api(client, owner_token, name="Оригинал рецепта")
+    publish_response = client.post(f"/recipes/{source_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="copy-original-user@example.com", username="copyoriginaluser")
+    user_token = login_and_get_token(client, identifier="copy-original-user@example.com")
+
+    copy_response = client.post(f"/recipes/{source_recipe['id']}/copy", headers=auth_headers(user_token))
+    assert copy_response.status_code == 201, copy_response.text
+
+    original_response = client.get(f"/recipes/{source_recipe['id']}", headers=auth_headers(owner_token))
+    assert original_response.status_code == 200, original_response.text
+    original = original_response.json()
+    assert original["source"] == "community"
+    assert original["status"] == "approved"
+
+
+def test_notes_are_not_copied(client: TestClient) -> None:
+    register_user(client, email="copy-note-owner@example.com", username="copynoteowner")
+    owner_token = login_and_get_token(client, identifier="copy-note-owner@example.com")
+    source_recipe = create_recipe_via_api(client, owner_token, name="Рецепт с заметкой")
+    publish_response = client.post(f"/recipes/{source_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="copy-note-user@example.com", username="copynoteuser")
+    user_token = login_and_get_token(client, identifier="copy-note-user@example.com")
+
+    note_response = client.put(
+        f"/recipes/{source_recipe['id']}/note",
+        headers=auth_headers(user_token),
+        json={"note": "Личная заметка к оригиналу"},
+    )
+    assert note_response.status_code == 200, note_response.text
+
+    copy_response = client.post(f"/recipes/{source_recipe['id']}/copy", headers=auth_headers(user_token))
+    assert copy_response.status_code == 201, copy_response.text
+    copied_id = copy_response.json()["id"]
+
+    copied_note_response = client.get(f"/recipes/{copied_id}/note", headers=auth_headers(user_token))
+    assert copied_note_response.status_code == 200, copied_note_response.text
+    assert copied_note_response.json()["note"] is None

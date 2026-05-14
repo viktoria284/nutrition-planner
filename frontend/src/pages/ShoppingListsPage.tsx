@@ -260,7 +260,7 @@ export function ShoppingListsPage() {
                       <span className="sr-only">Выбрать список</span>
                     </label>
 
-                    <div className="plan-list-main">
+                    <Link to={`/shopping-lists/${list.id}`} className="plan-list-main plan-list-main-link">
                       <div className="shopping-list-card-title-row">
                         <p className="plan-list-title">{list.title}</p>
                         {list.is_outdated && (
@@ -272,12 +272,9 @@ export function ShoppingListsPage() {
                         <span>{formatItemsCount(list.items_total)}</span>
                         <span>{sourceLabel}</span>
                       </div>
-                    </div>
+                    </Link>
 
                     <div className="plan-list-actions shopping-list-card-actions">
-                      <Link to={`/shopping-lists/${list.id}`} className="btn btn-secondary">
-                        Открыть
-                      </Link>
                       <button
                         type="button"
                         className="btn btn-secondary"

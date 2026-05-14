@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -26,9 +27,28 @@ def _normalize_meal_types(value: list[str]) -> list[str]:
     return normalized
 
 
+def _normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def _validate_image_url(value: str | None) -> str | None:
+    normalized = _normalize_optional_text(value)
+    if normalized is None:
+        return None
+    parsed = urlparse(normalized)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("image_url must be a valid http/https URL")
+    return normalized
+
+
 class RecipeCreate(BaseModel):
     name: str
     description: str | None = None
+    instructions: str | None = None
+    image_url: str | None = None
     servings_count: Annotated[int, Field(ge=1)]
     meal_types: MealTypes
     cook_time_minutes: CookTimeMinutes | None = None
@@ -44,10 +64,17 @@ class RecipeCreate(BaseModel):
     @field_validator("description")
     @classmethod
     def validate_description(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        return normalized or None
+        return _normalize_optional_text(value)
+
+    @field_validator("instructions")
+    @classmethod
+    def validate_instructions(cls, value: str | None) -> str | None:
+        return _normalize_optional_text(value)
+
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, value: str | None) -> str | None:
+        return _validate_image_url(value)
 
     @field_validator("meal_types")
     @classmethod
@@ -58,6 +85,8 @@ class RecipeCreate(BaseModel):
 class RecipeUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    instructions: str | None = None
+    image_url: str | None = None
     servings_count: Annotated[int, Field(ge=1)] | None = None
     meal_types: list[str] | None = None
     cook_time_minutes: CookTimeMinutes | None = None
@@ -75,10 +104,17 @@ class RecipeUpdate(BaseModel):
     @field_validator("description")
     @classmethod
     def validate_description(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        return normalized or None
+        return _normalize_optional_text(value)
+
+    @field_validator("instructions")
+    @classmethod
+    def validate_instructions(cls, value: str | None) -> str | None:
+        return _normalize_optional_text(value)
+
+    @field_validator("image_url")
+    @classmethod
+    def validate_image_url(cls, value: str | None) -> str | None:
+        return _validate_image_url(value)
 
     @field_validator("meal_types")
     @classmethod
@@ -180,11 +216,51 @@ class RecipeIngredientRead(BaseModel):
         from_attributes = True
 
 
+class RecipeStepRead(BaseModel):
+    id: int
+    recipe_id: int
+    position: int
+    text: str
+    note: str | None = None
+    image_url: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RecipeStepInput(BaseModel):
+    id: int | None = None
+    position: Annotated[int, Field(ge=1)] | None = None
+    text: str
+    note: str | None = None
+
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("text cannot be empty")
+        return normalized
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str | None) -> str | None:
+        return _normalize_optional_text(value)
+
+
+class RecipeStepsReplace(BaseModel):
+    steps: list[RecipeStepInput] = Field(default_factory=list)
+
+
 class RecipeRead(BaseModel):
     id: int
     owner_user_id: int
     name: str
     description: str | None
+    instructions: str | None
+    image_url: str | None
     servings_count: int
     meal_types: list[str]
     cook_time_minutes: int | None
@@ -193,6 +269,7 @@ class RecipeRead(BaseModel):
     reports_count: int
     is_listed: bool
     ingredients: list[RecipeIngredientRead] = Field(default_factory=list)
+    steps: list[RecipeStepRead] = Field(default_factory=list)
     total_grams: Decimal
     total_kcal: Decimal
     total_protein: Decimal
@@ -207,3 +284,19 @@ class RecipeRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class RecipeNoteRead(BaseModel):
+    note: str | None
+
+
+class RecipeNoteUpsert(BaseModel):
+    note: str
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("note cannot be blank")
+        return normalized
