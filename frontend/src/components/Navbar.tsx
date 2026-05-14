@@ -7,7 +7,7 @@ function navClass({ isActive }: { isActive: boolean }) {
 }
 
 export function Navbar() {
-  const { token, logout } = useAuth();
+  const { token, user, logout } = useAuth();
   const { profiles, activeProfileId, loading, setActiveProfileId } = useProfiles();
 
   const profileValue = activeProfileId !== null ? String(activeProfileId) : "";
@@ -34,6 +34,11 @@ export function Navbar() {
               <NavLink to="/shopping-lists" className={navClass}>
                 Списки покупок
               </NavLink>
+              {user?.role === "admin" && (
+                <NavLink to="/admin" className={navClass}>
+                  Админ
+                </NavLink>
+              )}
             </nav>
 
             <nav className="topbar-nav" aria-label="Пользовательское меню">

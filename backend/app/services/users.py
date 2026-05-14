@@ -62,3 +62,13 @@ def create_user(
     db.commit()
     db.refresh(user)
     return user
+
+
+def set_user_admin_role(db: Session, *, email: str, is_admin: bool) -> User | None:
+    user = get_user_by_email(db, email)
+    if user is None:
+        return None
+    user.role = UserRole.admin if is_admin else UserRole.user
+    db.commit()
+    db.refresh(user)
+    return user

@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes.admin_foods import router as admin_foods_router
+from app.api.routes.admin import router as admin_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.foods import router as foods_router
 from app.api.routes.plans import router as plans_router
@@ -17,4 +17,4 @@ api_router.include_router(plans_router)
 api_router.include_router(shopping_router)
 api_router.include_router(foods_router)
 api_router.include_router(servings_router)
-api_router.include_router(admin_foods_router)
+api_router.include_router(admin_router)

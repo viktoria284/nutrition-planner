@@ -17,8 +17,10 @@ import { PlansAutogeneratePage } from "./pages/PlansAutogeneratePage";
 import { ShoppingListPage } from "./pages/ShoppingListPage";
 import { ShoppingListsPage } from "./pages/ShoppingListsPage";
 import { RequireAuth } from "./auth/RequireAuth";
+import { RequireAdmin } from "./auth/RequireAdmin";
 import { Navbar } from "./components/Navbar";
 import { ProfilesProvider } from "./context/ProfilesContext";
+import { AdminPanelPage } from "./pages/AdminPanelPage";
 import "./App.css";
 
 export default function App() {
@@ -178,6 +180,56 @@ export default function App() {
               element={
                 <RequireAuth>
                   <SettingsPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <AdminPanelPage />
+                  </RequireAdmin>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/reports"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <AdminPanelPage />
+                  </RequireAdmin>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/recipes"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <AdminPanelPage />
+                  </RequireAdmin>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/foods"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <AdminPanelPage />
+                  </RequireAdmin>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/users"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <AdminPanelPage />
+                  </RequireAdmin>
                 </RequireAuth>
               }
             />
