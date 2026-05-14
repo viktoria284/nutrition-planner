@@ -20,6 +20,7 @@ type CreateProfileForm = {
   target_protein: string;
   target_fat: string;
   target_carbs: string;
+  target_fiber: string;
 };
 
 const EMPTY_CREATE_FORM: CreateProfileForm = {
@@ -28,6 +29,7 @@ const EMPTY_CREATE_FORM: CreateProfileForm = {
   target_protein: "",
   target_fat: "",
   target_carbs: "",
+  target_fiber: "",
 };
 
 function sortProfilesWithDefaultFirst(items: Profile[]): Profile[] {
@@ -46,6 +48,20 @@ function parseNullableNonNegativeInt(value: string, label: string): number | nul
   }
   if (parsed < 0) {
     throw new Error(`Поле "${label}" не может быть отрицательным.`);
+  }
+  return parsed;
+}
+
+function parseNullableFiberInt(value: string): number | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    throw new Error("Поле \"Клетчатка\" должно быть целым числом.");
+  }
+  if (parsed < 0 || parsed > 100) {
+    throw new Error("Поле \"Клетчатка\" должно быть в диапазоне от 0 до 100.");
   }
   return parsed;
 }
@@ -172,6 +188,7 @@ export function SettingsPage() {
         target_protein: parseNullableNonNegativeInt(createForm.target_protein, "Белки"),
         target_fat: parseNullableNonNegativeInt(createForm.target_fat, "Жиры"),
         target_carbs: parseNullableNonNegativeInt(createForm.target_carbs, "Углеводы"),
+        target_fiber: parseNullableFiberInt(createForm.target_fiber),
       };
 
       const created = await createProfile(payload);
@@ -386,6 +403,18 @@ export function SettingsPage() {
                     min={0}
                     value={createForm.target_carbs}
                     onChange={(e) => updateCreateField("target_carbs", e.target.value)}
+                    placeholder="Опционально"
+                  />
+                </label>
+                <label className="profile-name-field" htmlFor="create_target_fiber">
+                  <span className="profile-name-label">Клетчатка (г)</span>
+                  <input
+                    id="create_target_fiber"
+                    className="profile-name-input"
+                    type="number"
+                    min={0}
+                    value={createForm.target_fiber}
+                    onChange={(e) => updateCreateField("target_fiber", e.target.value)}
                     placeholder="Опционально"
                   />
                 </label>

@@ -275,6 +275,7 @@ export function RecipesListPage() {
                       <span className="recipe-row-kcal">{recipe.cook_time_minutes} мин</span>
                     )}
                     <span className="recipe-row-kcal">{formatMetric(recipe.total_kcal)} ккал</span>
+                    <span className="recipe-row-kcal">Клетчатка: {formatMetric(recipe.per_serving_fiber)} г</span>
                   </div>
                 </Link>
               </li>

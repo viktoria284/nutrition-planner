@@ -54,6 +54,7 @@ def _zero_nutrition_totals() -> dict[str, Decimal]:
         "protein": Decimal("0"),
         "fat": Decimal("0"),
         "carbs": Decimal("0"),
+        "fiber": Decimal("0"),
     }
 
 
@@ -77,6 +78,7 @@ def _build_slot_payload(
             totals["protein"] = recipe_totals["protein"] * slot.servings_multiplier
             totals["fat"] = recipe_totals["fat"] * slot.servings_multiplier
             totals["carbs"] = recipe_totals["carbs"] * slot.servings_multiplier
+            totals["fiber"] = recipe_totals["fiber"] * slot.servings_multiplier
 
     return {
         "id": slot.id,
@@ -89,6 +91,7 @@ def _build_slot_payload(
         "slot_protein": _quantize_nutrient(totals["protein"]),
         "slot_fat": _quantize_nutrient(totals["fat"]),
         "slot_carbs": _quantize_nutrient(totals["carbs"]),
+        "slot_fiber": _quantize_nutrient(totals["fiber"]),
         "pinned": slot.pinned,
         "created_at": slot.created_at,
         "updated_at": slot.updated_at,
@@ -145,6 +148,7 @@ def build_plan_read(plan: Plan) -> PlanRead:
             "protein": nutrients["per_serving_protein"],
             "fat": nutrients["per_serving_fat"],
             "carbs": nutrients["per_serving_carbs"],
+            "fiber": nutrients["per_serving_fiber"],
         }
 
     slot_payload_by_id = {
@@ -166,6 +170,7 @@ def build_plan_read(plan: Plan) -> PlanRead:
             totals["protein"] += recipe_totals["protein"] * slot.servings_multiplier
             totals["fat"] += recipe_totals["fat"] * slot.servings_multiplier
             totals["carbs"] += recipe_totals["carbs"] * slot.servings_multiplier
+            totals["fiber"] += recipe_totals["fiber"] * slot.servings_multiplier
 
         days_payload.append(
             PlanDayRead.model_validate(
@@ -177,6 +182,7 @@ def build_plan_read(plan: Plan) -> PlanRead:
                             "protein": _quantize_nutrient(totals["protein"]),
                             "fat": _quantize_nutrient(totals["fat"]),
                             "carbs": _quantize_nutrient(totals["carbs"]),
+                            "fiber": _quantize_nutrient(totals["fiber"]),
                         }
                     ),
                     "slots": [PlanSlotRead.model_validate(slot_payload_by_id[slot.id]) for slot in day_slots],
@@ -198,6 +204,7 @@ def build_plan_read(plan: Plan) -> PlanRead:
             "target_protein": plan.target_protein,
             "target_fat": plan.target_fat,
             "target_carbs": plan.target_carbs,
+            "target_fiber": plan.target_fiber,
             "created_at": plan.created_at,
             "updated_at": plan.updated_at,
             "slots": [PlanSlotRead.model_validate(slot_payload_by_id[slot.id]) for slot in sorted_slots],
@@ -215,6 +222,7 @@ def build_plan_slot_read(slot: PlanSlot) -> PlanSlotRead:
             "protein": nutrients["per_serving_protein"],
             "fat": nutrients["per_serving_fat"],
             "carbs": nutrients["per_serving_carbs"],
+            "fiber": nutrients["per_serving_fiber"],
         }
     return PlanSlotRead.model_validate(
         _build_slot_payload(slot, recipe_per_serving_cache=recipe_per_serving_cache)
@@ -245,6 +253,7 @@ def build_plan_list_item(plan: Plan) -> PlanListItem:
             "target_protein": plan.target_protein,
             "target_fat": plan.target_fat,
             "target_carbs": plan.target_carbs,
+            "target_fiber": plan.target_fiber,
             "created_at": plan.created_at,
             "updated_at": plan.updated_at,
         }
@@ -265,6 +274,7 @@ def create_plan(db: Session, user_id: int, payload: PlanCreate) -> Plan:
         target_protein=profile.target_protein,
         target_fat=profile.target_fat,
         target_carbs=profile.target_carbs,
+        target_fiber=profile.target_fiber,
     )
     db.add(plan)
     db.flush()

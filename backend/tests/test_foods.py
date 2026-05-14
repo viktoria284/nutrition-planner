@@ -151,6 +151,94 @@ def test_create_food_default_category_is_other(client: TestClient) -> None:
     )
 
     assert created["category"] == "other"
+    assert Decimal(str(created["fiber"])) == Decimal("0")
+
+
+def test_create_food_with_fiber_and_patch_fiber(client: TestClient) -> None:
+    register_user(client, email="food_fiber_create@example.com", username="food_fiber_create")
+    token = login_and_get_token(client, identifier="food_fiber_create@example.com")
+
+    created = create_food_with_payload(
+        client,
+        token,
+        {
+            "name": "Продукт с клетчаткой",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+            "fiber": "7.50",
+        },
+    )
+    assert Decimal(str(created["fiber"])) == Decimal("7.50")
+
+    patched = client.patch(
+        f"/foods/{created['id']}",
+        headers=auth_headers(token),
+        json={"fiber": "3.25"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert Decimal(str(patched.json()["fiber"])) == Decimal("3.25")
+
+    detail = client.get(f"/foods/{created['id']}", headers=auth_headers(token))
+    assert detail.status_code == 200, detail.text
+    assert Decimal(str(detail.json()["fiber"])) == Decimal("3.25")
+
+    search = client.get("/foods/search", headers=auth_headers(token), params={"q": "клетчаткой"})
+    assert search.status_code == 200, search.text
+    found = next(item for item in search.json() if item["id"] == created["id"])
+    assert Decimal(str(found["fiber"])) == Decimal("3.25")
+
+
+def test_food_fiber_validation_for_create_and_patch(client: TestClient) -> None:
+    register_user(client, email="food_fiber_invalid@example.com", username="food_fiber_invalid")
+    token = login_and_get_token(client, identifier="food_fiber_invalid@example.com")
+
+    create_negative = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Negative fiber",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+            "fiber": "-1.00",
+        },
+    )
+    assert create_negative.status_code == 422, create_negative.text
+
+    create_too_high = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Too high fiber",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+            "fiber": "101.00",
+        },
+    )
+    assert create_too_high.status_code == 422, create_too_high.text
+
+    created = create_food_with_payload(
+        client,
+        token,
+        {
+            "name": "Fiber patch source",
+            "kcal": "100.00",
+            "protein": "10.00",
+            "fat": "5.00",
+            "carbs": "20.00",
+        },
+    )
+    patch_invalid = client.patch(
+        f"/foods/{created['id']}",
+        headers=auth_headers(token),
+        json={"fiber": "150.00"},
+    )
+    assert patch_invalid.status_code == 422, patch_invalid.text
 
 
 def test_create_food_with_category_and_patch_category(client: TestClient) -> None:
@@ -261,13 +349,64 @@ def test_seed_verified_foods_idempotent(db_session_factory: sessionmaker[Session
                 FoodItem.name == "Яйцо куриное",
             )
         ).scalar_one().category
+        foods_with_fiber = db_session.execute(
+            select(func.count(FoodItem.id)).where(
+                FoodItem.source == FoodSource.verified,
+                FoodItem.fiber > 0,
+            )
+        ).scalar_one()
+        animal_fiber = db_session.execute(
+            select(FoodItem.fiber).where(
+                FoodItem.source == FoodSource.verified,
+                FoodItem.name == "Яйцо куриное",
+            )
+        ).scalar_one()
     finally:
         db_session.close()
 
-    assert 20 <= created_first <= 50
+    assert 20 <= created_first <= 70
     assert created_second == 0
     assert count_after_second == count_after_first
     assert egg_category == "eggs"
+    assert int(foods_with_fiber or 0) > 0
+    assert Decimal(str(animal_fiber)) == Decimal("0")
+
+
+def test_seed_verified_foods_have_plausible_fiber_for_cooked_grains_and_legumes(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db_session = db_session_factory()
+    try:
+        seed_verified_foods(db_session, replace_existing_values=True)
+        foods = db_session.execute(
+            select(FoodItem).where(FoodItem.source == FoodSource.verified)
+        ).scalars().all()
+        by_name = {food.name: food for food in foods}
+    finally:
+        db_session.close()
+
+    cooked_grain_ranges = {
+        "Рис отварной": (Decimal("0.30"), Decimal("1.50")),
+        "Гречка отварная": (Decimal("2.50"), Decimal("4.00")),
+        "Булгур отварной": (Decimal("1.50"), Decimal("4.00")),
+        "Кускус отварной": (Decimal("1.00"), Decimal("2.00")),
+        "Киноа отварная": (Decimal("2.00"), Decimal("3.50")),
+    }
+    cooked_legume_ranges = {
+        "Нут вареный": (Decimal("5.00"), Decimal("8.00")),
+        "Фасоль красная вареная": (Decimal("5.00"), Decimal("8.00")),
+        "Чечевица вареная": (Decimal("5.00"), Decimal("8.00")),
+    }
+    zero_fiber_products = ["Куриная грудка", "Лосось", "Яйцо куриное", "Творог 5%", "Оливковое масло"]
+
+    for name, (lower, upper) in {**cooked_grain_ranges, **cooked_legume_ranges}.items():
+        assert name in by_name
+        value = Decimal(str(by_name[name].fiber))
+        assert lower <= value <= upper
+
+    for name in zero_fiber_products:
+        assert name in by_name
+        assert Decimal(str(by_name[name].fiber)) == Decimal("0")
 
 
 def test_verified_food_visible_for_both_users(client: TestClient, db_session_factory: sessionmaker[Session]) -> None:

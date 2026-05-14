@@ -39,6 +39,7 @@ type FoodEditForm = {
   protein: string;
   fat: string;
   carbs: string;
+  fiber: string;
 };
 
 type FoodEditErrors = {
@@ -49,6 +50,7 @@ type FoodEditErrors = {
   protein?: string;
   fat?: string;
   carbs?: string;
+  fiber?: string;
   form?: string[];
 };
 
@@ -84,6 +86,7 @@ const EMPTY_EDIT_FORM: FoodEditForm = {
   protein: "",
   fat: "",
   carbs: "",
+  fiber: "",
 };
 
 const EMPTY_REPORT_FORM: ReportForm = {
@@ -167,6 +170,7 @@ function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; pay
   let hasNegative = false;
   let hasMacroUpper = false;
   let hasKcalUpper = false;
+  let hasFiberUpper = false;
 
   for (const key of numericKeys) {
     const raw = form[key].trim();
@@ -201,10 +205,27 @@ function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; pay
     parsed[key] = value;
   }
 
+  const fiberRaw = form.fiber.trim();
+  const fiberValue = fiberRaw ? Number(fiberRaw) : 0;
+  if (!Number.isFinite(fiberValue)) {
+    errors.fiber = "invalid";
+    hasInvalidNumeric = true;
+  } else {
+    if (fiberValue < 0) {
+      errors.fiber = "invalid";
+      hasNegative = true;
+    }
+    if (fiberValue > 100) {
+      errors.fiber = "invalid";
+      hasFiberUpper = true;
+    }
+  }
+
   if (hasInvalidNumeric) formErrors.push("Заполните корректные числовые значения КБЖУ.");
   if (hasNegative) formErrors.push("Значения не могут быть отрицательными.");
   if (hasMacroUpper) formErrors.push("Белки, жиры и углеводы должны быть не больше 100 г на 100 г продукта.");
   if (hasKcalUpper) formErrors.push("Калорийность должна быть не больше 1000 ккал на 100 г.");
+  if (hasFiberUpper) formErrors.push("Клетчатка должна быть не больше 100 г на 100 г продукта.");
 
   if (formErrors.length > 0) {
     errors.form = formErrors;
@@ -221,6 +242,7 @@ function validateFoodEditForm(form: FoodEditForm): { errors: FoodEditErrors; pay
       protein: parsed.protein as number,
       fat: parsed.fat as number,
       carbs: parsed.carbs as number,
+      fiber: fiberValue,
     },
   };
 }
@@ -234,6 +256,7 @@ function toEditForm(food: FoodItem): FoodEditForm {
     protein: formatFoodValueForInput(food.protein),
     fat: formatFoodValueForInput(food.fat),
     carbs: formatFoodValueForInput(food.carbs),
+    fiber: formatFoodValueForInput(food.fiber),
   };
 }
 
@@ -900,6 +923,10 @@ export function FoodDetailsPage() {
                 <dt>Углеводы</dt>
                 <dd>{formatNutrient(food.carbs)} г</dd>
               </div>
+              <div className="food-nutrients-row">
+                <dt>Клетчатка</dt>
+                <dd>{formatNutrient(food.fiber)} г</dd>
+              </div>
             </dl>
           </article>
         )}
@@ -1183,6 +1210,21 @@ export function FoodDetailsPage() {
                     step="any"
                     value={editForm.carbs}
                     onChange={(e) => updateEditField("carbs", e.target.value)}
+                    placeholder="0"
+                  />
+                </label>
+
+                <label className="foods-field" htmlFor="edit_food_fiber">
+                  <span className="foods-field-label">Клетчатка (г)</span>
+                  <input
+                    id="edit_food_fiber"
+                    className={`foods-field-input ${editErrors.fiber ? "is-invalid" : ""}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    value={editForm.fiber}
+                    onChange={(e) => updateEditField("fiber", e.target.value)}
                     placeholder="0"
                   />
                 </label>

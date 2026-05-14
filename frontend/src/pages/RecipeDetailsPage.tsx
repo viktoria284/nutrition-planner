@@ -101,6 +101,7 @@ const TOTAL_METRICS: Array<{ key: keyof RecipeRead; label: string }> = [
   { key: "total_protein", label: "Белки (г)" },
   { key: "total_fat", label: "Жиры (г)" },
   { key: "total_carbs", label: "Углеводы (г)" },
+  { key: "total_fiber", label: "Клетчатка (г)" },
 ];
 
 const PER_SERVING_METRICS: Array<{ key: keyof RecipeRead; label: string }> = [
@@ -108,6 +109,7 @@ const PER_SERVING_METRICS: Array<{ key: keyof RecipeRead; label: string }> = [
   { key: "per_serving_protein", label: "Белки/порция (г)" },
   { key: "per_serving_fat", label: "Жиры/порция (г)" },
   { key: "per_serving_carbs", label: "Углеводы/порция (г)" },
+  { key: "per_serving_fiber", label: "Клетчатка/порция (г)" },
 ];
 
 function formatMetric(value: string | number): string {

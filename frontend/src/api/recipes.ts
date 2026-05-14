@@ -40,10 +40,12 @@ export type RecipeRead = {
   total_protein: DecimalValue;
   total_fat: DecimalValue;
   total_carbs: DecimalValue;
+  total_fiber: DecimalValue;
   per_serving_kcal: DecimalValue;
   per_serving_protein: DecimalValue;
   per_serving_fat: DecimalValue;
   per_serving_carbs: DecimalValue;
+  per_serving_fiber: DecimalValue;
   created_at: string;
   updated_at: string;
 };

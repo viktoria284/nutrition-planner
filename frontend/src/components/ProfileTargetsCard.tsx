@@ -13,6 +13,7 @@ type GoalsForm = {
   target_protein: string;
   target_fat: string;
   target_carbs: string;
+  target_fiber: string;
   protein_pct: string;
   fat_pct: string;
   carbs_pct: string;
@@ -23,6 +24,7 @@ type GoalsResolved = {
   target_protein: string;
   target_fat: string;
   target_carbs: string;
+  target_fiber: string;
   protein_pct: string;
   fat_pct: string;
   carbs_pct: string;
@@ -63,6 +65,20 @@ function parsePayloadNonNegativeInt(value: string, label: string): number | null
   }
   if (parsed < 0) {
     throw new Error(`Поле "${label}" не может быть отрицательным.`);
+  }
+  return parsed;
+}
+
+function parsePayloadFiberInt(value: string, label: string): number | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    throw new Error(`Поле "${label}" должно быть целым числом.`);
+  }
+  if (parsed < 0 || parsed > 100) {
+    throw new Error(`Поле "${label}" должно быть в диапазоне от 0 до 100.`);
   }
   return parsed;
 }
@@ -189,6 +205,7 @@ function buildGoalsForm(profile: Profile): GoalsForm {
     target_protein: formatNullableNumber(profile.target_protein),
     target_fat: formatNullableNumber(profile.target_fat),
     target_carbs: formatNullableNumber(profile.target_carbs),
+    target_fiber: formatNullableNumber(profile.target_fiber),
     protein_pct: proteinPct,
     fat_pct: fatPct,
     carbs_pct: carbsPct,
@@ -211,6 +228,7 @@ function resolveGoalsValues(form: GoalsForm, mode: GoalsMode): GoalsResolved {
       target_protein: grams.target_protein,
       target_fat: grams.target_fat,
       target_carbs: grams.target_carbs,
+      target_fiber: form.target_fiber,
       protein_pct: form.protein_pct,
       fat_pct: form.fat_pct,
       carbs_pct: form.carbs_pct,
@@ -223,6 +241,7 @@ function resolveGoalsValues(form: GoalsForm, mode: GoalsMode): GoalsResolved {
     target_protein: form.target_protein,
     target_fat: form.target_fat,
     target_carbs: form.target_carbs,
+    target_fiber: form.target_fiber,
     protein_pct: derived.protein_pct,
     fat_pct: derived.fat_pct,
     carbs_pct: derived.carbs_pct,
@@ -267,6 +286,17 @@ function validateGoals(form: GoalsForm, mode: GoalsMode): string | null {
     if (kcal !== null && hasAnyPct) {
       const sum = (proteinPct ?? 0) + (fatPct ?? 0) + (carbsPct ?? 0);
       if (sum !== 100) return "Сумма процентов должна быть 100%";
+    }
+  }
+
+  const fiberRaw = form.target_fiber.trim();
+  if (fiberRaw) {
+    const fiber = Number(fiberRaw);
+    if (!Number.isFinite(fiber) || !Number.isInteger(fiber)) {
+      return "Поле \"Клетчатка (г)\" должно быть целым числом.";
+    }
+    if (fiber < 0 || fiber > 100) {
+      return "Поле \"Клетчатка (г)\" должно быть в диапазоне от 0 до 100.";
     }
   }
 
@@ -398,6 +428,7 @@ export function ProfileTargetsCard({
     profile.target_protein,
     profile.target_fat,
     profile.target_carbs,
+    profile.target_fiber,
     profile.excluded_food_ids,
     profile.preferred_food_ids,
     profile.preferred_categories,
@@ -481,6 +512,7 @@ export function ProfileTargetsCard({
       target_protein: resolved.target_protein,
       target_fat: resolved.target_fat,
       target_carbs: resolved.target_carbs,
+      target_fiber: resolved.target_fiber,
       protein_pct: resolved.protein_pct,
       fat_pct: resolved.fat_pct,
       carbs_pct: resolved.carbs_pct,
@@ -549,6 +581,7 @@ export function ProfileTargetsCard({
         target_protein: parsePayloadNonNegativeInt(resolvedGoals.target_protein, "Белки"),
         target_fat: parsePayloadNonNegativeInt(resolvedGoals.target_fat, "Жиры"),
         target_carbs: parsePayloadNonNegativeInt(resolvedGoals.target_carbs, "Углеводы"),
+        target_fiber: parsePayloadFiberInt(resolvedGoals.target_fiber, "Клетчатка"),
         excluded_food_ids: excludedFoods.map((food) => food.id),
         preferred_food_ids: preferredFoods.map((food) => food.id),
         preferred_categories: preferredCategories,
@@ -761,6 +794,22 @@ export function ProfileTargetsCard({
               />
             </div>
           </div>
+
+          <div className="goals-kcal-row">
+            <span className="goals-kcal-label">Клетчатка</span>
+            <GoalsValueInput
+              id={`target_fiber_${profile.id}`}
+              ariaLabel={`Клетчатка, граммы профиля ${profile.name}`}
+              value={resolvedGoals.target_fiber}
+              unit="г"
+              editable
+              onChange={(v) => updateGoalsField("target_fiber", v)}
+              placeholder="Например, 25"
+            />
+          </div>
+          <p className="profile-preferences-hint">
+            Используется как мягкий критерий при автопланировании.
+          </p>
         </div>
 
         <details className="profile-preferences-card">

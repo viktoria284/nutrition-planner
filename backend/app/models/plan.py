@@ -30,6 +30,7 @@ class Plan(Base):
     target_protein: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_fat: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_carbs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_fiber: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

@@ -260,6 +260,7 @@ export function PublicRecipesPage() {
                       <span className="recipe-row-kcal">{recipe.cook_time_minutes} мин</span>
                     )}
                     <span className="recipe-row-kcal">{formatMetric(recipe.per_serving_kcal)} ккал/порц.</span>
+                    <span className="recipe-row-kcal">Клетчатка: {formatMetric(recipe.per_serving_fiber)} г</span>
                   </div>
                 </Link>
               </li>

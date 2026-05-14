@@ -12,13 +12,13 @@ from app.services.recipes import (
 )
 
 
-MIN_DEMO_RECIPES = 36
+MIN_DEMO_RECIPES = 72
 MAX_DEMO_RECIPES = len(DEMO_PUBLIC_RECIPES)
 MIN_MEAL_TYPE_COUNTS = {
-    "breakfast": 16,
-    "lunch": 18,
-    "dinner": 18,
-    "snack": 12,
+    "breakfast": 18,
+    "lunch": 20,
+    "dinner": 20,
+    "snack": 14,
 }
 HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES = {
     "Овсянка с арахисовой пастой и бананом",
@@ -121,6 +121,25 @@ def test_seed_creates_public_lunch_recipes(
         db.close()
 
 
+def test_seed_creates_universal_lunch_dinner_recipes(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        demo_names = [item["name"] for item in DEMO_PUBLIC_RECIPES]
+        demo_recipes = db.execute(
+            select(Recipe).where(Recipe.name.in_(demo_names))
+        ).scalars().all()
+        universal = [
+            recipe for recipe in demo_recipes
+            if "lunch" in recipe.meal_types and "dinner" in recipe.meal_types
+        ]
+        assert len(universal) >= 8
+    finally:
+        db.close()
+
+
 def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
     db_session_factory: sessionmaker[Session],
 ) -> None:
@@ -136,8 +155,10 @@ def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
         assert all(recipe.cook_time_minutes is not None for recipe in demo_recipes)
         assert all(recipe.instructions is not None for recipe in demo_recipes)
         assert all(str(recipe.instructions).strip() for recipe in demo_recipes)
+        fast_breakfast_count = 0
         fast_lunch_count = 0
         fast_dinner_count = 0
+        fast_lunch_dinner_count = 0
         for recipe in demo_recipes:
             meal_types = set(recipe.meal_types)
             assert recipe.cook_time_minutes is not None
@@ -145,13 +166,19 @@ def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
                 assert 5 <= recipe.cook_time_minutes <= 20
             elif meal_types & {"lunch", "dinner"}:
                 assert 10 <= recipe.cook_time_minutes <= 60
-            if "lunch" in meal_types and recipe.cook_time_minutes <= 20:
+            if "breakfast" in meal_types and recipe.cook_time_minutes <= 15:
+                fast_breakfast_count += 1
+            if "lunch" in meal_types and recipe.cook_time_minutes <= 25:
                 fast_lunch_count += 1
-            if "dinner" in meal_types and recipe.cook_time_minutes <= 20:
+            if "dinner" in meal_types and recipe.cook_time_minutes <= 25:
                 fast_dinner_count += 1
+            if {"lunch", "dinner"}.issubset(meal_types) and recipe.cook_time_minutes <= 25:
+                fast_lunch_dinner_count += 1
 
-        assert fast_lunch_count >= 8
-        assert fast_dinner_count >= 8
+        assert fast_breakfast_count >= 10
+        assert fast_lunch_count >= 14
+        assert fast_dinner_count >= 14
+        assert fast_lunch_dinner_count >= 8
     finally:
         db.close()
 
@@ -233,5 +260,26 @@ def test_seeded_demo_recipes_visible_in_public_catalog(
         assert all(recipe.source == FoodSource.community for recipe in visible_demo)
         assert all(recipe.status == FoodStatus.approved for recipe in visible_demo)
         assert all(recipe.is_listed is True for recipe in visible_demo)
+    finally:
+        db.close()
+
+
+def test_seed_demo_recipes_after_verified_foods_seed(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        from app.services.foods import seed_verified_foods
+
+        created_verified = seed_verified_foods(db, replace_existing_values=True)
+        assert created_verified >= 0
+
+        stats = seed_demo_public_recipes(db, replace_demo=True)
+        assert stats["created_verified_foods"] == 0
+        assert stats["created_recipes"] == stats["total_demo_recipes"]
+        assert stats["breakfast"] >= MIN_MEAL_TYPE_COUNTS["breakfast"]
+        assert stats["lunch"] >= MIN_MEAL_TYPE_COUNTS["lunch"]
+        assert stats["dinner"] >= MIN_MEAL_TYPE_COUNTS["dinner"]
+        assert stats["snack"] >= MIN_MEAL_TYPE_COUNTS["snack"]
     finally:
         db.close()

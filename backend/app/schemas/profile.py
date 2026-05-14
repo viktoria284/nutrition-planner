@@ -6,6 +6,7 @@ from app.models.constants import FOOD_CATEGORIES_SET
 
 TargetKcal = Annotated[int, Field(ge=0, le=20000)]
 TargetGrams = Annotated[int, Field(ge=0, le=2000)]
+TargetFiber = Annotated[int, Field(ge=0, le=100)]
 CookTimeMinutes = Annotated[int, Field(ge=1, le=1440)]
 
 
@@ -40,6 +41,7 @@ class ProfileCreate(BaseModel):
     target_protein: TargetGrams | None = None
     target_fat: TargetGrams | None = None
     target_carbs: TargetGrams | None = None
+    target_fiber: TargetFiber | None = None
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     preferred_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     preferred_categories: list[str] = Field(default_factory=list)
@@ -62,6 +64,7 @@ class ProfileUpdate(BaseModel):
     target_protein: TargetGrams | None = None
     target_fat: TargetGrams | None = None
     target_carbs: TargetGrams | None = None
+    target_fiber: TargetFiber | None = None
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] | None = None
     preferred_food_ids: list[Annotated[int, Field(ge=1)]] | None = None
     preferred_categories: list[str] | None = None
@@ -86,6 +89,7 @@ class ProfileOut(BaseModel):
     target_protein: int | None
     target_fat: int | None
     target_carbs: int | None
+    target_fiber: int | None
     excluded_food_ids: list[int] = Field(default_factory=list)
     preferred_food_ids: list[int] = Field(default_factory=list)
     preferred_categories: list[str] = Field(default_factory=list)

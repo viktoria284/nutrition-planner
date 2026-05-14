@@ -14,6 +14,7 @@ export type FoodItem = {
   protein: number;
   fat: number;
   carbs: number;
+  fiber: number;
   category: FoodCategory;
   source: FoodSource;
   status: FoodStatus;
@@ -30,6 +31,7 @@ export type FoodCreatePayload = {
   protein: number;
   fat: number;
   carbs: number;
+  fiber?: number;
   category?: FoodCategory;
 };
 
@@ -40,6 +42,7 @@ export type FoodItemUpdatePayload = {
   protein?: number;
   fat?: number;
   carbs?: number;
+  fiber?: number;
   category?: FoodCategory;
 };
 
@@ -94,6 +97,7 @@ export async function createFood(payload: FoodCreatePayload): Promise<FoodItem> 
     protein: payload.protein,
     fat: payload.fat,
     carbs: payload.carbs,
+    fiber: payload.fiber ?? 0,
     ...(payload.category ? { category: payload.category } : {}),
     ...(normalizedBrand ? { brand: normalizedBrand } : {}),
   };

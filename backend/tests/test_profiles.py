@@ -151,6 +151,52 @@ def test_profile_targets_validation(client: TestClient) -> None:
     assert response.status_code == 422, response.text
 
 
+def test_profile_target_fiber_create_patch_and_read(client: TestClient) -> None:
+    register_user(client, email="profile-fiber@example.com", username="profilefiber")
+    token = login_and_get_token(client, identifier="profile-fiber@example.com")
+
+    create_response = client.post(
+        "/profiles",
+        headers=auth_headers(token),
+        json={"name": "С клетчаткой", "target_fiber": 25},
+    )
+    assert create_response.status_code == 201, create_response.text
+    created = create_response.json()
+    assert created["target_fiber"] == 25
+
+    patch_response = client.patch(
+        f"/profiles/{created['id']}",
+        headers=auth_headers(token),
+        json={"target_fiber": 30},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["target_fiber"] == 30
+
+    profiles_response = client.get("/profiles", headers=auth_headers(token))
+    assert profiles_response.status_code == 200, profiles_response.text
+    reloaded = next(item for item in profiles_response.json() if item["id"] == created["id"])
+    assert reloaded["target_fiber"] == 30
+
+
+def test_profile_target_fiber_validation(client: TestClient) -> None:
+    register_user(client, email="profile-fiber-invalid@example.com", username="profilefiberinvalid")
+    token = login_and_get_token(client, identifier="profile-fiber-invalid@example.com")
+
+    create_negative = client.post(
+        "/profiles",
+        headers=auth_headers(token),
+        json={"name": "Invalid fiber", "target_fiber": -1},
+    )
+    assert create_negative.status_code == 422, create_negative.text
+
+    create_high = client.post(
+        "/profiles",
+        headers=auth_headers(token),
+        json={"name": "Invalid fiber high", "target_fiber": 101},
+    )
+    assert create_high.status_code == 422, create_high.text
+
+
 def test_profile_can_save_excluded_food(client: TestClient) -> None:
     register_user(client, email="profile-excluded@example.com", username="profileexcluded")
     token = login_and_get_token(client, identifier="profile-excluded@example.com")

@@ -61,6 +61,9 @@ function buildPlanTargetSummary(plan: PlanRead): string {
   if (plan.target_carbs !== null) {
     parts.push(`У ${plan.target_carbs}`);
   }
+  if (plan.target_fiber !== null) {
+    parts.push(`Клетчатка ${plan.target_fiber} г`);
+  }
   if (parts.length === 0) return "Не задана";
   return parts.join(" / ");
 }
@@ -412,6 +415,7 @@ function DayTotalsCompact({ day }: { day: PlanDay }) {
       <p className="plan-day-totals-item">Б: {formatDecimal(day.totals.protein)}</p>
       <p className="plan-day-totals-item">Ж: {formatDecimal(day.totals.fat)}</p>
       <p className="plan-day-totals-item">У: {formatDecimal(day.totals.carbs)}</p>
+      <p className="plan-day-totals-item">Клетчатка: {formatDecimal(day.totals.fiber)}</p>
     </div>
   );
 }
@@ -444,6 +448,7 @@ function SlotCell({
           <span>Б: {formatDecimal(slot.slot_protein)}</span>
           <span>Ж: {formatDecimal(slot.slot_fat)}</span>
           <span>У: {formatDecimal(slot.slot_carbs)}</span>
+          <span>Клетчатка: {formatDecimal(slot.slot_fiber)}</span>
         </div>
 
         {slot.pinned && <span className="plan-slot-badge">Закреплён</span>}

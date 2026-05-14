@@ -275,10 +275,12 @@ class RecipeRead(BaseModel):
     total_protein: Decimal
     total_fat: Decimal
     total_carbs: Decimal
+    total_fiber: Decimal
     per_serving_kcal: Decimal
     per_serving_protein: Decimal
     per_serving_fat: Decimal
     per_serving_carbs: Decimal
+    per_serving_fiber: Decimal
     created_at: datetime
     updated_at: datetime
 

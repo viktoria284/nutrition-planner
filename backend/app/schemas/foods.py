@@ -26,6 +26,7 @@ class FoodItemRead(BaseModel):
     protein: Decimal
     fat: Decimal
     carbs: Decimal
+    fiber: Decimal
     category: str
     source: FoodSource
     status: FoodStatus
@@ -56,6 +57,7 @@ class FoodItemCreate(BaseModel):
     protein: MacroDecimal
     fat: MacroDecimal
     carbs: MacroDecimal
+    fiber: MacroDecimal = Decimal("0")
     category: str = DEFAULT_FOOD_CATEGORY
 
     @field_validator("name")
@@ -102,6 +104,13 @@ class FoodItemCreate(BaseModel):
             raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
         return value
 
+    @field_validator("fiber")
+    @classmethod
+    def validate_fiber_upper_bound(cls, value: Decimal) -> Decimal:
+        if value > MAX_MACRO:
+            raise ValueError("Клетчатка должна быть ≤ 100 на 100 г.")
+        return value
+
     @field_validator("category")
     @classmethod
     def validate_category(cls, value: str) -> str:
@@ -118,6 +127,7 @@ class FoodItemUpdate(BaseModel):
     protein: MacroDecimal | None = None
     fat: MacroDecimal | None = None
     carbs: MacroDecimal | None = None
+    fiber: MacroDecimal | None = None
     category: str | None = None
 
     @field_validator("name")
@@ -172,6 +182,15 @@ class FoodItemUpdate(BaseModel):
             return None
         if value > MAX_MACRO:
             raise ValueError("Белки/жиры/углеводы должны быть ≤ 100 на 100 г.")
+        return value
+
+    @field_validator("fiber")
+    @classmethod
+    def validate_fiber_upper_bound(cls, value: Decimal | None) -> Decimal | None:
+        if value is None:
+            return None
+        if value > MAX_MACRO:
+            raise ValueError("Клетчатка должна быть ≤ 100 на 100 г.")
         return value
 
     @field_validator("category")

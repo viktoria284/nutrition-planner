@@ -1,4 +1,5 @@
 from decimal import Decimal
+from collections import Counter
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session, sessionmaker
@@ -110,17 +111,22 @@ def _create_profile_via_api(
     target_protein: int | None = None,
     target_fat: int | None = None,
     target_carbs: int | None = None,
+    target_fiber: int | None = None,
 ) -> dict:
+    payload: dict[str, int | str | None] = {
+        "name": name,
+        "target_kcal": target_kcal,
+        "target_protein": target_protein,
+        "target_fat": target_fat,
+        "target_carbs": target_carbs,
+    }
+    if target_fiber is not None:
+        payload["target_fiber"] = target_fiber
+
     response = client.post(
         "/profiles",
         headers=auth_headers(token),
-        json={
-            "name": name,
-            "target_kcal": target_kcal,
-            "target_protein": target_protein,
-            "target_fat": target_fat,
-            "target_carbs": target_carbs,
-        },
+        json=payload,
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -196,6 +202,7 @@ def test_autogenerate_uses_profile_id_from_request_and_saves_snapshot(
         target_protein=130,
         target_fat=55,
         target_carbs=140,
+        target_fiber=30,
     )
 
     response = _post_autogenerate_plan(
@@ -219,6 +226,7 @@ def test_autogenerate_uses_profile_id_from_request_and_saves_snapshot(
     assert plan["target_protein"] == 130
     assert plan["target_fat"] == 55
     assert plan["target_carbs"] == 140
+    assert plan["target_fiber"] == 30
 
 
 def test_autogenerate_falls_back_to_first_profile_when_profile_id_missing(
@@ -2947,6 +2955,123 @@ def test_autogenerate_max_cook_time_20_generates_week_plan_with_demo_pool(
     assert len(response.json()["slots"]) == 14
 
 
+def test_autogenerate_max_cook_time_25_batch_one_limits_lunch_dinner_repeats_with_demo_pool(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_demo_fast_pool_25_batch_one@example.com",
+        username="autoplan_demo_fast_pool_25_batch_one",
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-06-02",
+            "days_count": 7,
+            "meals_per_day": 3,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "max_cook_time_minutes": 25,
+            "batch_cooking": {"breakfast": 1, "lunch": 1, "dinner": 1},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    assert len(slots) == 21
+
+    lunch_recipe_ids = [slot["recipe_id"] for slot in slots if slot["slot_index"] == 1]
+    dinner_recipe_ids = [slot["recipe_id"] for slot in slots if slot["slot_index"] == 2]
+
+    assert not _has_identical_run(lunch_recipe_ids, 3)
+    assert not _has_identical_run(dinner_recipe_ids, 3)
+
+    lunch_counts = Counter(lunch_recipe_ids)
+    dinner_counts = Counter(dinner_recipe_ids)
+    assert max(lunch_counts.values(), default=0) <= 2
+    assert max(dinner_counts.values(), default=0) <= 2
+
+
+def test_autogenerate_batch_one_lunch_not_repeated_three_plus_when_alternatives_exist(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_one_lunch_no_three_plus@example.com",
+        username="autoplan_batch_one_lunch_no_three_plus",
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-06-16",
+            "days_count": 7,
+            "meals_per_day": 3,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "max_cook_time_minutes": 25,
+            "batch_cooking": {"lunch": 1},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_recipe_ids = [slot["recipe_id"] for slot in slots if slot["slot_index"] == 1]
+    lunch_counts = Counter(lunch_recipe_ids)
+    assert max(lunch_counts.values(), default=0) <= 2
+
+
+def test_autogenerate_batch_one_dinner_not_repeated_three_plus_when_alternatives_exist(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+    finally:
+        db.close()
+
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_batch_one_dinner_no_three_plus@example.com",
+        username="autoplan_batch_one_dinner_no_three_plus",
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-06-23",
+            "days_count": 7,
+            "meals_per_day": 3,
+            "use_public_recipes": True,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+            "max_cook_time_minutes": 25,
+            "batch_cooking": {"dinner": 1},
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    dinner_recipe_ids = [slot["recipe_id"] for slot in slots if slot["slot_index"] == 2]
+    dinner_counts = Counter(dinner_recipe_ids)
+    assert max(dinner_counts.values(), default=0) <= 2
+
+
 def test_autogenerate_batch_one_lunch_avoids_four_identical_days_when_alternatives_exist(
     client: TestClient,
     db_session_factory: sessionmaker[Session],
@@ -3143,3 +3268,283 @@ def test_autogenerate_returns_friendly_422_when_fast_candidates_too_few_for_dive
     detail = response.json().get("detail")
     assert isinstance(detail, str)
     assert "Недостаточно быстрых рецептов для разнообразного плана" in detail
+
+
+def test_autogenerate_prefers_higher_fiber_recipe_when_target_fiber_set(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_fiber_prefer_set@example.com",
+        username="autoplan_fiber_prefer_set",
+    )
+
+    low_fiber_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Lunch Low",
+        kcal="430.00",
+        protein="28.00",
+        fat="12.00",
+        carbs="48.00",
+        fiber="1.00",
+    )
+    high_fiber_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Lunch High",
+        kcal="430.00",
+        protein="28.00",
+        fat="12.00",
+        carbs="48.00",
+        fiber="10.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Dinner Base",
+        kcal="620.00",
+        protein="32.00",
+        fat="18.00",
+        carbs="72.00",
+        fiber="2.00",
+    )
+
+    low_fiber_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fiber Lunch Low Recipe",
+        meal_types=["lunch"],
+        food_id=low_fiber_food["id"],
+    )
+    high_fiber_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fiber Lunch High Recipe",
+        meal_types=["lunch"],
+        food_id=high_fiber_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fiber Dinner Recipe",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Fiber set profile",
+        target_kcal=2100,
+        target_protein=120,
+        target_fat=70,
+        target_carbs=230,
+        target_fiber=30,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-24",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    lunch_slot = next(slot for slot in plan["slots"] if slot["slot_index"] == 0)
+    assert low_fiber_recipe["id"] != high_fiber_recipe["id"]
+    assert lunch_slot["recipe_id"] == high_fiber_recipe["id"]
+    assert "fiber" in plan["days"][0]["totals"]
+
+
+def test_autogenerate_fiber_overshoot_penalty_avoids_super_high_fiber_when_target_already_met(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_fiber_overshoot_soft_cap@example.com",
+        username="autoplan_fiber_overshoot_soft_cap",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Overshoot Lunch Base",
+        kcal="520.00",
+        protein="30.00",
+        fat="16.00",
+        carbs="58.00",
+        fiber="25.00",
+    )
+    dinner_high_fiber_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Overshoot Dinner High",
+        kcal="520.00",
+        protein="30.00",
+        fat="16.00",
+        carbs="58.00",
+        fiber="26.00",
+    )
+    dinner_low_fiber_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Overshoot Dinner Low",
+        kcal="520.00",
+        protein="30.00",
+        fat="16.00",
+        carbs="58.00",
+        fiber="2.00",
+    )
+
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Fiber Overshoot Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Fiber Overshoot Dinner High",
+        meal_types=["dinner"],
+        food_id=dinner_high_fiber_food["id"],
+    )
+    low_dinner_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Fiber Overshoot Dinner Low",
+        meal_types=["dinner"],
+        food_id=dinner_low_fiber_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Fiber Overshoot Profile",
+        target_kcal=2200,
+        target_protein=150,
+        target_fat=75,
+        target_carbs=220,
+        target_fiber=25,
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-07-01",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    dinner_slot = next(slot for slot in plan["slots"] if slot["slot_index"] == 1)
+    assert dinner_slot["recipe_id"] == low_dinner_recipe["id"]
+
+
+def test_autogenerate_without_target_fiber_keeps_legacy_tie_breaking(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_fiber_prefer_null@example.com",
+        username="autoplan_fiber_prefer_null",
+    )
+
+    low_fiber_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Null Lunch Low",
+        kcal="430.00",
+        protein="28.00",
+        fat="12.00",
+        carbs="48.00",
+        fiber="1.00",
+    )
+    high_fiber_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Null Lunch High",
+        kcal="430.00",
+        protein="28.00",
+        fat="12.00",
+        carbs="48.00",
+        fiber="10.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Null Dinner Base",
+        kcal="620.00",
+        protein="32.00",
+        fat="18.00",
+        carbs="72.00",
+        fiber="2.00",
+    )
+
+    low_fiber_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fiber Null Lunch Low Recipe",
+        meal_types=["lunch"],
+        food_id=low_fiber_food["id"],
+    )
+    high_fiber_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fiber Null Lunch High Recipe",
+        meal_types=["lunch"],
+        food_id=high_fiber_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Fiber Null Dinner Recipe",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Fiber null profile",
+        target_kcal=2100,
+        target_protein=120,
+        target_fat=70,
+        target_carbs=230,
+        target_fiber=None,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-05-25",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    lunch_slot = next(slot for slot in plan["slots"] if slot["slot_index"] == 0)
+    assert low_fiber_recipe["id"] < high_fiber_recipe["id"]
+    assert lunch_slot["recipe_id"] == low_fiber_recipe["id"]

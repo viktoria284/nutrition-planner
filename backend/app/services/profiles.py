@@ -91,6 +91,7 @@ def create_profile_for_user(db: Session, *, user_id: int, payload: ProfileCreate
         target_protein=payload.target_protein,
         target_fat=payload.target_fat,
         target_carbs=payload.target_carbs,
+        target_fiber=payload.target_fiber,
         preferred_categories=payload.preferred_categories,
         max_cook_time_minutes=payload.max_cook_time_minutes,
     )

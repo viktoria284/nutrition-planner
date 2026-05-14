@@ -10,6 +10,7 @@ export type Profile = {
   target_protein: number | null;
   target_fat: number | null;
   target_carbs: number | null;
+  target_fiber: number | null;
   excluded_food_ids: number[];
   preferred_food_ids: number[];
   preferred_categories: string[];
@@ -22,6 +23,7 @@ export type ProfileUpdatePayload = {
   target_protein?: number | null;
   target_fat?: number | null;
   target_carbs?: number | null;
+  target_fiber?: number | null;
   excluded_food_ids?: number[];
   preferred_food_ids?: number[];
   preferred_categories?: string[];
@@ -34,6 +36,7 @@ export type ProfileCreatePayload = {
   target_protein?: number | null;
   target_fat?: number | null;
   target_carbs?: number | null;
+  target_fiber?: number | null;
   excluded_food_ids?: number[];
   preferred_food_ids?: number[];
   preferred_categories?: string[];

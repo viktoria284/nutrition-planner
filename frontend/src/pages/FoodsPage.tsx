@@ -15,6 +15,7 @@ type CreateFoodForm = {
   protein: string;
   fat: string;
   carbs: string;
+  fiber: string;
 };
 
 type CreateFoodErrors = {
@@ -25,6 +26,7 @@ type CreateFoodErrors = {
   protein?: string;
   fat?: string;
   carbs?: string;
+  fiber?: string;
   form?: string[];
 };
 
@@ -36,6 +38,7 @@ const EMPTY_CREATE_FORM: CreateFoodForm = {
   protein: "",
   fat: "",
   carbs: "",
+  fiber: "",
 };
 
 const SOURCE_LABELS: Record<FoodSource, string> = {
@@ -86,6 +89,7 @@ function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; p
   let hasNegative = false;
   let hasMacroUpper = false;
   let hasKcalUpper = false;
+  let hasFiberUpper = false;
 
   for (const key of numericKeys) {
     const raw = form[key].trim();
@@ -120,10 +124,27 @@ function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; p
     parsed[key] = value;
   }
 
+  const fiberRaw = form.fiber.trim();
+  const fiberValue = fiberRaw ? Number(fiberRaw) : 0;
+  if (!Number.isFinite(fiberValue)) {
+    errors.fiber = "invalid";
+    hasInvalidNumeric = true;
+  } else {
+    if (fiberValue < 0) {
+      errors.fiber = "invalid";
+      hasNegative = true;
+    }
+    if (fiberValue > 100) {
+      errors.fiber = "invalid";
+      hasFiberUpper = true;
+    }
+  }
+
   if (hasInvalidNumeric) formErrors.push("Заполните корректные числовые значения КБЖУ.");
   if (hasNegative) formErrors.push("Значения не могут быть отрицательными.");
   if (hasMacroUpper) formErrors.push("Белки, жиры и углеводы должны быть не больше 100 г на 100 г продукта.");
   if (hasKcalUpper) formErrors.push("Калорийность должна быть не больше 1000 ккал на 100 г.");
+  if (hasFiberUpper) formErrors.push("Клетчатка должна быть не больше 100 г на 100 г продукта.");
 
   if (formErrors.length > 0) {
     errors.form = formErrors;
@@ -140,6 +161,7 @@ function validateCreateForm(form: CreateFoodForm): { errors: CreateFoodErrors; p
       protein: parsed.protein as number,
       fat: parsed.fat as number,
       carbs: parsed.carbs as number,
+      fiber: fiberValue,
     },
   };
 }
@@ -319,6 +341,7 @@ export function FoodsPage() {
                   <div className="food-row-meta">
                     <span className={sourceBadgeClass(food.source)}>{SOURCE_LABELS[food.source]}</span>
                     <span className="food-row-kcal">{formatNutrient(food.kcal)} ккал</span>
+                    <span className="food-row-kcal">Клетчатка: {formatNutrient(food.fiber)} г</span>
                   </div>
                 </Link>
               </li>
@@ -445,6 +468,21 @@ export function FoodsPage() {
                     step="any"
                     value={createForm.carbs}
                     onChange={(e) => updateCreateField("carbs", e.target.value)}
+                    placeholder="0"
+                  />
+                </label>
+
+                <label className="foods-field" htmlFor="create_food_fiber">
+                  <span className="foods-field-label">Клетчатка (г)</span>
+                  <input
+                    id="create_food_fiber"
+                    className={`foods-field-input ${createErrors.fiber ? "is-invalid" : ""}`}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step="any"
+                    value={createForm.fiber}
+                    onChange={(e) => updateCreateField("fiber", e.target.value)}
                     placeholder="0"
                   />
                 </label>

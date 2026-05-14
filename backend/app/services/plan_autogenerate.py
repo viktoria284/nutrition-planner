@@ -33,6 +33,7 @@ class PlanTargets:
     protein: Decimal | None
     fat: Decimal | None
     carbs: Decimal | None
+    fiber: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,7 @@ class FeasibilityEstimate:
     max_daily_protein: Decimal
     max_daily_fat: Decimal
     max_daily_carbs: Decimal
+    max_daily_fiber: Decimal
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,9 @@ PROTEIN_OVERSHOOT_WEIGHT = Decimal("220")
 FAT_OVERSHOOT_WEIGHT = Decimal("90")
 FAT_UNDERSHOOT_WEIGHT = Decimal("145")
 CARBS_UNDERSHOOT_WEIGHT = Decimal("180")
+FIBER_UNDERSHOOT_WEIGHT = Decimal("55")
+FIBER_OVERSHOOT_WEIGHT = Decimal("22")
+FIBER_OVERSHOOT_MARGIN_GRAMS = Decimal("20")
 REMAINING_BALANCE_WEIGHT = Decimal("130")
 MACRO_PROFILE_PENALTY_WEIGHT = Decimal("140")
 FAT_PROFILE_PENALTY_WEIGHT = Decimal("120")
@@ -186,6 +191,13 @@ BATCH_ONE_RECENT_REPEAT_PENALTY_BY_DISTANCE: dict[int, Decimal] = {
     3: Decimal("140"),
 }
 BATCH_ONE_SAME_DAY_CROSS_SLOT_REPEAT_PENALTY = Decimal("240")
+BATCH_ONE_MAX_REPEAT_PER_SLOT_IN_7_DAYS = 2
+BATCH_ONE_REPEAT_OVERUSE_PENALTY = Decimal("560")
+MAIN_INGREDIENT_GROUP_PENALTY_BY_GROUP: dict[str, Decimal] = {
+    "fish": Decimal("85"),
+    "tofu": Decimal("105"),
+    "legume": Decimal("70"),
+}
 DIVERSITY_PRECHECK_FRIENDLY_MESSAGE = (
     "Недостаточно быстрых рецептов для разнообразного плана. "
     "Увеличьте максимальное время приготовления или разрешите приготовление на 2 дня."
@@ -260,12 +272,20 @@ def _normalize_target(value: int | None) -> Decimal | None:
     return Decimal(value)
 
 
-def _build_plan_targets(*, kcal: int | None, protein: int | None, fat: int | None, carbs: int | None) -> PlanTargets:
+def _build_plan_targets(
+    *,
+    kcal: int | None,
+    protein: int | None,
+    fat: int | None,
+    carbs: int | None,
+    fiber: int | None,
+) -> PlanTargets:
     return PlanTargets(
         kcal=_normalize_target(kcal),
         protein=_normalize_target(protein),
         fat=_normalize_target(fat),
         carbs=_normalize_target(carbs),
+        fiber=_normalize_target(fiber),
     )
 
 
@@ -324,6 +344,7 @@ def _resolve_targets_from_profile(profile: Profile) -> PlanTargets:
         protein=profile.target_protein,
         fat=profile.target_fat,
         carbs=profile.target_carbs,
+        fiber=profile.target_fiber,
     )
     if targets.kcal is None:
         raise PlanAutogenerateProfileValidationError(
@@ -338,6 +359,7 @@ def _resolve_targets_from_plan(plan: Plan) -> PlanTargets:
         protein=plan.target_protein,
         fat=plan.target_fat,
         carbs=plan.target_carbs,
+        fiber=plan.target_fiber,
     )
 
 
@@ -627,6 +649,7 @@ def _zero_totals() -> dict[str, Decimal]:
         "protein": Decimal("0"),
         "fat": Decimal("0"),
         "carbs": Decimal("0"),
+        "fiber": Decimal("0"),
     }
 
 
@@ -640,6 +663,7 @@ def _add_totals(
     totals["protein"] += nutrients["protein"] * servings_multiplier
     totals["fat"] += nutrients["fat"] * servings_multiplier
     totals["carbs"] += nutrients["carbs"] * servings_multiplier
+    totals["fiber"] += nutrients["fiber"] * servings_multiplier
 
 
 def _calculate_day_totals(
@@ -693,6 +717,7 @@ def _recipe_nutrients_per_serving(
         "protein": nutrients["per_serving_protein"],
         "fat": nutrients["per_serving_fat"],
         "carbs": nutrients["per_serving_carbs"],
+        "fiber": nutrients["per_serving_fiber"],
     }
     recipe_nutrients_cache[recipe.id] = normalized
     return normalized
@@ -790,6 +815,12 @@ def _day_totals_score(*, totals: dict[str, Decimal], targets: PlanTargets) -> De
         weight=DAY_VARIATION_SCORE_WEIGHT * Decimal("1.05"),
         mild_ratio=Decimal("0.08"),
         sharp_ratio=Decimal("0.22"),
+    )
+    score += _piecewise_penalty(
+        _undershoot_ratio(totals["fiber"], targets.fiber),
+        weight=DAY_VARIATION_SCORE_WEIGHT * Decimal("0.35"),
+        mild_ratio=Decimal("0.10"),
+        sharp_ratio=Decimal("0.28"),
     )
     return score
 
@@ -1008,6 +1039,7 @@ def _estimate_daily_feasibility(
             max_values["protein"] = max(max_values["protein"], nutrients["protein"] * max_multiplier)
             max_values["fat"] = max(max_values["fat"], nutrients["fat"] * max_multiplier)
             max_values["carbs"] = max(max_values["carbs"], nutrients["carbs"] * max_multiplier)
+            max_values["fiber"] = max(max_values["fiber"], nutrients["fiber"] * max_multiplier)
         per_meal_type_max[meal_type] = max_values
 
     max_day = _zero_totals()
@@ -1017,12 +1049,14 @@ def _estimate_daily_feasibility(
         max_day["protein"] += slot_max["protein"]
         max_day["fat"] += slot_max["fat"]
         max_day["carbs"] += slot_max["carbs"]
+        max_day["fiber"] += slot_max["fiber"]
 
     return FeasibilityEstimate(
         max_daily_kcal=max_day["kcal"],
         max_daily_protein=max_day["protein"],
         max_daily_fat=max_day["fat"],
         max_daily_carbs=max_day["carbs"],
+        max_daily_fiber=max_day["fiber"],
     )
 
 
@@ -1198,12 +1232,20 @@ def _batch_one_recent_repeat_penalty(
 ) -> Decimal:
     penalty = Decimal("0")
     same_slot_dates = slot_recipe_dates.get(slot_index, {}).get(recipe_id, [])
+    recent_same_slot_dates_count = 0
     for existing_day in same_slot_dates:
         if existing_day >= day_date:
             continue
         distance = (day_date - existing_day).days
+        if distance <= 6:
+            recent_same_slot_dates_count += 1
         if distance in BATCH_ONE_RECENT_REPEAT_PENALTY_BY_DISTANCE:
             penalty += BATCH_ONE_RECENT_REPEAT_PENALTY_BY_DISTANCE[distance]
+
+    projected_usage_count = recent_same_slot_dates_count + 1
+    if projected_usage_count > BATCH_ONE_MAX_REPEAT_PER_SLOT_IN_7_DAYS:
+        overuse_count = projected_usage_count - BATCH_ONE_MAX_REPEAT_PER_SLOT_IN_7_DAYS
+        penalty += BATCH_ONE_REPEAT_OVERUSE_PENALTY * Decimal(overuse_count)
 
     if current_day_selected_recipe_ids_by_slot_index:
         for existing_slot_index, selected_recipe_id in current_day_selected_recipe_ids_by_slot_index.items():
@@ -1213,6 +1255,49 @@ def _batch_one_recent_repeat_penalty(
                 penalty += BATCH_ONE_SAME_DAY_CROSS_SLOT_REPEAT_PENALTY
                 break
     return penalty
+
+
+def _batch_one_projected_slot_usage_count(
+    *,
+    recipe_id: int,
+    slot_index: int,
+    day_date: date,
+    slot_recipe_dates: dict[int, dict[int, list[date]]],
+) -> int:
+    same_slot_dates = slot_recipe_dates.get(slot_index, {}).get(recipe_id, [])
+    recent_count = 0
+    for existing_day in same_slot_dates:
+        if existing_day >= day_date:
+            continue
+        if (day_date - existing_day).days <= 6:
+            recent_count += 1
+    return recent_count + 1
+
+
+def _batch_one_has_adjacent_same_slot_repeat(
+    *,
+    recipe_id: int,
+    slot_index: int,
+    day_date: date,
+    slot_recipe_dates: dict[int, dict[int, list[date]]],
+) -> bool:
+    same_slot_dates = slot_recipe_dates.get(slot_index, {}).get(recipe_id, [])
+    return any(existing_day < day_date and (day_date - existing_day).days == 1 for existing_day in same_slot_dates)
+
+
+def _recipe_main_ingredient_groups(recipe: Recipe) -> set[str]:
+    groups: set[str] = set()
+    for ingredient in recipe.ingredients:
+        if ingredient.food is None:
+            continue
+        food_name = ingredient.food.name.casefold()
+        if any(token in food_name for token in ("лосос", "тунец", "треск", "рыб")):
+            groups.add("fish")
+        if "тофу" in food_name:
+            groups.add("tofu")
+        if any(token in food_name for token in ("нут", "фасол", "чечевиц")):
+            groups.add("legume")
+    return groups
 
 
 def _preference_bonus_for_recipe(
@@ -1262,6 +1347,7 @@ def _score_recipe_candidate(
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    meal_type_group_usage_counts: dict[str, int] | None = None,
     batch_days: int = 1,
 ) -> RecipeScore:
     nutrients = recipe_nutrients
@@ -1270,11 +1356,13 @@ def _score_recipe_candidate(
     projected_day_protein = day_totals_before_slot["protein"] + nutrients["protein"] * servings_multiplier
     projected_day_fat = day_totals_before_slot["fat"] + nutrients["fat"] * servings_multiplier
     projected_day_carbs = day_totals_before_slot["carbs"] + nutrients["carbs"] * servings_multiplier
+    projected_day_fiber = day_totals_before_slot["fiber"] + nutrients["fiber"] * servings_multiplier
 
     expected_kcal = targets.kcal * cumulative_weight if targets.kcal is not None else None
     expected_protein = targets.protein * cumulative_weight if targets.protein is not None else None
     expected_fat = targets.fat * cumulative_weight if targets.fat is not None else None
     expected_carbs = targets.carbs * cumulative_weight if targets.carbs is not None else None
+    expected_fiber = targets.fiber * cumulative_weight if targets.fiber is not None else None
 
     calorie_penalty = _relative_penalty(projected_day_kcal, expected_kcal, weight=CALORIE_PENALTY_WEIGHT)
     cumulative_macro_penalty = (
@@ -1320,6 +1408,27 @@ def _score_recipe_candidate(
             mild_ratio=Decimal("0.06"),
             sharp_ratio=Decimal("0.18"),
         )
+
+    fiber_undershoot_penalty = _piecewise_penalty(
+        _undershoot_ratio(projected_day_fiber, expected_fiber),
+        weight=FIBER_UNDERSHOOT_WEIGHT,
+        mild_ratio=Decimal("0.12"),
+        sharp_ratio=Decimal("0.30"),
+    )
+    fiber_overshoot_penalty = Decimal("0")
+    if targets.fiber is not None and targets.fiber > 0:
+        overshoot_denominator = targets.fiber + FIBER_OVERSHOOT_MARGIN_GRAMS
+        if overshoot_denominator > 0:
+            fiber_overshoot_ratio = _overshoot_ratio(
+                projected_day_fiber,
+                targets.fiber + FIBER_OVERSHOOT_MARGIN_GRAMS,
+            )
+            fiber_overshoot_penalty = _piecewise_penalty(
+                fiber_overshoot_ratio,
+                weight=FIBER_OVERSHOOT_WEIGHT,
+                mild_ratio=Decimal("0.10"),
+                sharp_ratio=Decimal("0.28"),
+            )
 
     remaining_balance_penalty = Decimal("0")
     remaining_weight = max(Decimal("0"), Decimal("1") - cumulative_weight)
@@ -1525,6 +1634,13 @@ def _score_recipe_candidate(
             slot_recipe_dates=slot_recipe_dates,
             current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         )
+    ingredient_group_penalty = Decimal("0")
+    if batch_days <= 1 and meal_type_group_usage_counts:
+        recipe_groups = _recipe_main_ingredient_groups(recipe)
+        for group in recipe_groups:
+            existing_count = int(meal_type_group_usage_counts.get(group, 0))
+            if existing_count >= 2:
+                ingredient_group_penalty += MAIN_INGREDIENT_GROUP_PENALTY_BY_GROUP[group] * Decimal(existing_count - 1)
 
     macro_penalty = (
         cumulative_macro_penalty
@@ -1532,12 +1648,15 @@ def _score_recipe_candidate(
         + fat_overshoot_penalty
         + fat_undershoot_penalty
         + carbs_undershoot_penalty
+        + fiber_undershoot_penalty
+        + fiber_overshoot_penalty
         + remaining_balance_penalty
         + macro_profile_penalty
         + guardrail_penalty
         + name_similarity_penalty
         + cook_time_penalty
         + batch_one_diversity_penalty
+        + ingredient_group_penalty
     )
 
     slot_penalty = Decimal("0")
@@ -1627,6 +1746,7 @@ def score_candidate(
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    meal_type_group_usage_counts: dict[str, int] | None = None,
     batch_days: int = 1,
 ) -> RecipeScore:
     """Score layer: deterministic multi-criteria score for a single candidate option."""
@@ -1650,6 +1770,7 @@ def score_candidate(
         similarity_reference_names=similarity_reference_names,
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
+        meal_type_group_usage_counts=meal_type_group_usage_counts,
         batch_days=batch_days,
     )
 
@@ -1673,6 +1794,7 @@ def choose_best_candidate(
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    meal_type_group_usage_counts: dict[str, int] | None = None,
     batch_days: int = 1,
 ) -> CandidateOption:
     """
@@ -1681,8 +1803,7 @@ def choose_best_candidate(
     if not candidate_pool:
         _raise_not_enough_recipes_error(meal_type=expected_meal_type, day_date=day_date)
 
-    best_candidate: CandidateOption | None = None
-    best_key: tuple[Decimal, Decimal, Decimal, int, Decimal] | None = None
+    scored_candidates: list[tuple[tuple[Decimal, Decimal, Decimal, int, Decimal], CandidateOption]] = []
 
     for candidate in candidate_pool:
         score = score_candidate(
@@ -1703,6 +1824,7 @@ def choose_best_candidate(
             similarity_reference_names=similarity_reference_names,
             current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
             historical_day_patterns=historical_day_patterns,
+            meal_type_group_usage_counts=meal_type_group_usage_counts,
             batch_days=batch_days,
         )
         candidate_key = (
@@ -1712,9 +1834,41 @@ def choose_best_candidate(
             candidate.recipe.id,
             candidate.servings_multiplier,
         )
-        if best_key is None or candidate_key < best_key:
-            best_candidate = candidate
-            best_key = candidate_key
+        scored_candidates.append((candidate_key, candidate))
+
+    if batch_days <= 1:
+        no_adjacent_and_not_over_cap: list[tuple[tuple[Decimal, Decimal, Decimal, int, Decimal], CandidateOption]] = []
+        not_over_cap: list[tuple[tuple[Decimal, Decimal, Decimal, int, Decimal], CandidateOption]] = []
+        no_adjacent: list[tuple[tuple[Decimal, Decimal, Decimal, int, Decimal], CandidateOption]] = []
+        for candidate_key, candidate in scored_candidates:
+            projected_count = _batch_one_projected_slot_usage_count(
+                recipe_id=candidate.recipe.id,
+                slot_index=slot_index,
+                day_date=day_date,
+                slot_recipe_dates=slot_recipe_dates,
+            )
+            exceeds_cap = projected_count > BATCH_ONE_MAX_REPEAT_PER_SLOT_IN_7_DAYS
+            adjacent_repeat = _batch_one_has_adjacent_same_slot_repeat(
+                recipe_id=candidate.recipe.id,
+                slot_index=slot_index,
+                day_date=day_date,
+                slot_recipe_dates=slot_recipe_dates,
+            )
+            if not adjacent_repeat and not exceeds_cap:
+                no_adjacent_and_not_over_cap.append((candidate_key, candidate))
+            if not exceeds_cap:
+                not_over_cap.append((candidate_key, candidate))
+            if not adjacent_repeat:
+                no_adjacent.append((candidate_key, candidate))
+
+        if no_adjacent_and_not_over_cap:
+            scored_candidates = no_adjacent_and_not_over_cap
+        elif not_over_cap:
+            scored_candidates = not_over_cap
+        elif no_adjacent:
+            scored_candidates = no_adjacent
+
+    best_key, best_candidate = min(scored_candidates, key=lambda item: item[0], default=(None, None))
 
     if best_candidate is None:
         _raise_not_enough_recipes_error(meal_type=expected_meal_type, day_date=day_date)
@@ -1742,6 +1896,7 @@ def _select_slot_candidate(
     similarity_reference_names: list[str] | None = None,
     current_day_selected_recipe_ids_by_slot_index: dict[int, int] | None = None,
     historical_day_patterns: set[tuple[int, ...]] | None = None,
+    meal_type_group_usage_counts: dict[str, int] | None = None,
     batch_days: int = 1,
 ) -> tuple[Recipe, Decimal]:
     candidate_pool = build_candidate_pool(
@@ -1771,6 +1926,7 @@ def _select_slot_candidate(
         similarity_reference_names=similarity_reference_names,
         current_day_selected_recipe_ids_by_slot_index=current_day_selected_recipe_ids_by_slot_index,
         historical_day_patterns=historical_day_patterns,
+        meal_type_group_usage_counts=meal_type_group_usage_counts,
         batch_days=batch_days,
     )
     return best_candidate.recipe, best_candidate.servings_multiplier
@@ -1846,6 +2002,7 @@ def build_autogenerated_plan(
     batch_remaining_by_slot_index: dict[int, int] = defaultdict(int)
     batch_selected_recipe_id_by_slot_index: dict[int, int] = {}
     batch_selected_multiplier_by_slot_index: dict[int, Decimal] = {}
+    meal_type_group_usage_counts_by_slot_index: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
     for day_offset in range(payload.days_count):
         day_date = payload.start_date + timedelta(days=day_offset)
@@ -1888,6 +2045,7 @@ def build_autogenerated_plan(
                     max_cook_time_minutes=preferences.max_cook_time_minutes,
                     current_day_selected_recipe_ids_by_slot_index=selected_day_recipe_ids_by_slot_index,
                     historical_day_patterns=historical_day_patterns,
+                    meal_type_group_usage_counts=meal_type_group_usage_counts_by_slot_index.get(slot_index, {}),
                     batch_days=batch_days,
                 )
                 if batch_days >= 2:
@@ -1909,6 +2067,8 @@ def build_autogenerated_plan(
             selected_day_recipe_ids_by_slot_index[slot_index] = selected_recipe.id
             recipe_usage_counts[selected_recipe.id] += 1
             slot_recipe_dates[slot_index][selected_recipe.id].append(day_date)
+            for group in _recipe_main_ingredient_groups(selected_recipe):
+                meal_type_group_usage_counts_by_slot_index[slot_index][group] += 1
 
         day_pattern = tuple(
             selected_day_recipe_ids_by_slot_index[idx]
@@ -1929,6 +2089,7 @@ def build_autogenerated_plan(
         target_protein=selected_profile.target_protein,
         target_fat=selected_profile.target_fat,
         target_carbs=selected_profile.target_carbs,
+        target_fiber=selected_profile.target_fiber,
     )
     db.add(plan)
     db.flush()

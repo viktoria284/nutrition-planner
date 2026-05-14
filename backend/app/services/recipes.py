@@ -326,6 +326,78 @@ DEMO_BREAKFAST_RECIPES = [
             ("Сыр твердый", "20"),
         ],
     },
+    {
+        "name": "Овсянка с ягодами и йогуртом",
+        "description": "Овсяные хлопья с греческим йогуртом и ягодами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 10,
+        "ingredients": [
+            ("Овсяные хлопья", "55"),
+            ("Йогурт греческий", "140"),
+            ("Ягоды замороженные", "90"),
+        ],
+    },
+    {
+        "name": "Творог с бананом и семенами чиа",
+        "description": "Творог с бананом и семенами чиа",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 7,
+        "ingredients": [
+            ("Творог 5%", "170"),
+            ("Банан", "90"),
+            ("Семена чиа", "10"),
+        ],
+    },
+    {
+        "name": "Омлет со шпинатом и томатами",
+        "description": "Омлет со шпинатом и свежими томатами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 12,
+        "ingredients": [
+            ("Яйцо куриное", "120"),
+            ("Шпинат", "80"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Тост с авокадо и яйцом",
+        "description": "Цельнозерновой тост с авокадо и яйцом",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 10,
+        "ingredients": [
+            ("Хлеб цельнозерновой", "75"),
+            ("Авокадо", "80"),
+            ("Яйцо куриное", "70"),
+        ],
+    },
+    {
+        "name": "Йогурт с яблоком и грецкими орехами",
+        "description": "Греческий йогурт с яблоком и грецкими орехами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 6,
+        "ingredients": [
+            ("Йогурт греческий", "180"),
+            ("Яблоко", "120"),
+            ("Орехи грецкие", "12"),
+        ],
+    },
+    {
+        "name": "Тост с творогом и черникой",
+        "description": "Тост с творогом и черникой",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 8,
+        "ingredients": [
+            ("Хлеб цельнозерновой", "70"),
+            ("Творог 5%", "100"),
+            ("Черника", "80"),
+        ],
+    },
 ]
 
 DEMO_LUNCH_RECIPES = [
@@ -602,7 +674,7 @@ DEMO_LUNCH_RECIPES = [
         "name": "Гречка с яйцом и брокколи",
         "description": "Гречка с яйцом и брокколи как быстрый обед",
         "servings_count": 1,
-        "meal_types": ["lunch"],
+        "meal_types": ["lunch", "dinner"],
         "cook_time_minutes": 14,
         "ingredients": [
             ("Гречка отварная", "220"),
@@ -652,7 +724,7 @@ DEMO_LUNCH_RECIPES = [
         "name": "Нут с овощами и яйцом",
         "description": "Нут с томатами, огурцом и варёным яйцом",
         "servings_count": 1,
-        "meal_types": ["lunch"],
+        "meal_types": ["lunch", "dinner"],
         "cook_time_minutes": 15,
         "ingredients": [
             ("Нут вареный", "170"),
@@ -672,6 +744,198 @@ DEMO_LUNCH_RECIPES = [
             ("Куриная грудка", "140"),
             ("Брокколи", "120"),
             ("Йогурт греческий", "60"),
+        ],
+    },
+    {
+        "name": "Курица с булгуром и перцем",
+        "description": "Куриная грудка с булгуром, перцем и томатами",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 18,
+        "ingredients": [
+            ("Куриная грудка", "150"),
+            ("Булгур отварной", "210"),
+            ("Перец болгарский", "110"),
+            ("Помидор", "110"),
+        ],
+    },
+    {
+        "name": "Индейка с гречкой и салатом",
+        "description": "Индейка с гречкой и салатом из огурца и томатов",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 19,
+        "ingredients": [
+            ("Индейка филе", "150"),
+            ("Гречка отварная", "220"),
+            ("Огурец", "130"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Тунец с картофелем и зелёной фасолью",
+        "description": "Тунец с картофелем и стручковой фасолью",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 17,
+        "ingredients": [
+            ("Тунец консервированный", "130"),
+            ("Картофель отварной", "230"),
+            ("Фасоль стручковая", "130"),
+        ],
+    },
+    {
+        "name": "Чечевица с овощами и йогуртом",
+        "description": "Тёплая чечевица с овощами и йогуртовой заправкой",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 16,
+        "ingredients": [
+            ("Чечевица вареная", "180"),
+            ("Перец болгарский", "100"),
+            ("Помидор", "120"),
+            ("Йогурт греческий", "70"),
+        ],
+    },
+    {
+        "name": "Боул с нутом и овощами",
+        "description": "Боул из нута, огурца, томатов и шпината",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 12,
+        "ingredients": [
+            ("Нут вареный", "170"),
+            ("Огурец", "130"),
+            ("Помидор", "130"),
+            ("Шпинат", "70"),
+        ],
+    },
+    {
+        "name": "Треска с рисом и овощами",
+        "description": "Треска с рисом и стручковой фасолью",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [
+            ("Треска", "170"),
+            ("Рис отварной", "200"),
+            ("Фасоль стручковая", "120"),
+        ],
+    },
+    {
+        "name": "Куриный салат с цельнозерновым хлебом",
+        "description": "Салат с курицей и цельнозерновым тостом",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 15,
+        "ingredients": [
+            ("Куриная грудка", "140"),
+            ("Огурец", "130"),
+            ("Помидор", "120"),
+            ("Хлеб цельнозерновой", "70"),
+        ],
+    },
+    {
+        "name": "Тофу с киноа и овощами",
+        "description": "Тофу с киноа, перцем и брокколи",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 18,
+        "ingredients": [
+            ("Тофу", "160"),
+            ("Киноа отварная", "200"),
+            ("Перец болгарский", "110"),
+            ("Брокколи", "120"),
+        ],
+    },
+    {
+        "name": "Тофу с овощами и рисом",
+        "description": "Тофу с рисом, перцем и томатами",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 17,
+        "ingredients": [
+            ("Тофу", "170"),
+            ("Рис отварной", "200"),
+            ("Перец болгарский", "100"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Индейка с булгуром и перцем",
+        "description": "Индейка с булгуром и болгарским перцем",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 19,
+        "ingredients": [
+            ("Индейка филе", "150"),
+            ("Булгур отварной", "220"),
+            ("Перец болгарский", "120"),
+        ],
+    },
+    {
+        "name": "Чечевица с овощами",
+        "description": "Тёплая чечевица с томатами, огурцом и перцем",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 15,
+        "ingredients": [
+            ("Чечевица вареная", "190"),
+            ("Помидор", "130"),
+            ("Огурец", "120"),
+            ("Перец болгарский", "100"),
+        ],
+    },
+    {
+        "name": "Треска с картофелем и салатом",
+        "description": "Треска с отварным картофелем и овощным салатом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [
+            ("Треска", "170"),
+            ("Картофель отварной", "220"),
+            ("Огурец", "120"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Курица с кускусом и овощами",
+        "description": "Куриная грудка с кускусом, огурцом и томатами",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 18,
+        "ingredients": [
+            ("Куриная грудка", "150"),
+            ("Кускус отварной", "220"),
+            ("Огурец", "120"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Омлет с овощами и цельнозерновым хлебом",
+        "description": "Сытный омлет с овощами и цельнозерновым тостом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 14,
+        "ingredients": [
+            ("Яйцо куриное", "130"),
+            ("Помидор", "120"),
+            ("Перец болгарский", "100"),
+            ("Хлеб цельнозерновой", "70"),
+        ],
+    },
+    {
+        "name": "Фасоль с овощами и рисом",
+        "description": "Красная фасоль с рисом и овощами",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 16,
+        "ingredients": [
+            ("Фасоль красная вареная", "170"),
+            ("Рис отварной", "180"),
+            ("Помидор", "120"),
+            ("Огурец", "120"),
         ],
     },
 ]
@@ -1016,6 +1280,105 @@ DEMO_DINNER_RECIPES = [
             ("Огурец", "120"),
         ],
     },
+    {
+        "name": "Лосось с брокколи и картофелем",
+        "description": "Лосось с брокколи и отварным картофелем",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [
+            ("Лосось", "140"),
+            ("Брокколи", "150"),
+            ("Картофель отварной", "180"),
+        ],
+    },
+    {
+        "name": "Треска с цветной капустой",
+        "description": "Треска с цветной капустой и томатами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 16,
+        "ingredients": [
+            ("Треска", "170"),
+            ("Цветная капуста", "180"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Омлет с овощами и сыром",
+        "description": "Омлет с перцем, томатами и сыром",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 12,
+        "ingredients": [
+            ("Яйцо куриное", "120"),
+            ("Перец болгарский", "100"),
+            ("Помидор", "120"),
+            ("Сыр твердый", "20"),
+        ],
+    },
+    {
+        "name": "Индейка с кабачком и рисом",
+        "description": "Индейка с рисом и кабачком",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 19,
+        "ingredients": [
+            ("Индейка филе", "150"),
+            ("Рис отварной", "190"),
+            ("Кабачок", "160"),
+        ],
+    },
+    {
+        "name": "Фасоль с овощами и яйцом",
+        "description": "Красная фасоль с овощами и яйцом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 14,
+        "ingredients": [
+            ("Фасоль красная вареная", "170"),
+            ("Яйцо куриное", "90"),
+            ("Перец болгарский", "110"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Тофу с зелёной фасолью",
+        "description": "Тофу со стручковой фасолью и томатами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 15,
+        "ingredients": [
+            ("Тофу", "170"),
+            ("Фасоль стручковая", "160"),
+            ("Помидор", "120"),
+        ],
+    },
+    {
+        "name": "Тунец с овощами и хлебом",
+        "description": "Тунец с овощным салатом и цельнозерновым хлебом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 13,
+        "ingredients": [
+            ("Тунец консервированный", "130"),
+            ("Огурец", "130"),
+            ("Помидор", "130"),
+            ("Хлеб цельнозерновой", "70"),
+        ],
+    },
+    {
+        "name": "Гречка с индейкой и перцем",
+        "description": "Гречка с индейкой и болгарским перцем",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 18,
+        "ingredients": [
+            ("Гречка отварная", "220"),
+            ("Индейка филе", "140"),
+            ("Перец болгарский", "110"),
+        ],
+    },
 ]
 
 DEMO_SNACK_RECIPES = [
@@ -1268,6 +1631,53 @@ DEMO_SNACK_RECIPES = [
             ("Яйцо куриное", "100"),
             ("Огурец", "100"),
             ("Помидор", "100"),
+        ],
+    },
+    {
+        "name": "Йогурт с ягодами",
+        "description": "Греческий йогурт с ягодами",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 5,
+        "ingredients": [
+            ("Йогурт греческий", "180"),
+            ("Ягоды замороженные", "90"),
+        ],
+    },
+    {
+        "name": "Творог с яблоком и семенами льна",
+        "description": "Творог с яблоком и щепоткой семян льна",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 7,
+        "ingredients": [
+            ("Творог 5%", "150"),
+            ("Яблоко", "120"),
+            ("Семена льна", "8"),
+        ],
+    },
+    {
+        "name": "Банан с арахисовой пастой и орехами",
+        "description": "Быстрый перекус из банана, пасты и орехов",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 6,
+        "ingredients": [
+            ("Банан", "110"),
+            ("Арахисовая паста", "14"),
+            ("Орехи грецкие", "10"),
+        ],
+    },
+    {
+        "name": "Тост с сыром и томатом",
+        "description": "Цельнозерновой тост с сыром и томатом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 8,
+        "ingredients": [
+            ("Хлеб цельнозерновой", "70"),
+            ("Сыр твердый", "25"),
+            ("Помидор", "110"),
         ],
     },
 ]
@@ -2231,6 +2641,7 @@ def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:
     total_protein = Decimal("0")
     total_fat = Decimal("0")
     total_carbs = Decimal("0")
+    total_fiber = Decimal("0")
 
     for ingredient in recipe.ingredients:
         if ingredient.food is None:
@@ -2242,12 +2653,14 @@ def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:
         total_protein += ingredient.food.protein * factor
         total_fat += ingredient.food.fat * factor
         total_carbs += ingredient.food.carbs * factor
+        total_fiber += ingredient.food.fiber * factor
 
     servings_count = Decimal(recipe.servings_count)
     per_serving_kcal = total_kcal / servings_count
     per_serving_protein = total_protein / servings_count
     per_serving_fat = total_fat / servings_count
     per_serving_carbs = total_carbs / servings_count
+    per_serving_fiber = total_fiber / servings_count
 
     return {
         "total_grams": _quantize_nutrient(total_grams),
@@ -2255,10 +2668,12 @@ def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:
         "total_protein": _quantize_nutrient(total_protein),
         "total_fat": _quantize_nutrient(total_fat),
         "total_carbs": _quantize_nutrient(total_carbs),
+        "total_fiber": _quantize_nutrient(total_fiber),
         "per_serving_kcal": _quantize_nutrient(per_serving_kcal),
         "per_serving_protein": _quantize_nutrient(per_serving_protein),
         "per_serving_fat": _quantize_nutrient(per_serving_fat),
         "per_serving_carbs": _quantize_nutrient(per_serving_carbs),
+        "per_serving_fiber": _quantize_nutrient(per_serving_fiber),
     }
 
 

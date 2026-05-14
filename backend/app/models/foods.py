@@ -44,6 +44,12 @@ class FoodItem(Base):
     protein: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
     fat: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
     carbs: Mapped[Decimal] = mapped_column(Numeric(6, 2), nullable=False)
+    fiber: Mapped[Decimal] = mapped_column(
+        Numeric(6, 2),
+        nullable=False,
+        default=Decimal("0"),
+        server_default=text("0"),
+    )
 
     source: Mapped[FoodSource] = mapped_column(
         SAEnum(FoodSource, name="food_source", native_enum=True),
@@ -101,10 +107,12 @@ class FoodItem(Base):
         CheckConstraint("protein >= 0", name="ck_food_items_protein_non_negative"),
         CheckConstraint("fat >= 0", name="ck_food_items_fat_non_negative"),
         CheckConstraint("carbs >= 0", name="ck_food_items_carbs_non_negative"),
+        CheckConstraint("fiber >= 0", name="ck_food_items_fiber_non_negative"),
         CheckConstraint("kcal <= 1000", name="ck_food_items_kcal_max"),
         CheckConstraint("protein <= 100", name="ck_food_items_protein_max"),
         CheckConstraint("fat <= 100", name="ck_food_items_fat_max"),
         CheckConstraint("carbs <= 100", name="ck_food_items_carbs_max"),
+        CheckConstraint("fiber <= 100", name="ck_food_items_fiber_max"),
         CheckConstraint(
             f"category IN ({FOOD_CATEGORY_SQL_VALUES})",
             name="ck_food_items_category_allowed",

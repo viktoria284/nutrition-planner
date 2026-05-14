@@ -58,19 +58,24 @@ def create_food_via_api(
     protein: str,
     fat: str,
     carbs: str,
+    fiber: str | None = None,
     brand: str | None = None,
 ) -> dict:
+    payload: dict[str, str | None] = {
+        "name": name,
+        "brand": brand,
+        "kcal": kcal,
+        "protein": protein,
+        "fat": fat,
+        "carbs": carbs,
+    }
+    if fiber is not None:
+        payload["fiber"] = fiber
+
     response = client.post(
         "/foods",
         headers=auth_headers(token),
-        json={
-            "name": name,
-            "brand": brand,
-            "kcal": kcal,
-            "protein": protein,
-            "fat": fat,
-            "carbs": carbs,
-        },
+        json=payload,
     )
     assert response.status_code == 201, response.text
     return response.json()
@@ -474,6 +479,7 @@ def test_recipe_nutrients_calc_two_ingredients(client: TestClient) -> None:
         protein="10.00",
         fat="0.00",
         carbs="10.00",
+        fiber="6.00",
     )
     food_b = create_food_via_api(
         client,
@@ -483,6 +489,7 @@ def test_recipe_nutrients_calc_two_ingredients(client: TestClient) -> None:
         protein="0.00",
         fat="10.00",
         carbs="20.00",
+        fiber="2.00",
     )
 
     create_recipe_response = client.post(
@@ -523,10 +530,51 @@ def test_recipe_nutrients_calc_two_ingredients(client: TestClient) -> None:
     assert Decimal(str(data["total_protein"])) == Decimal("15.00")
     assert Decimal(str(data["total_fat"])) == Decimal("5.00")
     assert Decimal(str(data["total_carbs"])) == Decimal("25.00")
+    assert Decimal(str(data["total_fiber"])) == Decimal("10.00")
     assert Decimal(str(data["per_serving_kcal"])) == Decimal("125.00")
     assert Decimal(str(data["per_serving_protein"])) == Decimal("7.50")
     assert Decimal(str(data["per_serving_fat"])) == Decimal("2.50")
     assert Decimal(str(data["per_serving_carbs"])) == Decimal("12.50")
+    assert Decimal(str(data["per_serving_fiber"])) == Decimal("5.00")
+
+
+def test_recipe_fiber_updates_when_ingredients_change(client: TestClient) -> None:
+    register_user(client, email="recipe-fiber-update@example.com", username="recipefiberupdate")
+    token = login_and_get_token(client, identifier="recipe-fiber-update@example.com")
+
+    food = create_food_via_api(
+        client,
+        token,
+        name="Fiber Food",
+        kcal="120.00",
+        protein="5.00",
+        fat="2.00",
+        carbs="18.00",
+        fiber="8.00",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=2)
+    add = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={"food_id": food["id"], "grams": "100"},
+    )
+    assert add.status_code == 201, add.text
+    ingredient_id = add.json()["id"]
+
+    before = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert before.status_code == 200, before.text
+    assert Decimal(str(before.json()["per_serving_fiber"])) == Decimal("4.00")
+
+    patch = client.patch(
+        f"/recipes/{recipe['id']}/ingredients/{ingredient_id}",
+        headers=auth_headers(token),
+        json={"grams": "150"},
+    )
+    assert patch.status_code == 200, patch.text
+
+    after = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert after.status_code == 200, after.text
+    assert Decimal(str(after.json()["per_serving_fiber"])) == Decimal("6.00")
 
 
 def test_ingredient_grams_must_be_positive(client: TestClient) -> None:
@@ -624,10 +672,12 @@ def test_add_ingredient_by_serving_calc_grams_and_totals(client: TestClient) -> 
     assert Decimal(str(data["total_protein"])) == Decimal("24.00")
     assert Decimal(str(data["total_fat"])) == Decimal("0.00")
     assert Decimal(str(data["total_carbs"])) == Decimal("24.00")
+    assert Decimal(str(data["total_fiber"])) == Decimal("0.00")
     assert Decimal(str(data["per_serving_kcal"])) == Decimal("120.00")
     assert Decimal(str(data["per_serving_protein"])) == Decimal("12.00")
     assert Decimal(str(data["per_serving_fat"])) == Decimal("0.00")
     assert Decimal(str(data["per_serving_carbs"])) == Decimal("12.00")
+    assert Decimal(str(data["per_serving_fiber"])) == Decimal("0.00")
 
 
 def test_serving_must_match_food(client: TestClient) -> None:
@@ -782,10 +832,12 @@ def test_fractional_grams_with_rounding(client: TestClient) -> None:
     assert Decimal(str(data["total_protein"])) == Decimal("0.99")
     assert Decimal(str(data["total_fat"])) == Decimal("0.40")
     assert Decimal(str(data["total_carbs"])) == Decimal("1.39")
+    assert Decimal(str(data["total_fiber"])) == Decimal("0.00")
     assert Decimal(str(data["per_serving_kcal"])) == Decimal("7.72")
     assert Decimal(str(data["per_serving_protein"])) == Decimal("0.49")
     assert Decimal(str(data["per_serving_fat"])) == Decimal("0.20")
     assert Decimal(str(data["per_serving_carbs"])) == Decimal("0.69")
+    assert Decimal(str(data["per_serving_fiber"])) == Decimal("0.00")
 
 
 def test_owner_only_ingredient_ops(client: TestClient) -> None:

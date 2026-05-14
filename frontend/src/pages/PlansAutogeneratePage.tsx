@@ -387,6 +387,11 @@ export function PlansAutogeneratePage() {
             disabled={saving || loadingProfiles || profiles.length === 0}
             hint="План будет создан с целями выбранного профиля."
           />
+          {selectedProfile?.target_fiber !== null && (
+            <p className="plans-field-hint">
+              Автоплан также учитывает цель по клетчатке, если она указана в профиле.
+            </p>
+          )}
 
           {!loadingProfiles && profiles.length === 0 && (
             <div className="plans-empty-card">

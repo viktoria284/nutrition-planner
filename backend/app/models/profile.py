@@ -20,6 +20,7 @@ class Profile(Base):
     target_protein: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_fat: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_carbs: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_fiber: Mapped[int | None] = mapped_column(Integer, nullable=True)
     preferred_categories: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"),
         nullable=False,
@@ -46,6 +47,10 @@ class Profile(Base):
         CheckConstraint(
             "max_cook_time_minutes IS NULL OR (max_cook_time_minutes BETWEEN 1 AND 1440)",
             name="ck_profiles_max_cook_time_minutes_range",
+        ),
+        CheckConstraint(
+            "target_fiber IS NULL OR (target_fiber BETWEEN 0 AND 100)",
+            name="ck_profiles_target_fiber_range",
         ),
     )
 

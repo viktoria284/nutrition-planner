@@ -12,6 +12,7 @@ export function PlannerPage() {
     if (activeProfile.target_protein !== null) rows.push(`Белки: ${activeProfile.target_protein} г`);
     if (activeProfile.target_fat !== null) rows.push(`Жиры: ${activeProfile.target_fat} г`);
     if (activeProfile.target_carbs !== null) rows.push(`Углеводы: ${activeProfile.target_carbs} г`);
+    if (activeProfile.target_fiber !== null) rows.push(`Клетчатка: ${activeProfile.target_fiber} г`);
     return rows;
   }, [activeProfile]);
 

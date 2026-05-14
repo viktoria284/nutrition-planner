@@ -107,6 +107,7 @@ class PlanSlotRead(BaseModel):
     slot_protein: Decimal
     slot_fat: Decimal
     slot_carbs: Decimal
+    slot_fiber: Decimal
     pinned: bool
     created_at: datetime
     updated_at: datetime
@@ -120,6 +121,7 @@ class NutritionTotalsRead(BaseModel):
     protein: Decimal
     fat: Decimal
     carbs: Decimal
+    fiber: Decimal
 
 
 class PlanDayRead(BaseModel):
@@ -141,6 +143,7 @@ class PlanRead(BaseModel):
     target_protein: int | None
     target_fat: int | None
     target_carbs: int | None
+    target_fiber: int | None
     slots: list[PlanSlotRead]
     days: list[PlanDayRead]
     created_at: datetime
@@ -167,6 +170,7 @@ class PlanListItem(BaseModel):
     target_protein: int | None
     target_fat: int | None
     target_carbs: int | None
+    target_fiber: int | None
     created_at: datetime
     updated_at: datetime
 

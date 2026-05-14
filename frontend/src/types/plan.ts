@@ -5,6 +5,7 @@ export type NutritionTotals = {
   protein: DecimalString;
   fat: DecimalString;
   carbs: DecimalString;
+  fiber: DecimalString;
 };
 
 export type PlanSlot = {
@@ -18,6 +19,7 @@ export type PlanSlot = {
   slot_protein: DecimalString;
   slot_fat: DecimalString;
   slot_carbs: DecimalString;
+  slot_fiber: DecimalString;
   pinned: boolean;
   created_at: string;
   updated_at: string;
@@ -42,6 +44,7 @@ export type PlanListItem = {
   target_protein: number | null;
   target_fat: number | null;
   target_carbs: number | null;
+  target_fiber: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +62,7 @@ export type PlanRead = {
   target_protein: number | null;
   target_fat: number | null;
   target_carbs: number | null;
+  target_fiber: number | null;
   slots: PlanSlot[];
   days: PlanDay[];
   created_at: string;

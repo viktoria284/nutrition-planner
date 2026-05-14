@@ -55,6 +55,7 @@ def create_user(
         target_protein=None,
         target_fat=None,
         target_carbs=None,
+        target_fiber=None,
     )
     db.add(profile)
 
