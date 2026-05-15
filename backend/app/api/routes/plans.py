@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.plan import (
+    PlanAnalyticsResponse,
     PlanSlotEffectiveIngredientsResponse,
     PlanSlotIngredientOverridesReplaceRequest,
     PlanAutogenerateRequest,
@@ -19,6 +20,10 @@ from app.schemas.plan import (
     ReplacePlanSlotRequest,
     PlanSlotRead,
     PlanSlotUpdate,
+)
+from app.services.plan_analytics import (
+    PlanAnalyticsTargetsMissingError,
+    get_plan_analytics_for_user,
 )
 from app.schemas.shopping import (
     ShoppingListRead,
@@ -190,6 +195,24 @@ def get_plan_by_id(
     except PlanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
     return build_plan_read(plan)
+
+
+@router.get("/{plan_id}/analytics", response_model=PlanAnalyticsResponse)
+def get_plan_analytics(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return get_plan_analytics_for_user(
+            db,
+            user_id=current_user.id,
+            plan_id=plan_id,
+        )
+    except PlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    except PlanAnalyticsTargetsMissingError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.delete("/{plan_id}", status_code=status.HTTP_204_NO_CONTENT)

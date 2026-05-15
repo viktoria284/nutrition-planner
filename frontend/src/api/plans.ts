@@ -1,5 +1,6 @@
 import type {
   PlanAutogeneratePayload,
+  PlanAnalyticsResponse,
   PlanBulkDeletePayload,
   PlanBulkDeleteResponse,
   PlanCreatePayload,
@@ -136,6 +137,16 @@ export async function getPlan(id: number | string): Promise<PlanRead> {
     apiRequest<PlanRead>({
       method: "GET",
       path: `/plans/${id}`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function getPlanAnalytics(id: number | string): Promise<PlanAnalyticsResponse> {
+  return requestWithApiError(
+    apiRequest<PlanAnalyticsResponse>({
+      method: "GET",
+      path: `/plans/${id}/analytics`,
       token: getToken(),
     }),
   );

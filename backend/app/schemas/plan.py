@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -211,6 +211,55 @@ class PlanRead(BaseModel):
 
 class PlanAutogenerateResponse(PlanRead):
     pass
+
+
+NutrientAnalyticsStatus = Literal["low", "ok", "high", "no_target"]
+
+
+class PlanNutritionTargetRead(BaseModel):
+    kcal: int | None
+    protein: int | None
+    fat: int | None
+    carbs: int | None
+    fiber: int | None
+
+
+class NutrientAnalyticsRead(BaseModel):
+    total: Decimal
+    percent: Decimal | None
+    status: NutrientAnalyticsStatus
+
+
+class PlanDayAnalyticsRead(BaseModel):
+    date: date
+    kcal: NutrientAnalyticsRead
+    protein: NutrientAnalyticsRead
+    fat: NutrientAnalyticsRead
+    carbs: NutrientAnalyticsRead
+    fiber: NutrientAnalyticsRead
+    day_score: int
+
+
+class PlanPeriodAnalyticsRead(BaseModel):
+    days_count: int
+    average_kcal: Decimal
+    average_protein: Decimal
+    average_fat: Decimal
+    average_carbs: Decimal
+    average_fiber: Decimal
+    kcal_percent: Decimal | None
+    protein_percent: Decimal | None
+    fat_percent: Decimal | None
+    carbs_percent: Decimal | None
+    fiber_percent: Decimal | None
+    overall_score: int
+
+
+class PlanAnalyticsResponse(BaseModel):
+    targets: PlanNutritionTargetRead
+    period_summary: PlanPeriodAnalyticsRead
+    day_analytics: list[PlanDayAnalyticsRead]
+    recommendations: list[str]
 
 
 class PlanListItem(BaseModel):

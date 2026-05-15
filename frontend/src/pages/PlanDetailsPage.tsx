@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
-import { getPlan, regeneratePlanDay } from "../api/plans";
+import { getPlan, getPlanAnalytics, regeneratePlanDay } from "../api/plans";
 import { getRecipe, listRecipes, type RecipeRead } from "../api/recipes";
 import { EditPlanSlotModal } from "../components/plans/EditPlanSlotModal";
 import { PlanConfirmModal } from "../components/plans/PlanConfirmModal";
 import { Alert } from "../components/Alert";
-import type { PlanDay, PlanRead, PlanSlot } from "../types/plan";
+import type { PlanAnalyticsResponse, PlanDay, PlanRead, PlanSlot } from "../types/plan";
 import { formatDecimal, formatPlanDate, formatPlanDayLabel, planTitleWithFallback } from "./plans";
 import "./PlansPage.css";
 
@@ -37,6 +37,15 @@ function resolveRegenerateDayError(err: unknown): string {
     if (err.status === 422) return "Недостаточно рецептов для перегенерации дня.";
   }
   return "Не удалось перегенерировать день. Попробуйте ещё раз.";
+}
+
+function resolvePlanAnalyticsError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 404) return "План не найден.";
+    if (err.status === 422) return "Для оценки плана нужны цели профиля.";
+    if (err.status === 401) return "Нужно снова войти в аккаунт.";
+  }
+  return err instanceof Error ? err.message : "Не удалось загрузить оценку плана.";
 }
 
 function buildDaySlotsSignature(day: PlanDay): string {
@@ -75,6 +84,9 @@ export function PlanDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isNotFound, setIsNotFound] = useState(false);
+  const [analytics, setAnalytics] = useState<PlanAnalyticsResponse | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const [recipes, setRecipes] = useState<RecipeRead[]>([]);
   const [recipesLoading, setRecipesLoading] = useState(false);
@@ -88,9 +100,24 @@ export function PlanDetailsPage() {
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [replacementHistoryBySlotId, setReplacementHistoryBySlotId] = useState<Record<number, number[]>>({});
 
+  const loadAnalytics = useCallback(async (planId: number | string) => {
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const payload = await getPlanAnalytics(planId);
+      setAnalytics(payload);
+    } catch (err) {
+      setAnalytics(null);
+      setAnalyticsError(resolvePlanAnalyticsError(err));
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, []);
+
   const loadPlan = useCallback(async () => {
     if (!id) {
       setPlan(null);
+      setAnalytics(null);
       setLoading(false);
       setError("Некорректный идентификатор плана.");
       return;
@@ -103,8 +130,10 @@ export function PlanDetailsPage() {
     try {
       const payload = await getPlan(id);
       setPlan(payload);
+      await loadAnalytics(payload.id);
     } catch (err) {
       setPlan(null);
+      setAnalytics(null);
       if (err instanceof ApiError && err.status === 404) {
         setIsNotFound(true);
       } else {
@@ -113,7 +142,7 @@ export function PlanDetailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, loadAnalytics]);
 
   const loadRecipes = useCallback(async () => {
     setRecipesLoading(true);
@@ -331,7 +360,12 @@ export function PlanDetailsPage() {
                     <th className="plan-sticky-col">Итого за день</th>
                     {days.map((day) => (
                       <td key={`${day.date}-totals`} className="plan-totals-cell">
-                        <DayTotalsCompact day={day} />
+                        <DayTotalsCompact
+                          day={{
+                            ...day,
+                            analytics: analytics?.day_analytics.find((item) => item.date === day.date),
+                          }}
+                        />
                       </td>
                     ))}
                   </tr>
@@ -365,6 +399,19 @@ export function PlanDetailsPage() {
               </table>
             </div>
           </div>
+        )}
+
+        {canShowCalendar && (
+          <PlanAnalyticsSection
+            plan={plan}
+            analytics={analytics}
+            loading={analyticsLoading}
+            error={analyticsError}
+            onRetry={() => {
+              if (!plan) return;
+              void loadAnalytics(plan.id);
+            }}
+          />
         )}
       </div>
 
@@ -408,16 +455,359 @@ export function PlanDetailsPage() {
   );
 }
 
-function DayTotalsCompact({ day }: { day: PlanDay }) {
+function DayTotalsCompact({
+  day,
+}: {
+  day: PlanDay & { analytics?: PlanAnalyticsResponse["day_analytics"][number] };
+}) {
+  const dayAnalytics = day.analytics ?? null;
+  const dayDeviations = dayAnalytics ? collectDayDeviationBadges(dayAnalytics) : [];
+
   return (
     <div className="plan-day-totals">
-      <p className="plan-day-totals-item">Ккал: {formatDecimal(day.totals.kcal)}</p>
+      <div className="plan-day-totals-head">
+        <p className="plan-day-totals-item">Ккал: {formatDecimal(day.totals.kcal)}</p>
+        {dayDeviations.length > 0 && <DayAnalyticsIndicator items={dayDeviations} />}
+      </div>
       <p className="plan-day-totals-item">Б: {formatDecimal(day.totals.protein)}</p>
       <p className="plan-day-totals-item">Ж: {formatDecimal(day.totals.fat)}</p>
       <p className="plan-day-totals-item">У: {formatDecimal(day.totals.carbs)}</p>
       <p className="plan-day-totals-item">Клетчатка: {formatDecimal(day.totals.fiber)}</p>
     </div>
   );
+}
+
+function DayAnalyticsIndicator({
+  items,
+}: {
+  items: Array<{ label: string; tone: "low" | "high" | "info"; percent: string | null }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const root = rootRef.current;
+      if (!root) return;
+      if (root.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+    };
+  }, [open]);
+
+  return (
+    <div
+      ref={rootRef}
+      className="plan-day-indicator-wrap"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className="plan-day-indicator-btn"
+        aria-label="Показать отклонения за день"
+        aria-expanded={open}
+        onFocus={() => setOpen(true)}
+        onBlur={(event) => {
+          const next = event.relatedTarget as Node | null;
+          if (!next || !rootRef.current?.contains(next)) {
+            setOpen(false);
+          }
+        }}
+        onClick={() => setOpen((prev) => !prev)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+          }
+        }}
+      >
+        !
+      </button>
+
+      {open && (
+        <div className="plan-day-indicator-popover" role="dialog" aria-label="Отклонения за день">
+          <p className="plan-day-indicator-title">Отклонения за день</p>
+          <ul className="plan-day-indicator-list">
+            {items.map((item) => (
+              <li key={item.label} className={`plan-day-indicator-item is-${item.tone}`}>
+                <span>{item.label}</span>
+                <span>{item.percent === null ? "—" : `${item.percent}%`}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanAnalyticsSection({
+  plan,
+  analytics,
+  loading,
+  error,
+  onRetry,
+}: {
+  plan: PlanRead;
+  analytics: PlanAnalyticsResponse | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) {
+    return (
+      <section className="plan-analytics-card">
+        <h2 className="plan-analytics-title">Оценка плана</h2>
+        <p className="plans-note">Загрузка оценки плана...</p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="plan-analytics-card">
+        <h2 className="plan-analytics-title">Оценка плана</h2>
+        <p className="plans-note">{error}</p>
+        <button type="button" className="btn btn-secondary" onClick={onRetry}>
+          Повторить
+        </button>
+      </section>
+    );
+  }
+
+  if (!analytics) return null;
+
+  const period = computeDisplayPeriodFromPlan(plan);
+  const score = analytics.period_summary.overall_score;
+  const rows = [
+    { label: "Калории", percent: period.kcal_percent, status: resolveStatusByPercent(period.kcal_percent, "kcal") },
+    { label: "Белки", percent: period.protein_percent, status: resolveStatusByPercent(period.protein_percent, "macro") },
+    { label: "Жиры", percent: period.fat_percent, status: resolveStatusByPercent(period.fat_percent, "macro") },
+    { label: "Углеводы", percent: period.carbs_percent, status: resolveStatusByPercent(period.carbs_percent, "macro") },
+  ];
+
+  const showFiber = plan.target_fiber !== null || period.average_fiber > 0;
+  if (showFiber) {
+    rows.push({
+      label: "Клетчатка",
+      percent: period.fiber_percent,
+      status: resolveStatusByPercent(period.fiber_percent, plan.target_fiber && plan.target_fiber > 0 ? "fiber" : "none"),
+    });
+  }
+
+  const metricCards = [
+    { label: "Ккал", value: `${formatMetric(period.average_kcal)} ккал`, target: plan.target_kcal !== null ? `${plan.target_kcal}` : "—" },
+    { label: "Белки", value: `${formatMetric(period.average_protein)} г`, target: plan.target_protein !== null ? `${plan.target_protein} г` : "—" },
+    { label: "Жиры", value: `${formatMetric(period.average_fat)} г`, target: plan.target_fat !== null ? `${plan.target_fat} г` : "—" },
+    { label: "Углеводы", value: `${formatMetric(period.average_carbs)} г`, target: plan.target_carbs !== null ? `${plan.target_carbs} г` : "—" },
+  ];
+  if (showFiber) {
+    metricCards.push({
+      label: "Клетчатка",
+      value: `${formatMetric(period.average_fiber)} г`,
+      target: plan.target_fiber !== null ? `${plan.target_fiber} г` : "—",
+    });
+  }
+
+  return (
+    <section className="plan-analytics-card">
+      <div className="plan-analytics-head">
+        <div>
+          <h2 className="plan-analytics-title">Оценка плана</h2>
+          <p className="plan-analytics-subtitle">Оценка рассчитана по средним значениям за период.</p>
+        </div>
+        <span className="plan-analytics-score">Оценка {score}/100</span>
+      </div>
+
+      <div className="plan-analytics-grid">
+        <article className="plan-analytics-panel">
+          <h3 className="plan-analytics-panel-title">Среднее за день</h3>
+          <div className="plan-analytics-metrics">
+            {metricCards.map((item) => (
+              <div key={item.label} className="plan-analytics-metric-card">
+                <p className="plan-analytics-metric-label">{item.label}</p>
+                <p className="plan-analytics-metric-value">{item.value}</p>
+                <p className="plan-analytics-metric-target">цель: {item.target}</p>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="plan-analytics-panel">
+          <h3 className="plan-analytics-panel-title">Попадание в цели</h3>
+          <ul className="plan-analytics-targets">
+            {rows.map((row) => (
+              <li key={row.label} className={`plan-analytics-target-row is-${row.status}`}>
+                <div className="plan-analytics-target-row-top">
+                  <span>{row.label}</span>
+                  <span>{formatPercentValue(row.percent)}</span>
+                </div>
+                <div className="plan-analytics-progress">
+                  <div
+                    className="plan-analytics-progress-fill"
+                    style={{ width: `${resolveProgressWidth(row.percent)}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </article>
+
+        <article className="plan-analytics-panel">
+          <h3 className="plan-analytics-panel-title">Рекомендации</h3>
+          <ul className="plan-analytics-recommendations">
+            {analytics.recommendations.slice(0, 3).map((item, index) => (
+              <li key={`${index}-${item}`}>{item}</li>
+            ))}
+          </ul>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function formatPercentValue(value: string | null): string {
+  if (value === null) return "—";
+  return `${value}%`;
+}
+
+function formatMetric(value: number): string {
+  return value.toFixed(2);
+}
+
+function resolveProgressWidth(value: string | null): number {
+  if (value === null) return 0;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return 0;
+  return Math.min(100, Math.round(numeric));
+}
+
+function resolveStatusByPercent(
+  value: string | null,
+  mode: "kcal" | "macro" | "fiber" | "none",
+): "low" | "ok" | "high" | "no-target" {
+  if (mode === "none" || value === null) return "no-target";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "no-target";
+
+  if (mode === "kcal") {
+    if (numeric < 90) return "low";
+    if (numeric > 110) return "high";
+    return "ok";
+  }
+
+  if (mode === "fiber") {
+    if (numeric < 85) return "low";
+    if (numeric > 180) return "high";
+    return "ok";
+  }
+
+  if (numeric < 85) return "low";
+  if (numeric > 115) return "high";
+  return "ok";
+}
+
+function collectDayDeviationBadges(day: PlanAnalyticsResponse["day_analytics"][number]): Array<{
+  label: string;
+  tone: "low" | "high" | "info";
+  percent: string | null;
+}> {
+  const candidates: Array<{ label: string; tone: "low" | "high" | "info"; priority: number; percent: string | null }> = [];
+
+  const pushCandidate = (
+    shortLabel: string,
+    status: "low" | "ok" | "high" | "no_target",
+    priority: number,
+    options?: { isFiber?: boolean; percent?: string | null },
+  ) => {
+    if (status === "ok" || status === "no_target") return;
+    if (options?.isFiber && status === "high") {
+      const fiberPercent = Number(options.percent ?? "0");
+      if (Number.isFinite(fiberPercent) && fiberPercent < 220) return;
+    }
+    const label = `${shortLabel} ${status === "low" ? "ниже" : "выше"}`;
+    if (options?.isFiber && status === "high") {
+      candidates.push({ label, tone: "info", priority, percent: options.percent ?? null });
+      return;
+    }
+    candidates.push({ label, tone: status === "low" ? "low" : "high", priority, percent: options?.percent ?? null });
+  };
+
+  pushCandidate("Калории", day.kcal.status, 1, { percent: day.kcal.percent });
+  pushCandidate("Белок", day.protein.status, 2, { percent: day.protein.percent });
+  pushCandidate("Жиры", day.fat.status, 3, { percent: day.fat.percent });
+  pushCandidate("Углеводы", day.carbs.status, 4, { percent: day.carbs.percent });
+  pushCandidate("Клетчатка", day.fiber.status, 5, { isFiber: true, percent: day.fiber.percent });
+
+  return candidates
+    .sort((left, right) => left.priority - right.priority)
+    .slice(0, 3)
+    .map((item) => ({ label: item.label, tone: item.tone, percent: item.percent }));
+}
+
+function toNumber(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
+function buildPercent(value: number, target: number | null): string | null {
+  if (!target || target <= 0) return null;
+  return roundTo((value / target) * 100, 1).toFixed(1);
+}
+
+function computeDisplayPeriodFromPlan(plan: PlanRead): {
+  average_kcal: number;
+  average_protein: number;
+  average_fat: number;
+  average_carbs: number;
+  average_fiber: number;
+  kcal_percent: string | null;
+  protein_percent: string | null;
+  fat_percent: string | null;
+  carbs_percent: string | null;
+  fiber_percent: string | null;
+} {
+  const dayCount = Math.max(plan.days.length, 1);
+  const sums = plan.days.reduce(
+    (acc, day) => {
+      acc.kcal += toNumber(day.totals.kcal);
+      acc.protein += toNumber(day.totals.protein);
+      acc.fat += toNumber(day.totals.fat);
+      acc.carbs += toNumber(day.totals.carbs);
+      acc.fiber += toNumber(day.totals.fiber);
+      return acc;
+    },
+    { kcal: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
+  );
+
+  const average_kcal = roundTo(sums.kcal / dayCount, 2);
+  const average_protein = roundTo(sums.protein / dayCount, 2);
+  const average_fat = roundTo(sums.fat / dayCount, 2);
+  const average_carbs = roundTo(sums.carbs / dayCount, 2);
+  const average_fiber = roundTo(sums.fiber / dayCount, 2);
+
+  return {
+    average_kcal,
+    average_protein,
+    average_fat,
+    average_carbs,
+    average_fiber,
+    kcal_percent: buildPercent(average_kcal, plan.target_kcal),
+    protein_percent: buildPercent(average_protein, plan.target_protein),
+    fat_percent: buildPercent(average_fat, plan.target_fat),
+    carbs_percent: buildPercent(average_carbs, plan.target_carbs),
+    fiber_percent: buildPercent(average_fiber, plan.target_fiber),
+  };
 }
 
 function SlotCell({

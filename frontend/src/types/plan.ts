@@ -157,3 +157,51 @@ export type PlanBulkDeletePayload = {
 export type PlanBulkDeleteResponse = {
   deleted_count: number;
 };
+
+export type NutrientStatus = "low" | "ok" | "high" | "no_target";
+
+export type PlanAnalyticsTarget = {
+  kcal: number | null;
+  protein: number | null;
+  fat: number | null;
+  carbs: number | null;
+  fiber: number | null;
+};
+
+export type NutrientAnalytics = {
+  total: DecimalString;
+  percent: DecimalString | null;
+  status: NutrientStatus;
+};
+
+export type PlanDayAnalytics = {
+  date: string;
+  kcal: NutrientAnalytics;
+  protein: NutrientAnalytics;
+  fat: NutrientAnalytics;
+  carbs: NutrientAnalytics;
+  fiber: NutrientAnalytics;
+  day_score: number;
+};
+
+export type PlanPeriodAnalytics = {
+  days_count: number;
+  average_kcal: DecimalString;
+  average_protein: DecimalString;
+  average_fat: DecimalString;
+  average_carbs: DecimalString;
+  average_fiber: DecimalString;
+  kcal_percent: DecimalString | null;
+  protein_percent: DecimalString | null;
+  fat_percent: DecimalString | null;
+  carbs_percent: DecimalString | null;
+  fiber_percent: DecimalString | null;
+  overall_score: number;
+};
+
+export type PlanAnalyticsResponse = {
+  targets: PlanAnalyticsTarget;
+  period_summary: PlanPeriodAnalytics;
+  day_analytics: PlanDayAnalytics[];
+  recommendations: string[];
+};
