@@ -5,6 +5,7 @@ import { ApiError } from "../api/http";
 import { useAuth } from "../auth/useAuth";
 import {
   addIngredient,
+  addRecipeFavorite,
   copyRecipe,
   deleteRecipeNote,
   deleteIngredient,
@@ -14,6 +15,7 @@ import {
   publishRecipe,
   reportRecipe,
   resolveRecipeImageSrc,
+  removeRecipeFavorite,
   upsertRecipeNote,
   updateIngredient,
   withdrawRecipe,
@@ -288,6 +290,7 @@ export function RecipeDetailsPage() {
   const [reportForm, setReportForm] = useState<ReportForm>(EMPTY_REPORT_FORM);
   const [reportErrors, setReportErrors] = useState<ReportFormErrors>({});
   const [copying, setCopying] = useState(false);
+  const [favoriteUpdating, setFavoriteUpdating] = useState(false);
 
   const [noteValue, setNoteValue] = useState("");
   const [noteLoading, setNoteLoading] = useState(false);
@@ -418,6 +421,7 @@ export function RecipeDetailsPage() {
   const canReportRecipe = Boolean(
     recipe && !isOwner && recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
   );
+  const canFavoriteRecipe = Boolean(recipe);
   const canCopyRecipe = Boolean(
     recipe &&
       !isOwner &&
@@ -861,6 +865,25 @@ export function RecipeDetailsPage() {
     }
   };
 
+  const onToggleFavorite = async () => {
+    if (!recipe || favoriteUpdating) return;
+    const nextFavorite = !recipe.is_favorite;
+    setFavoriteUpdating(true);
+    setRecipe((prev) => (prev ? { ...prev, is_favorite: nextFavorite } : prev));
+    try {
+      if (nextFavorite) {
+        await addRecipeFavorite(recipe.id);
+      } else {
+        await removeRecipeFavorite(recipe.id);
+      }
+    } catch (err) {
+      setRecipe((prev) => (prev ? { ...prev, is_favorite: recipe.is_favorite } : prev));
+      setError(resolveActionError(err, "Не удалось обновить избранное."));
+    } finally {
+      setFavoriteUpdating(false);
+    }
+  };
+
   const onSaveNote = async () => {
     if (!recipe || noteSaving || noteLoading) return;
     const normalized = noteValue.trim();
@@ -954,9 +977,21 @@ export function RecipeDetailsPage() {
                   {recipe.description && <p className="recipe-description">{recipe.description}</p>}
                 </div>
 
-                {(canPublishRecipe || canEditRecipe || canDeleteRecipe || canWithdrawRecipe || canReportRecipe || canCopyRecipe) && (
+                {(canFavoriteRecipe || canPublishRecipe || canEditRecipe || canDeleteRecipe || canWithdrawRecipe || canReportRecipe || canCopyRecipe) && (
                   <div className="recipe-action-block">
                     <div className="recipe-action-row">
+                      <button
+                        type="button"
+                        className={recipe.is_favorite ? "btn btn-primary" : "btn btn-secondary"}
+                        onClick={() => void onToggleFavorite()}
+                        disabled={favoriteUpdating}
+                      >
+                        {favoriteUpdating
+                          ? "Сохраняем..."
+                          : recipe.is_favorite
+                            ? "В избранном"
+                            : "В избранное"}
+                      </button>
                       {canPublishRecipe && (
                         <button
                           type="button"

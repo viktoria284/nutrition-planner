@@ -23,6 +23,7 @@ type PlanAutogenerateFormState = {
   batch_lunch_days: string;
   batch_dinner_days: string;
   batch_snack_days: string;
+  favorite_recipes_mode: "none" | "prefer" | "only";
   excluded_food_ids: number[];
 };
 
@@ -122,6 +123,7 @@ function validateAutogenerateForm(form: PlanAutogenerateFormState): {
       use_public_recipes: form.use_public_recipes,
       excluded_recipe_ids: [],
       excluded_food_ids: [...new Set(form.excluded_food_ids)],
+      favorite_recipes_mode: form.favorite_recipes_mode,
       ...(maxCookTime !== null ? { max_cook_time_minutes: maxCookTime } : {}),
       ...(Object.keys(batchCooking).length > 0 ? { batch_cooking: batchCooking } : {}),
     },
@@ -183,6 +185,7 @@ export function PlansAutogeneratePage() {
     batch_lunch_days: "1",
     batch_dinner_days: "1",
     batch_snack_days: "1",
+    favorite_recipes_mode: "none",
     excluded_food_ids: [],
   });
   const [errors, setErrors] = useState<PlanAutogenerateFormErrors>({ form: [] });
@@ -244,7 +247,8 @@ export function PlansAutogeneratePage() {
       | "batch_breakfast_days"
       | "batch_lunch_days"
       | "batch_dinner_days"
-      | "batch_snack_days",
+      | "batch_snack_days"
+      | "favorite_recipes_mode",
     value: string,
   ) => {
     if (field === "max_cook_time_minutes") {
@@ -454,6 +458,27 @@ export function PlansAutogeneratePage() {
           <p className="plans-field-hint">
             Если включено, автоплан сможет использовать ваши рецепты и публичные опубликованные рецепты.
           </p>
+
+          <label className="plans-field" htmlFor="autoplan-favorite-mode">
+            <span className="plans-field-label">Избранные рецепты</span>
+            <select
+              id="autoplan-favorite-mode"
+              className="plans-field-input"
+              value={form.favorite_recipes_mode}
+              onChange={(event) => updateTextField("favorite_recipes_mode", event.target.value)}
+              disabled={saving}
+            >
+              <option value="none">Не учитывать</option>
+              <option value="prefer">Использовать в приоритете</option>
+              <option value="only">Только избранные</option>
+            </select>
+            <p className="plans-field-hint">
+              Приоритет избранных повышает вероятность выбора сохранённых рецептов, но не нарушает ограничения профиля.
+            </p>
+            {form.favorite_recipes_mode === "only" && (
+              <p className="plans-field-hint">План будет составляться только из избранных доступных рецептов.</p>
+            )}
+          </label>
 
           <div className="plans-field">
             <span className="plans-field-label">Исключить продукты</span>

@@ -268,6 +268,7 @@ class RecipeRead(BaseModel):
     status: FoodStatus
     reports_count: int
     is_listed: bool
+    is_favorite: bool = False
     ingredients: list[RecipeIngredientRead] = Field(default_factory=list)
     steps: list[RecipeStepRead] = Field(default_factory=list)
     total_grams: Decimal
@@ -290,6 +291,11 @@ class RecipeRead(BaseModel):
 
 class RecipeNoteRead(BaseModel):
     note: str | None
+
+
+class RecipeFavoriteStateRead(BaseModel):
+    recipe_id: int
+    is_favorite: bool
 
 
 class RecipeNoteUpsert(BaseModel):

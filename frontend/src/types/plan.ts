@@ -88,6 +88,7 @@ export type PlanAutogeneratePayload = {
   excluded_food_ids?: number[];
   max_cook_time_minutes?: number | null;
   batch_cooking?: Partial<Record<"breakfast" | "lunch" | "dinner" | "snack", 1 | 2 | 3>>;
+  favorite_recipes_mode?: "none" | "prefer" | "only";
 };
 
 export type PlanReplaceSlotPayload = {

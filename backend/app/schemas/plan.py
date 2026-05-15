@@ -44,6 +44,7 @@ class PlanAutogenerateRequest(BaseModel):
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     max_cook_time_minutes: Annotated[int, Field(ge=1, le=1440)] | None = None
     batch_cooking: BatchCookingPreferences | None = None
+    favorite_recipes_mode: Literal["none", "prefer", "only"] = "none"
 
     @field_validator("title")
     @classmethod

@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ApiError } from "../api/http";
-import { listRecipes, resolveRecipeImageSrc, type MealType, type RecipeRead } from "../api/recipes";
+import {
+  addRecipeFavorite,
+  listRecipes,
+  removeRecipeFavorite,
+  type MealType,
+  type RecipeRead,
+} from "../api/recipes";
 import { Alert } from "../components/Alert";
+import { RecipeGridCard } from "../components/recipes/RecipeGridCard";
 import "./RecipesPage.css";
 
 const MEAL_TYPE_OPTIONS: Array<{ value: MealType; label: string }> = [
@@ -27,13 +34,6 @@ const COOK_TIME_FILTER_OPTIONS = [
   { value: "60", label: "До 60 мин" },
 ] as const;
 
-function formatMetric(value: string | number): string {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "0";
-  if (Number.isInteger(numeric)) return String(numeric);
-  return numeric.toFixed(2).replace(/\.?0+$/, "");
-}
-
 function resolveApiError(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     if (err.status === 404) return "Не найдено или нет доступа";
@@ -55,7 +55,9 @@ export function RecipesListPage() {
   const [recipes, setRecipes] = useState<RecipeRead[]>([]);
   const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>([]);
   const [cookTimeFilter, setCookTimeFilter] = useState<(typeof COOK_TIME_FILTER_OPTIONS)[number]["value"]>("any");
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [favoriteUpdatingIds, setFavoriteUpdatingIds] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
 
@@ -67,6 +69,7 @@ export function RecipesListPage() {
       const maxCookTime = cookTimeFilter === "any" ? undefined : Number(cookTimeFilter);
       const items = await listRecipes({
         maxCookTimeMinutes: Number.isFinite(maxCookTime) ? maxCookTime : undefined,
+        favoriteOnly,
         limit: 500,
       });
       setRecipes(items);
@@ -76,7 +79,7 @@ export function RecipesListPage() {
     } finally {
       setLoading(false);
     }
-  }, [cookTimeFilter]);
+  }, [cookTimeFilter, favoriteOnly]);
 
   useEffect(() => {
     void loadRecipes();
@@ -114,6 +117,39 @@ export function RecipesListPage() {
   const resetFilters = () => {
     setSelectedMealTypes([]);
     setCookTimeFilter("any");
+    setFavoriteOnly(false);
+  };
+
+  const toggleRecipeFavorite = async (recipe: RecipeRead) => {
+    if (favoriteUpdatingIds.has(recipe.id)) return;
+    const nextFavorite = !recipe.is_favorite;
+
+    setFavoriteUpdatingIds((prev) => new Set(prev).add(recipe.id));
+    setRecipes((prev) =>
+      prev.map((item) => (item.id === recipe.id ? { ...item, is_favorite: nextFavorite } : item)),
+    );
+
+    try {
+      if (nextFavorite) {
+        await addRecipeFavorite(recipe.id);
+      } else {
+        await removeRecipeFavorite(recipe.id);
+      }
+      if (!nextFavorite && favoriteOnly) {
+        setRecipes((prev) => prev.filter((item) => item.id !== recipe.id));
+      }
+    } catch (err) {
+      setRecipes((prev) =>
+        prev.map((item) => (item.id === recipe.id ? { ...item, is_favorite: recipe.is_favorite } : item)),
+      );
+      setError(resolveApiError(err, "Не удалось обновить избранное."));
+    } finally {
+      setFavoriteUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(recipe.id);
+        return next;
+      });
+    }
   };
 
   const isEmpty = !loading && !error && recipes.length === 0;
@@ -187,11 +223,20 @@ export function RecipesListPage() {
               type="button"
               className="btn btn-secondary"
               onClick={resetFilters}
-              disabled={!selectedMealTypes.length && cookTimeFilter === "any"}
+              disabled={!selectedMealTypes.length && cookTimeFilter === "any" && !favoriteOnly}
             >
               Сбросить фильтр
             </button>
           </div>
+          <label className={`recipes-filter-chip ${favoriteOnly ? "is-active" : ""}`} htmlFor="filter-favorite-only-my">
+            <input
+              id="filter-favorite-only-my"
+              type="checkbox"
+              checked={favoriteOnly}
+              onChange={(event) => setFavoriteOnly(event.target.checked)}
+            />
+            Только избранные
+          </label>
         </section>
 
         {flashMessage && <p className="recipes-inline-success">{flashMessage}</p>}
@@ -231,53 +276,14 @@ export function RecipesListPage() {
           <ul className="recipes-list">
             {filteredRecipes.map((recipe) => (
               <li key={recipe.id}>
-                <Link to={`/recipes/${recipe.id}`} className="recipe-row-link">
-                  <div className="recipe-row-top">
-                    <div className="recipe-row-main">
-                      <div className="recipe-row-cover">
-                        {recipe.image_url ? (
-                          <>
-                            <img
-                              src={resolveRecipeImageSrc(recipe.image_url) ?? undefined}
-                              alt={`Фото блюда: ${recipe.name}`}
-                              className="recipe-row-cover-image"
-                              onError={(event) => {
-                                event.currentTarget.style.display = "none";
-                                const fallback = event.currentTarget.nextElementSibling as HTMLElement | null;
-                                if (fallback) fallback.style.display = "grid";
-                              }}
-                            />
-                            <div className="recipe-row-cover-fallback" style={{ display: "none" }} aria-hidden="true">
-                              {recipe.name.slice(0, 1).toUpperCase()}
-                            </div>
-                          </>
-                        ) : (
-                          <div className="recipe-row-cover-fallback" aria-hidden="true">
-                            {recipe.name.slice(0, 1).toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                      <div className="recipe-row-text">
-                        <p className="recipe-row-title">{recipe.name}</p>
-                        {recipe.description && <p className="recipe-row-description">{recipe.description}</p>}
-                      </div>
-                    </div>
-                    <p className="recipe-row-servings">{recipe.servings_count} порц.</p>
-                  </div>
-
-                  <div className="recipe-row-meta">
-                    {recipe.meal_types.map((mealType) => (
-                      <span key={`${recipe.id}-${mealType}`} className="recipe-meal-badge">
-                        {MEAL_TYPE_LABELS[mealType]}
-                      </span>
-                    ))}
-                    {typeof recipe.cook_time_minutes === "number" && (
-                      <span className="recipe-row-kcal">{recipe.cook_time_minutes} мин</span>
-                    )}
-                    <span className="recipe-row-kcal">{formatMetric(recipe.total_kcal)} ккал</span>
-                    <span className="recipe-row-kcal">Клетчатка: {formatMetric(recipe.per_serving_fiber)} г</span>
-                  </div>
-                </Link>
+                <RecipeGridCard
+                  recipe={recipe}
+                  mealTypeLabels={MEAL_TYPE_LABELS}
+                  favoriteUpdating={favoriteUpdatingIds.has(recipe.id)}
+                  onToggleFavorite={(item) => {
+                    void toggleRecipeFavorite(item);
+                  }}
+                />
               </li>
             ))}
           </ul>

@@ -33,6 +33,7 @@ export type RecipeRead = {
   status: RecipeStatus;
   reports_count: number;
   is_listed: boolean;
+  is_favorite: boolean;
   ingredients?: RecipeIngredientRead[];
   steps?: RecipeStepRead[];
   total_grams: DecimalValue;
@@ -104,11 +105,17 @@ export type RecipeNoteRead = {
 
 export type ListRecipesOptions = {
   includePublic?: boolean;
+  favoriteOnly?: boolean;
   mealType?: MealType;
   minCookTimeMinutes?: number;
   maxCookTimeMinutes?: number;
   limit?: number;
   offset?: number;
+};
+
+export type RecipeFavoriteState = {
+  recipe_id: number;
+  is_favorite: boolean;
 };
 
 function getToken() {
@@ -178,6 +185,9 @@ export async function listRecipes(options: ListRecipesOptions = {}): Promise<Rec
   if (options.mealType) {
     params.set("meal_type", options.mealType);
   }
+  if (options.favoriteOnly) {
+    params.set("favorite_only", "true");
+  }
   if (typeof options.minCookTimeMinutes === "number") {
     params.set("min_cook_time_minutes", String(options.minCookTimeMinutes));
   }
@@ -238,6 +248,26 @@ export async function getRecipe(id: number | string): Promise<RecipeRead> {
     apiRequest<RecipeRead>({
       method: "GET",
       path: `/recipes/${id}`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function addRecipeFavorite(id: number | string): Promise<RecipeFavoriteState> {
+  return requestWithApiError(
+    apiRequest<RecipeFavoriteState>({
+      method: "POST",
+      path: `/recipes/${id}/favorite`,
+      token: getToken(),
+    }),
+  );
+}
+
+export async function removeRecipeFavorite(id: number | string): Promise<RecipeFavoriteState> {
+  return requestWithApiError(
+    apiRequest<RecipeFavoriteState>({
+      method: "DELETE",
+      path: `/recipes/${id}/favorite`,
       token: getToken(),
     }),
   );

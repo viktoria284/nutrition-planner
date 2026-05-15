@@ -1763,3 +1763,113 @@ def test_notes_are_not_copied(client: TestClient) -> None:
     copied_note_response = client.get(f"/recipes/{copied_id}/note", headers=auth_headers(user_token))
     assert copied_note_response.status_code == 200, copied_note_response.text
     assert copied_note_response.json()["note"] is None
+
+
+def test_user_can_favorite_own_recipe(client: TestClient) -> None:
+    register_user(client, email="favorite-own@example.com", username="favoriteown")
+    token = login_and_get_token(client, identifier="favorite-own@example.com")
+    recipe = create_recipe_via_api(client, token, name="Мой избранный рецепт")
+
+    response = client.post(f"/recipes/{recipe['id']}/favorite", headers=auth_headers(token))
+    assert response.status_code == 200, response.text
+    assert response.json() == {"recipe_id": recipe["id"], "is_favorite": True}
+
+    detail = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(token))
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["is_favorite"] is True
+
+
+def test_user_can_favorite_public_recipe(client: TestClient) -> None:
+    register_user(client, email="favorite-public-owner@example.com", username="favoritepublicowner")
+    owner_token = login_and_get_token(client, identifier="favorite-public-owner@example.com")
+    public_recipe = create_recipe_via_api(client, owner_token, name="Публичный рецепт для избранного", meal_types=["dinner"])
+    publish_response = client.post(f"/recipes/{public_recipe['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    register_user(client, email="favorite-public-viewer@example.com", username="favoritepublicviewer")
+    viewer_token = login_and_get_token(client, identifier="favorite-public-viewer@example.com")
+
+    favorite_response = client.post(f"/recipes/{public_recipe['id']}/favorite", headers=auth_headers(viewer_token))
+    assert favorite_response.status_code == 200, favorite_response.text
+    assert favorite_response.json()["is_favorite"] is True
+
+    detail = client.get(f"/recipes/{public_recipe['id']}", headers=auth_headers(viewer_token))
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["is_favorite"] is True
+
+
+def test_user_cannot_favorite_inaccessible_private_recipe(client: TestClient) -> None:
+    register_user(client, email="favorite-private-owner@example.com", username="favoriteprivateowner")
+    owner_token = login_and_get_token(client, identifier="favorite-private-owner@example.com")
+    private_recipe = create_recipe_via_api(client, owner_token, name="Закрытый рецепт для избранного")
+
+    register_user(client, email="favorite-private-viewer@example.com", username="favoriteprivateviewer")
+    viewer_token = login_and_get_token(client, identifier="favorite-private-viewer@example.com")
+
+    response = client.post(f"/recipes/{private_recipe['id']}/favorite", headers=auth_headers(viewer_token))
+    assert response.status_code == 404, response.text
+
+
+def test_duplicate_favorite_and_remove_absent_are_idempotent(client: TestClient) -> None:
+    register_user(client, email="favorite-idempotent@example.com", username="favoriteidempotent")
+    token = login_and_get_token(client, identifier="favorite-idempotent@example.com")
+    recipe = create_recipe_via_api(client, token, name="Идемпотентный рецепт")
+
+    first_add = client.post(f"/recipes/{recipe['id']}/favorite", headers=auth_headers(token))
+    assert first_add.status_code == 200, first_add.text
+    second_add = client.post(f"/recipes/{recipe['id']}/favorite", headers=auth_headers(token))
+    assert second_add.status_code == 200, second_add.text
+
+    first_remove = client.delete(f"/recipes/{recipe['id']}/favorite", headers=auth_headers(token))
+    assert first_remove.status_code == 200, first_remove.text
+    second_remove = client.delete(f"/recipes/{recipe['id']}/favorite", headers=auth_headers(token))
+    assert second_remove.status_code == 200, second_remove.text
+    assert second_remove.json()["is_favorite"] is False
+
+
+def test_list_recipes_includes_is_favorite_and_favorite_only_filter(client: TestClient) -> None:
+    register_user(client, email="favorite-list@example.com", username="favoritelist")
+    token = login_and_get_token(client, identifier="favorite-list@example.com")
+    recipe_a = create_recipe_via_api(client, token, name="Рецепт A")
+    recipe_b = create_recipe_via_api(client, token, name="Рецепт B")
+
+    favorite_response = client.post(f"/recipes/{recipe_a['id']}/favorite", headers=auth_headers(token))
+    assert favorite_response.status_code == 200, favorite_response.text
+
+    list_response = client.get("/recipes?limit=100", headers=auth_headers(token))
+    assert list_response.status_code == 200, list_response.text
+    by_id = {item["id"]: item for item in list_response.json()}
+    assert by_id[recipe_a["id"]]["is_favorite"] is True
+    assert by_id[recipe_b["id"]]["is_favorite"] is False
+
+    favorite_only_response = client.get("/recipes?favorite_only=true&limit=100", headers=auth_headers(token))
+    assert favorite_only_response.status_code == 200, favorite_only_response.text
+    favorite_only_ids = {item["id"] for item in favorite_only_response.json()}
+    assert recipe_a["id"] in favorite_only_ids
+    assert recipe_b["id"] not in favorite_only_ids
+
+
+def test_public_favorite_only_filter_returns_favorited_public_recipes(client: TestClient) -> None:
+    register_user(client, email="favorite-public-filter-owner@example.com", username="favoritepublicfilterowner")
+    owner_token = login_and_get_token(client, identifier="favorite-public-filter-owner@example.com")
+    public_recipe_a = create_recipe_via_api(client, owner_token, name="Публичный избранный A", meal_types=["lunch"])
+    public_recipe_b = create_recipe_via_api(client, owner_token, name="Публичный избранный B", meal_types=["lunch"])
+    publish_a = client.post(f"/recipes/{public_recipe_a['id']}/publish", headers=auth_headers(owner_token))
+    publish_b = client.post(f"/recipes/{public_recipe_b['id']}/publish", headers=auth_headers(owner_token))
+    assert publish_a.status_code == 200, publish_a.text
+    assert publish_b.status_code == 200, publish_b.text
+
+    register_user(client, email="favorite-public-filter-viewer@example.com", username="favoritepublicfilterviewer")
+    viewer_token = login_and_get_token(client, identifier="favorite-public-filter-viewer@example.com")
+
+    favorite_response = client.post(f"/recipes/{public_recipe_a['id']}/favorite", headers=auth_headers(viewer_token))
+    assert favorite_response.status_code == 200, favorite_response.text
+
+    list_response = client.get(
+        "/recipes?include_public=true&favorite_only=true&limit=200",
+        headers=auth_headers(viewer_token),
+    )
+    assert list_response.status_code == 200, list_response.text
+    ids = {item["id"] for item in list_response.json()}
+    assert public_recipe_a["id"] in ids
+    assert public_recipe_b["id"] not in ids

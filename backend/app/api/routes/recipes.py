@@ -8,6 +8,7 @@ from app.models.user import User
 from app.schemas.recipes import (
     ALLOWED_MEAL_TYPES,
     RecipeCreate,
+    RecipeFavoriteStateRead,
     RecipeIngredientCreate,
     RecipeIngredientRead,
     RecipeIngredientUpdate,
@@ -34,6 +35,7 @@ from app.services.recipes import (
     RecipeWithdrawConflictError,
     RecipeWithdrawForbiddenError,
     add_ingredient,
+    add_recipe_favorite,
     build_recipe_read,
     copy_accessible_recipe,
     create_recipe,
@@ -46,10 +48,12 @@ from app.services.recipes import (
     get_recipe_note,
     get_my_recipe_or_404,
     list_accessible_recipes,
+    list_favorite_recipe_ids,
     list_recipe_steps,
     publish_recipe,
     replace_recipe_steps,
     report_recipe,
+    remove_recipe_favorite,
     upload_recipe_cover_image,
     upload_recipe_step_image,
     upsert_recipe_note,
@@ -66,6 +70,7 @@ def get_recipes(
     limit: Annotated[int, Query(ge=1, le=1000)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     include_public: bool = Query(default=False),
+    favorite_only: bool = Query(default=False),
     meal_type: str | None = Query(default=None),
     min_cook_time_minutes: Annotated[int | None, Query(ge=1, le=1440)] = None,
     max_cook_time_minutes: Annotated[int | None, Query(ge=1, le=1440)] = None,
@@ -92,6 +97,7 @@ def get_recipes(
         db,
         current_user.id,
         include_public=include_public,
+        favorite_only=favorite_only,
         limit=limit,
         offset=offset,
         meal_type=normalized_meal_type,
@@ -99,7 +105,12 @@ def get_recipes(
         max_cook_time_minutes=max_cook_time_minutes,
         include_ingredients=True,
     )
-    return [build_recipe_read(recipe) for recipe in recipes]
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id for recipe in recipes},
+    )
+    return [build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids) for recipe in recipes]
 
 
 @router.post("", response_model=RecipeRead, status_code=status.HTTP_201_CREATED)
@@ -109,7 +120,7 @@ def post_recipe(
     current_user: User = Depends(get_current_user),
 ):
     recipe = create_recipe(db, current_user.id, payload)
-    return build_recipe_read(recipe)
+    return build_recipe_read(recipe, is_favorite=False)
 
 
 @router.get("/{recipe_id}", response_model=RecipeRead)
@@ -126,7 +137,12 @@ def get_recipe_by_id(
     )
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
 
 
 @router.patch("/{recipe_id}", response_model=RecipeRead)
@@ -148,7 +164,12 @@ def patch_recipe_by_id(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
     except RecipeNotEditableError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
 
 
 @router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -180,7 +201,12 @@ def publish_recipe_by_id(
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
 
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
 
 
 @router.post("/{recipe_id}/withdraw", response_model=RecipeRead)
@@ -199,7 +225,12 @@ def withdraw_recipe_by_id(
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
 
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
 
 
 @router.post("/{recipe_id}/report", response_model=RecipeRead)
@@ -219,7 +250,12 @@ def report_recipe_by_id(
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
 
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
 
 
 @router.get("/{recipe_id}/note", response_model=RecipeNoteRead)
@@ -279,7 +315,7 @@ def copy_recipe_by_id(
         copied_recipe = copy_accessible_recipe(db, current_user.id, recipe_id)
     except RecipeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
-    return build_recipe_read(copied_recipe)
+    return build_recipe_read(copied_recipe, is_favorite=False)
 
 
 @router.post("/{recipe_id}/cover-image", response_model=RecipeRead)
@@ -305,7 +341,12 @@ def post_recipe_cover_image(
         if "too large" in detail.lower():
             raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image is too large") from exc
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
 
 
 @router.delete("/{recipe_id}/cover-image", response_model=RecipeRead)
@@ -320,7 +361,35 @@ def delete_recipe_cover_image_by_id(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
     except RecipeNotEditableError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    return build_recipe_read(recipe)
+    favorite_ids = list_favorite_recipe_ids(
+        db,
+        user_id=current_user.id,
+        recipe_ids={recipe.id},
+    )
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+
+
+@router.post("/{recipe_id}/favorite", response_model=RecipeFavoriteStateRead)
+def post_recipe_favorite(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        add_recipe_favorite(db, user_id=current_user.id, recipe_id=recipe_id)
+    except RecipeNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
+    return RecipeFavoriteStateRead(recipe_id=recipe_id, is_favorite=True)
+
+
+@router.delete("/{recipe_id}/favorite", response_model=RecipeFavoriteStateRead)
+def delete_recipe_favorite_by_id(
+    recipe_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    remove_recipe_favorite(db, user_id=current_user.id, recipe_id=recipe_id)
+    return RecipeFavoriteStateRead(recipe_id=recipe_id, is_favorite=False)
 
 
 @router.get("/{recipe_id}/steps", response_model=list[RecipeStepRead])

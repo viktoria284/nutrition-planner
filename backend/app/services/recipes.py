@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.enums import FoodSource, FoodStatus
 from app.models.foods import FoodItem, FoodServing
-from app.models.recipe import Recipe, RecipeIngredient, RecipeNote, RecipeReport, RecipeStep
+from app.models.recipe import Recipe, RecipeFavorite, RecipeIngredient, RecipeNote, RecipeReport, RecipeStep
 from app.models.user import User
 from app.schemas.recipes import (
     RecipeCreate,
@@ -1919,6 +1919,7 @@ def list_accessible_recipes(
     meal_type: str | None = None,
     min_cook_time_minutes: int | None = None,
     max_cook_time_minutes: int | None = None,
+    favorite_only: bool = False,
     include_ingredients: bool = False,
 ) -> list[Recipe]:
     stmt = (
@@ -1931,6 +1932,14 @@ def list_accessible_recipes(
         )
         .order_by(Recipe.updated_at.desc(), Recipe.id.desc())
     )
+    if favorite_only:
+        stmt = stmt.join(
+            RecipeFavorite,
+            and_(
+                RecipeFavorite.recipe_id == Recipe.id,
+                RecipeFavorite.user_id == user_id,
+            ),
+        )
     if include_ingredients:
         stmt = stmt.options(
             selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food),
@@ -2037,6 +2046,83 @@ def get_recipe_note(db: Session, user_id: int, recipe_id: int) -> RecipeNote | N
             RecipeNote.recipe_id == recipe_id,
         )
     ).scalar_one_or_none()
+
+
+def list_favorite_recipe_ids(
+    db: Session,
+    *,
+    user_id: int,
+    recipe_ids: set[int] | None = None,
+) -> set[int]:
+    stmt = select(RecipeFavorite.recipe_id).where(RecipeFavorite.user_id == user_id)
+    if recipe_ids is not None:
+        if not recipe_ids:
+            return set()
+        stmt = stmt.where(RecipeFavorite.recipe_id.in_(recipe_ids))
+    return set(db.execute(stmt).scalars().all())
+
+
+def is_recipe_favorite(
+    db: Session,
+    *,
+    user_id: int,
+    recipe_id: int,
+) -> bool:
+    stmt = select(RecipeFavorite.id).where(
+        RecipeFavorite.user_id == user_id,
+        RecipeFavorite.recipe_id == recipe_id,
+    )
+    return db.execute(stmt).scalar_one_or_none() is not None
+
+
+def add_recipe_favorite(
+    db: Session,
+    *,
+    user_id: int,
+    recipe_id: int,
+) -> None:
+    recipe = get_accessible_recipe_by_id(
+        db,
+        user_id,
+        recipe_id,
+        include_ingredients=False,
+    )
+    if recipe is None:
+        raise RecipeNotFoundError("Recipe not found")
+
+    existing = db.execute(
+        select(RecipeFavorite).where(
+            RecipeFavorite.user_id == user_id,
+            RecipeFavorite.recipe_id == recipe_id,
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+
+    favorite = RecipeFavorite(
+        user_id=user_id,
+        recipe_id=recipe_id,
+    )
+    db.add(favorite)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+
+
+def remove_recipe_favorite(
+    db: Session,
+    *,
+    user_id: int,
+    recipe_id: int,
+) -> None:
+    db.execute(
+        RecipeFavorite.__table__.delete().where(
+            RecipeFavorite.user_id == user_id,
+            RecipeFavorite.recipe_id == recipe_id,
+        )
+    )
+    db.commit()
 
 
 def upsert_recipe_note(db: Session, user_id: int, recipe_id: int, note: str) -> RecipeNote:
@@ -2677,7 +2763,7 @@ def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:
     }
 
 
-def build_recipe_read(recipe: Recipe) -> RecipeRead:
+def build_recipe_read(recipe: Recipe, *, is_favorite: bool = False) -> RecipeRead:
     nutrients = calculate_recipe_nutrients(recipe)
     ingredients_payload = []
     for ingredient in recipe.ingredients:
@@ -2733,6 +2819,7 @@ def build_recipe_read(recipe: Recipe) -> RecipeRead:
             "status": recipe.status,
             "reports_count": recipe.reports_count,
             "is_listed": recipe.is_listed,
+            "is_favorite": is_favorite,
             "ingredients": ingredients_payload,
             "steps": steps_payload,
             "created_at": recipe.created_at,

@@ -93,6 +93,12 @@ class Recipe(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    favorites: Mapped[list["RecipeFavorite"]] = relationship(
+        "RecipeFavorite",
+        back_populates="recipe",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
     steps: Mapped[list["RecipeStep"]] = relationship(
         "RecipeStep",
         back_populates="recipe",
@@ -260,6 +266,33 @@ class RecipeNote(Base):
         if not normalized:
             raise ValueError("Recipe note cannot be empty")
         return normalized
+
+
+class RecipeFavorite(Base):
+    __tablename__ = "recipe_favorites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    recipe_id: Mapped[int] = mapped_column(
+        ForeignKey("recipes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    recipe: Mapped[Recipe] = relationship("Recipe", back_populates="favorites")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "recipe_id", name="uq_recipe_favorites_user_recipe"),
+    )
 
 
 class RecipeStep(Base):

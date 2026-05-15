@@ -50,6 +50,7 @@ function normalizeAutogeneratePayload(payload: PlanAutogeneratePayload): PlanAut
     use_public_recipes: payload.use_public_recipes,
     excluded_recipe_ids: payload.excluded_recipe_ids ?? [],
     excluded_food_ids: payload.excluded_food_ids ?? [],
+    favorite_recipes_mode: payload.favorite_recipes_mode ?? "none",
     ...(payload.max_cook_time_minutes ? { max_cook_time_minutes: payload.max_cook_time_minutes } : {}),
     ...(normalizedBatchCooking ? { batch_cooking: normalizedBatchCooking } : {}),
   };

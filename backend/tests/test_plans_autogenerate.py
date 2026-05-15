@@ -3548,3 +3548,408 @@ def test_autogenerate_without_target_fiber_keeps_legacy_tie_breaking(
     lunch_slot = next(slot for slot in plan["slots"] if slot["slot_index"] == 0)
     assert low_fiber_recipe["id"] < high_fiber_recipe["id"]
     assert lunch_slot["recipe_id"] == low_fiber_recipe["id"]
+
+
+def test_autogenerate_favorite_mode_prefer_prioritizes_favorite_when_other_factors_equal(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="favorite_prefer_mode@example.com",
+        username="favorite_prefer_mode",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Favorite Prefer Lunch Food",
+        kcal="420.00",
+        protein="28.00",
+        fat="12.00",
+        carbs="52.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Favorite Prefer Dinner Food",
+        kcal="520.00",
+        protein="32.00",
+        fat="16.00",
+        carbs="58.00",
+    )
+
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Prefer Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    dinner_non_favorite = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Prefer Dinner Non Favorite",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    dinner_favorite = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Prefer Dinner Favorite",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    favorite_response = client.post(f"/recipes/{dinner_favorite['id']}/favorite", headers=auth_headers(token))
+    assert favorite_response.status_code == 200, favorite_response.text
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Favorite Prefer Profile",
+        target_kcal=1900,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=210,
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-06-01",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "favorite_recipes_mode": "prefer",
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    dinner_slot = next(slot for slot in plan["slots"] if slot["slot_index"] == 1)
+    assert dinner_slot["recipe_id"] == dinner_favorite["id"]
+    assert dinner_slot["recipe_id"] != dinner_non_favorite["id"]
+
+
+def test_autogenerate_favorite_mode_only_uses_favorite_candidates(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="favorite_only_mode@example.com",
+        username="favorite_only_mode",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Favorite Only Lunch Food",
+        kcal="430.00",
+        protein="30.00",
+        fat="12.00",
+        carbs="55.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Favorite Only Dinner Food",
+        kcal="540.00",
+        protein="34.00",
+        fat="18.00",
+        carbs="60.00",
+    )
+    lunch_favorite = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Only Lunch A",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Only Lunch B",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    dinner_favorite = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Only Dinner A",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Only Dinner B",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    assert client.post(f"/recipes/{lunch_favorite['id']}/favorite", headers=auth_headers(token)).status_code == 200
+    assert client.post(f"/recipes/{dinner_favorite['id']}/favorite", headers=auth_headers(token)).status_code == 200
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Favorite Only Profile",
+        target_kcal=2000,
+        target_protein=130,
+        target_fat=70,
+        target_carbs=220,
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-06-02",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "favorite_recipes_mode": "only",
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    selected_ids = {slot["recipe_id"] for slot in response.json()["slots"]}
+    assert selected_ids.issubset({lunch_favorite["id"], dinner_favorite["id"]})
+
+
+def test_autogenerate_favorite_mode_only_returns_friendly_422_when_candidates_insufficient(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="favorite_only_422@example.com",
+        username="favorite_only_422",
+    )
+    lunch_food = create_food_via_api(
+        client,
+        token,
+        name="Favorite Only 422 Lunch Food",
+        kcal="400.00",
+        protein="25.00",
+        fat="12.00",
+        carbs="50.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Favorite Only 422 Dinner Food",
+        kcal="520.00",
+        protein="32.00",
+        fat="16.00",
+        carbs="58.00",
+    )
+    lunch_recipe = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Only 422 Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Favorite Only 422 Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    assert client.post(f"/recipes/{lunch_recipe['id']}/favorite", headers=auth_headers(token)).status_code == 200
+
+    profile = _create_profile_via_api(
+        client,
+        token,
+        name="Favorite Only 422 Profile",
+        target_kcal=1900,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=210,
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-06-03",
+            "days_count": 2,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "favorite_recipes_mode": "only",
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "Недостаточно избранных рецептов" in response.json().get("detail", "")
+
+
+def test_autogenerate_hidden_public_favorite_is_not_used(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="favorite_hidden_owner@example.com",
+        username="favorite_hidden_owner",
+    )
+    _viewer, viewer_token = create_user_with_token(
+        db_session_factory,
+        email="favorite_hidden_viewer@example.com",
+        username="favorite_hidden_viewer",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Favorite Hidden Lunch Food",
+        kcal="430.00",
+        protein="30.00",
+        fat="12.00",
+        carbs="55.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Favorite Hidden Dinner Food",
+        kcal="540.00",
+        protein="34.00",
+        fat="18.00",
+        carbs="60.00",
+    )
+    public_lunch = _create_recipe_with_ingredient(
+        client,
+        owner_token,
+        name="Favorite Hidden Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    public_dinner = _create_recipe_with_ingredient(
+        client,
+        owner_token,
+        name="Favorite Hidden Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    assert client.post(f"/recipes/{public_lunch['id']}/publish", headers=auth_headers(owner_token)).status_code == 200
+    assert client.post(f"/recipes/{public_dinner['id']}/publish", headers=auth_headers(owner_token)).status_code == 200
+    assert client.post(f"/recipes/{public_lunch['id']}/favorite", headers=auth_headers(viewer_token)).status_code == 200
+    assert client.post(f"/recipes/{public_dinner['id']}/favorite", headers=auth_headers(viewer_token)).status_code == 200
+
+    withdraw_response = client.post(f"/recipes/{public_dinner['id']}/withdraw", headers=auth_headers(owner_token))
+    assert withdraw_response.status_code == 200, withdraw_response.text
+
+    profile = _create_profile_via_api(
+        client,
+        viewer_token,
+        name="Favorite Hidden Profile",
+        target_kcal=1900,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=210,
+    )
+
+    response = _post_autogenerate_plan(
+        client,
+        viewer_token,
+        {
+            "start_date": "2026-06-04",
+            "days_count": 2,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": True,
+            "favorite_recipes_mode": "only",
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "Недостаточно избранных рецептов" in response.json().get("detail", "")
+
+
+def test_autogenerate_use_public_false_excludes_public_favorites(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _owner, owner_token = create_user_with_token(
+        db_session_factory,
+        email="favorite_public_disabled_owner@example.com",
+        username="favorite_public_disabled_owner",
+    )
+    _viewer, viewer_token = create_user_with_token(
+        db_session_factory,
+        email="favorite_public_disabled_viewer@example.com",
+        username="favorite_public_disabled_viewer",
+    )
+
+    lunch_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Favorite Public Disabled Lunch Food",
+        kcal="420.00",
+        protein="28.00",
+        fat="12.00",
+        carbs="52.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        owner_token,
+        name="Favorite Public Disabled Dinner Food",
+        kcal="520.00",
+        protein="32.00",
+        fat="16.00",
+        carbs="58.00",
+    )
+    public_lunch = _create_recipe_with_ingredient(
+        client,
+        owner_token,
+        name="Favorite Public Disabled Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    public_dinner = _create_recipe_with_ingredient(
+        client,
+        owner_token,
+        name="Favorite Public Disabled Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+    assert client.post(f"/recipes/{public_lunch['id']}/publish", headers=auth_headers(owner_token)).status_code == 200
+    assert client.post(f"/recipes/{public_dinner['id']}/publish", headers=auth_headers(owner_token)).status_code == 200
+    assert client.post(f"/recipes/{public_lunch['id']}/favorite", headers=auth_headers(viewer_token)).status_code == 200
+    assert client.post(f"/recipes/{public_dinner['id']}/favorite", headers=auth_headers(viewer_token)).status_code == 200
+
+    profile = _create_profile_via_api(
+        client,
+        viewer_token,
+        name="Favorite Public Disabled Profile",
+        target_kcal=1900,
+        target_protein=120,
+        target_fat=60,
+        target_carbs=210,
+    )
+    response = _post_autogenerate_plan(
+        client,
+        viewer_token,
+        {
+            "start_date": "2026-06-05",
+            "days_count": 2,
+            "meals_per_day": 2,
+            "profile_id": profile["id"],
+            "use_public_recipes": False,
+            "favorite_recipes_mode": "only",
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "Недостаточно избранных рецептов" in response.json().get("detail", "")
