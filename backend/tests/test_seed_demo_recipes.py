@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.enums import FoodSource, FoodStatus
 from app.models.recipe import Recipe
 from app.models.user import User
+from app.services.media import get_recipes_upload_dir
 from app.services.recipes import (
     DEMO_MEAL_TYPES,
     DEMO_PUBLIC_RECIPES,
@@ -15,10 +16,10 @@ from app.services.recipes import (
 MIN_DEMO_RECIPES = 72
 MAX_DEMO_RECIPES = len(DEMO_PUBLIC_RECIPES)
 MIN_MEAL_TYPE_COUNTS = {
-    "breakfast": 18,
-    "lunch": 20,
-    "dinner": 20,
-    "snack": 14,
+    "breakfast": 25,
+    "lunch": 28,
+    "dinner": 28,
+    "snack": 18,
 }
 HIGH_CALORIE_CARB_FAT_FRIENDLY_RECIPES = {
     "Овсянка с арахисовой пастой и бананом",
@@ -175,10 +176,93 @@ def test_seed_demo_recipes_have_cook_time_minutes_by_meal_type(
             if {"lunch", "dinner"}.issubset(meal_types) and recipe.cook_time_minutes <= 25:
                 fast_lunch_dinner_count += 1
 
-        assert fast_breakfast_count >= 10
-        assert fast_lunch_count >= 14
-        assert fast_dinner_count >= 14
-        assert fast_lunch_dinner_count >= 8
+        assert fast_breakfast_count >= 12
+        assert fast_lunch_count >= 16
+        assert fast_dinner_count >= 16
+        assert fast_lunch_dinner_count >= 12
+    finally:
+        db.close()
+
+
+def test_seed_demo_recipes_have_demo_cover_images(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        demo_names = [item["name"] for item in DEMO_PUBLIC_RECIPES]
+        demo_recipes = db.execute(
+            select(Recipe).where(Recipe.name.in_(demo_names))
+        ).scalars().all()
+        assert len(demo_recipes) == len(DEMO_PUBLIC_RECIPES)
+        assert all(recipe.image_url for recipe in demo_recipes)
+        assert all(str(recipe.image_url).startswith("/media/recipes/demo/") for recipe in demo_recipes)
+
+        recipes_upload_dir = get_recipes_upload_dir()
+        for recipe in demo_recipes:
+            assert recipe.image_url is not None
+            relative_path = recipe.image_url.removeprefix("/media/recipes/")
+            image_path = recipes_upload_dir / relative_path
+            assert image_path.exists()
+            assert image_path.is_file()
+            assert image_path.suffix == ".svg"
+    finally:
+        db.close()
+
+
+def test_seed_demo_recipes_recreates_missing_demo_cover_images(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        demo_recipe = db.execute(
+            select(Recipe).where(
+                Recipe.source == FoodSource.community,
+                Recipe.status == FoodStatus.approved,
+                Recipe.is_listed.is_(True),
+            )
+        ).scalars().first()
+        assert demo_recipe is not None
+        assert demo_recipe.image_url is not None
+
+        recipes_upload_dir = get_recipes_upload_dir()
+        relative_path = demo_recipe.image_url.removeprefix("/media/recipes/")
+        image_path = recipes_upload_dir / relative_path
+        assert image_path.exists()
+        image_path.unlink(missing_ok=True)
+        assert not image_path.exists()
+
+        stats = seed_demo_public_recipes(db)
+        assert stats["generated_demo_images"] >= 1
+        assert image_path.exists()
+    finally:
+        db.close()
+
+
+def test_seed_demo_cover_images_do_not_contain_demo_label(
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    db = db_session_factory()
+    try:
+        seed_demo_public_recipes(db, replace_demo=True)
+        demo_recipe = db.execute(
+            select(Recipe).where(
+                Recipe.source == FoodSource.community,
+                Recipe.status == FoodStatus.approved,
+                Recipe.is_listed.is_(True),
+                Recipe.image_url.is_not(None),
+            )
+        ).scalars().first()
+        assert demo_recipe is not None
+        assert demo_recipe.image_url is not None
+
+        recipes_upload_dir = get_recipes_upload_dir()
+        image_path = recipes_upload_dir / demo_recipe.image_url.removeprefix("/media/recipes/")
+        assert image_path.exists()
+        content = image_path.read_text(encoding="utf-8").lower()
+        assert "demo recipe" not in content
+        assert "демо рецепт" not in content
     finally:
         db.close()
 

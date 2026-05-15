@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+import re
 from decimal import Decimal, ROUND_HALF_UP
 from typing import cast
 
@@ -22,7 +24,12 @@ from app.schemas.recipes import (
     RecipeUpdate,
 )
 from app.services.foods import get_accessible_food_by_id, seed_verified_foods
-from app.services.media import maybe_delete_media_file, save_uploaded_recipe_image
+from app.services.media import (
+    get_recipes_upload_dir,
+    maybe_delete_media_file,
+    save_uploaded_recipe_image,
+    to_public_media_url,
+)
 
 NUTRIENT_QUANT = Decimal("0.01")
 HUNDRED_GRAMS = Decimal("100")
@@ -1682,17 +1689,347 @@ DEMO_SNACK_RECIPES = [
     },
 ]
 
+DEMO_EXPANDED_RECIPES = [
+    {
+        "name": "Овсянка с яблоком и семенами льна",
+        "description": "Овсянка на молоке с яблоком и семенами льна",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 12,
+        "ingredients": [("Овсяные хлопья", "60"), ("Молоко 2.5%", "220"), ("Яблоко", "120"), ("Семена льна", "8")],
+    },
+    {
+        "name": "Овсянка с ягодами и чиа",
+        "description": "Овсянка с ягодами и семенами чиа",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 10,
+        "ingredients": [("Овсяные хлопья", "55"), ("Молоко 2.5%", "200"), ("Ягоды замороженные", "100"), ("Семена чиа", "8")],
+    },
+    {
+        "name": "Творог с грушей и орехами",
+        "description": "Творог с грушей и грецкими орехами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 7,
+        "ingredients": [("Творог 5%", "170"), ("Груша", "130"), ("Орехи грецкие", "12")],
+    },
+    {
+        "name": "Йогурт с ягодами и чиа",
+        "description": "Греческий йогурт с ягодами и семенами чиа",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 6,
+        "ingredients": [("Йогурт греческий", "210"), ("Ягоды замороженные", "110"), ("Семена чиа", "8")],
+    },
+    {
+        "name": "Омлет со шпинатом и перцем",
+        "description": "Омлет со шпинатом и сладким перцем",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 12,
+        "ingredients": [("Яйцо куриное", "120"), ("Шпинат", "80"), ("Перец болгарский", "100")],
+    },
+    {
+        "name": "Тост с авокадо и яйцом",
+        "description": "Цельнозерновой тост с авокадо и яйцом",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 10,
+        "ingredients": [("Хлеб цельнозерновой", "80"), ("Авокадо", "80"), ("Яйцо куриное", "70")],
+    },
+    {
+        "name": "Тост с творогом и ягодами",
+        "description": "Тост с творогом и ягодами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 8,
+        "ingredients": [("Хлеб цельнозерновой", "70"), ("Творог 5%", "120"), ("Ягоды замороженные", "80")],
+    },
+    {
+        "name": "Яичница с томатами и шпинатом",
+        "description": "Яичница с томатами и шпинатом",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 9,
+        "ingredients": [("Яйцо куриное", "110"), ("Помидор", "140"), ("Шпинат", "70")],
+    },
+    {
+        "name": "Кефирный смузи с ягодами и овсянкой",
+        "description": "Кефирный смузи с овсянкой и ягодами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 5,
+        "ingredients": [("Кефир 1%", "280"), ("Овсяные хлопья", "25"), ("Ягоды замороженные", "110")],
+    },
+    {
+        "name": "Рис с йогуртом и ягодами на завтрак",
+        "description": "Отварной рис с йогуртом и ягодами",
+        "servings_count": 1,
+        "meal_types": ["breakfast"],
+        "cook_time_minutes": 11,
+        "ingredients": [("Рис отварной", "200"), ("Йогурт греческий", "150"), ("Ягоды замороженные", "90")],
+    },
+    {
+        "name": "Курица с булгуром и овощами быстрый",
+        "description": "Быстрый обед: курица, булгур и овощи",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [("Куриная грудка", "160"), ("Булгур отварной", "220"), ("Перец болгарский", "110"), ("Огурец", "110")],
+    },
+    {
+        "name": "Индейка с гречкой и салатом",
+        "description": "Индейка с гречкой и свежим салатом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 22,
+        "ingredients": [("Индейка филе", "150"), ("Гречка отварная", "220"), ("Огурец", "120"), ("Помидор", "120")],
+    },
+    {
+        "name": "Треска с картофелем и овощами",
+        "description": "Треска с картофелем и овощным гарниром",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 23,
+        "ingredients": [("Треска", "170"), ("Картофель отварной", "220"), ("Брокколи", "130"), ("Помидор", "110")],
+    },
+    {
+        "name": "Тунец с картофелем и зелёной фасолью",
+        "description": "Тунец с картофелем и зелёной фасолью",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 18,
+        "ingredients": [("Тунец консервированный", "130"), ("Картофель отварной", "220"), ("Фасоль стручковая", "140")],
+    },
+    {
+        "name": "Курица с кускусом и овощами",
+        "description": "Курица с кускусом, томатами и огурцом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 19,
+        "ingredients": [("Куриная грудка", "150"), ("Кускус отварной", "220"), ("Помидор", "120"), ("Огурец", "120")],
+    },
+    {
+        "name": "Тофу с овощами и рисом",
+        "description": "Тофу с рисом и овощами",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 17,
+        "ingredients": [("Тофу", "170"), ("Рис отварной", "210"), ("Перец болгарский", "110"), ("Помидор", "120")],
+    },
+    {
+        "name": "Тофу с киноа и овощами",
+        "description": "Тофу с киноа и овощным миксом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [("Тофу", "170"), ("Киноа отварная", "220"), ("Брокколи", "120"), ("Огурец", "110")],
+    },
+    {
+        "name": "Нут с овощами и яйцом",
+        "description": "Нут с овощами и яйцом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 16,
+        "ingredients": [("Нут вареный", "170"), ("Яйцо куриное", "90"), ("Помидор", "120"), ("Огурец", "110")],
+    },
+    {
+        "name": "Чечевица с овощами и йогуртом",
+        "description": "Чечевица с овощами и ложкой йогурта",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 17,
+        "ingredients": [("Чечевица вареная", "180"), ("Перец болгарский", "100"), ("Помидор", "120"), ("Йогурт греческий", "60")],
+    },
+    {
+        "name": "Говядина с гречкой и капустой",
+        "description": "Говядина с гречкой и капустным салатом",
+        "servings_count": 1,
+        "meal_types": ["lunch", "dinner"],
+        "cook_time_minutes": 24,
+        "ingredients": [("Говядина постная", "150"), ("Гречка отварная", "220"), ("Капуста белокочанная", "170")],
+    },
+    {
+        "name": "Куриный салат с хлебом",
+        "description": "Курица, свежие овощи и цельнозерновой хлеб",
+        "servings_count": 1,
+        "meal_types": ["lunch"],
+        "cook_time_minutes": 15,
+        "ingredients": [("Куриная грудка", "140"), ("Огурец", "120"), ("Помидор", "120"), ("Хлеб цельнозерновой", "70")],
+    },
+    {
+        "name": "Лосось с брокколи и картофелем легкий",
+        "description": "Лосось с брокколи и картофелем",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 22,
+        "ingredients": [("Лосось", "130"), ("Брокколи", "150"), ("Картофель отварной", "180")],
+    },
+    {
+        "name": "Индейка с булгуром и перцем",
+        "description": "Индейка с булгуром и болгарским перцем",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 19,
+        "ingredients": [("Индейка филе", "150"), ("Булгур отварной", "220"), ("Перец болгарский", "120")],
+    },
+    {
+        "name": "Треска с рисом и овощами",
+        "description": "Треска с рисом и овощами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [("Треска", "170"), ("Рис отварной", "210"), ("Помидор", "120"), ("Огурец", "110")],
+    },
+    {
+        "name": "Омлет с овощами и цельнозерновым хлебом",
+        "description": "Омлет с овощами и тостом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 14,
+        "ingredients": [("Яйцо куриное", "120"), ("Помидор", "120"), ("Перец болгарский", "100"), ("Хлеб цельнозерновой", "60")],
+    },
+    {
+        "name": "Фасоль с овощами и яйцом сытный",
+        "description": "Фасоль с овощами и яйцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 15,
+        "ingredients": [("Фасоль красная вареная", "170"), ("Яйцо куриное", "100"), ("Помидор", "120"), ("Огурец", "110")],
+    },
+    {
+        "name": "Тофу с зелёной фасолью и перцем",
+        "description": "Тофу со стручковой фасолью и перцем",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 17,
+        "ingredients": [("Тофу", "170"), ("Фасоль стручковая", "170"), ("Перец болгарский", "110")],
+    },
+    {
+        "name": "Курица с овощным салатом и хлебом",
+        "description": "Курица с овощным салатом и цельнозерновым хлебом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 16,
+        "ingredients": [("Куриная грудка", "150"), ("Огурец", "130"), ("Помидор", "130"), ("Хлеб цельнозерновой", "70")],
+    },
+    {
+        "name": "Тунец с овощами и кускусом",
+        "description": "Тунец с кускусом и овощами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 16,
+        "ingredients": [("Тунец консервированный", "130"), ("Кускус отварной", "200"), ("Огурец", "120"), ("Помидор", "120")],
+    },
+    {
+        "name": "Гречка с индейкой и брокколи",
+        "description": "Гречка с индейкой и брокколи",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 20,
+        "ingredients": [("Гречка отварная", "220"), ("Индейка филе", "140"), ("Брокколи", "140")],
+    },
+    {
+        "name": "Чечевица с томатами и яйцом",
+        "description": "Чечевица с томатами и яйцом",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 14,
+        "ingredients": [("Чечевица вареная", "180"), ("Помидор", "130"), ("Яйцо куриное", "90")],
+    },
+    {
+        "name": "Курица с киноа и овощами",
+        "description": "Курица с киноа и овощами",
+        "servings_count": 1,
+        "meal_types": ["dinner"],
+        "cook_time_minutes": 21,
+        "ingredients": [("Куриная грудка", "150"), ("Киноа отварная", "220"), ("Перец болгарский", "110"), ("Огурец", "110")],
+    },
+    {
+        "name": "Йогурт с ягодами и семенами льна",
+        "description": "Йогурт с ягодами и семенами льна",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 5,
+        "ingredients": [("Йогурт греческий", "190"), ("Ягоды замороженные", "110"), ("Семена льна", "8")],
+    },
+    {
+        "name": "Творог с яблоком и чиа",
+        "description": "Творог с яблоком и семенами чиа",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 7,
+        "ingredients": [("Творог 5%", "150"), ("Яблоко", "130"), ("Семена чиа", "7")],
+    },
+    {
+        "name": "Банан с арахисовой пастой и йогуртом",
+        "description": "Банан, арахисовая паста и йогурт",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 6,
+        "ingredients": [("Банан", "110"), ("Арахисовая паста", "18"), ("Йогурт греческий", "130")],
+    },
+    {
+        "name": "Орехи с апельсином и йогуртом",
+        "description": "Орехи, апельсин и греческий йогурт",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 8,
+        "ingredients": [("Орехи грецкие", "18"), ("Апельсин", "140"), ("Йогурт греческий", "120")],
+    },
+    {
+        "name": "Тост с сыром и огурцом",
+        "description": "Тост с сыром и свежим огурцом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 8,
+        "ingredients": [("Хлеб цельнозерновой", "70"), ("Сыр твердый", "25"), ("Огурец", "120")],
+    },
+    {
+        "name": "Яйцо с огурцом и томатом",
+        "description": "Яйцо с томатами и огурцом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 7,
+        "ingredients": [("Яйцо куриное", "90"), ("Огурец", "130"), ("Помидор", "120")],
+    },
+    {
+        "name": "Кефир с семенами льна и грушей",
+        "description": "Кефир с грушей и семенами льна",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 6,
+        "ingredients": [("Кефир 1%", "260"), ("Груша", "130"), ("Семена льна", "8")],
+    },
+    {
+        "name": "Яблоко с арахисовой пастой и йогуртом",
+        "description": "Яблоко с арахисовой пастой и йогуртом",
+        "servings_count": 1,
+        "meal_types": ["snack"],
+        "cook_time_minutes": 6,
+        "ingredients": [("Яблоко", "130"), ("Арахисовая паста", "15"), ("Йогурт греческий", "120")],
+    },
+]
+
 DEMO_PUBLIC_RECIPES = [
     *DEMO_BREAKFAST_RECIPES,
     *DEMO_LUNCH_RECIPES,
     *DEMO_DINNER_RECIPES,
     *DEMO_SNACK_RECIPES,
+    *DEMO_EXPANDED_RECIPES,
 ]
 DEMO_COOK_TIME_RANGES_BY_MEAL_TYPE: dict[str, tuple[int, int]] = {
     "breakfast": (5, 20),
     "snack": (5, 20),
     "lunch": (20, 60),
     "dinner": (20, 60),
+}
+DEMO_MEAL_TYPE_VISUALS: dict[str, dict[str, str]] = {
+    "breakfast": {"emoji": "🍳", "label": "Завтрак", "from": "#FCE38A", "to": "#F38181"},
+    "lunch": {"emoji": "🍽️", "label": "Обед", "from": "#95E1D3", "to": "#5A8DEE"},
+    "dinner": {"emoji": "🍲", "label": "Ужин", "from": "#C06C84", "to": "#355C7D"},
+    "snack": {"emoji": "🍎", "label": "Перекус", "from": "#A8E6CF", "to": "#56AB91"},
 }
 
 
@@ -1773,6 +2110,88 @@ def _assign_demo_instructions() -> None:
 
 
 _assign_demo_instructions()
+
+
+def _get_demo_primary_meal_type(payload: dict) -> str:
+    meal_types = payload.get("meal_types") or []
+    for meal_type in meal_types:
+        if meal_type in DEMO_MEAL_TYPES:
+            return meal_type
+    return "lunch"
+
+
+def _build_demo_image_filename(recipe_index: int, payload: dict) -> str:
+    primary_meal_type = _get_demo_primary_meal_type(payload)
+    normalized_name = re.sub(r"[^a-z0-9]+", "-", payload["name"].lower())
+    normalized_name = normalized_name.strip("-")
+    if not normalized_name:
+        normalized_name = f"recipe-{recipe_index + 1:03d}"
+    return f"{primary_meal_type}-{recipe_index + 1:03d}-{normalized_name}.svg"
+
+
+def _truncate_demo_title(value: str, *, max_length: int = 48) -> str:
+    normalized = " ".join(value.split())
+    if len(normalized) <= max_length:
+        return normalized
+    return f"{normalized[: max_length - 1].rstrip()}…"
+
+
+def _build_demo_cover_svg(recipe_index: int, payload: dict) -> str:
+    primary_meal_type = _get_demo_primary_meal_type(payload)
+    meal_visual = DEMO_MEAL_TYPE_VISUALS.get(primary_meal_type, DEMO_MEAL_TYPE_VISUALS["lunch"])
+    recipe_name = escape(_truncate_demo_title(payload["name"]))
+    meal_label = escape(meal_visual["label"])
+    meal_emoji = escape(meal_visual["emoji"])
+    gradient_start = meal_visual["from"]
+    gradient_end = meal_visual["to"]
+
+    return (
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"500\" viewBox=\"0 0 800 500\">"
+        "<defs>"
+        f"<linearGradient id=\"bg-{recipe_index}\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">"
+        f"<stop offset=\"0%\" stop-color=\"{gradient_start}\"/>"
+        f"<stop offset=\"100%\" stop-color=\"{gradient_end}\"/>"
+        "</linearGradient>"
+        "</defs>"
+        f"<rect width=\"800\" height=\"500\" fill=\"url(#bg-{recipe_index})\"/>"
+        "<rect x=\"36\" y=\"36\" width=\"728\" height=\"428\" rx=\"26\" fill=\"rgba(255,255,255,0.14)\"/>"
+        f"<text x=\"60\" y=\"122\" font-family=\"Inter, Segoe UI, Arial, sans-serif\" font-size=\"64\" fill=\"#ffffff\">{meal_emoji}</text>"
+        f"<text x=\"60\" y=\"172\" font-family=\"Inter, Segoe UI, Arial, sans-serif\" font-size=\"26\" font-weight=\"700\" fill=\"#ffffff\">{meal_label}</text>"
+        f"<text x=\"60\" y=\"248\" font-family=\"Inter, Segoe UI, Arial, sans-serif\" font-size=\"44\" font-weight=\"700\" fill=\"#ffffff\">{recipe_name}</text>"
+        "<text x=\"60\" y=\"430\" font-family=\"Inter, Segoe UI, Arial, sans-serif\" font-size=\"20\" fill=\"rgba(255,255,255,0.9)\">Nutrition Planner</text>"
+        "</svg>"
+    )
+
+
+def _assign_demo_cover_image_urls() -> None:
+    for recipe_index, payload in enumerate(DEMO_PUBLIC_RECIPES):
+        filename = _build_demo_image_filename(recipe_index, payload)
+        payload["image_url"] = to_public_media_url(f"demo/{filename}")
+
+
+def _ensure_demo_cover_images(*, recreate: bool = False) -> int:
+    recipes_upload_dir = get_recipes_upload_dir()
+    demo_dir = recipes_upload_dir / "demo"
+    demo_dir.mkdir(parents=True, exist_ok=True)
+
+    if recreate:
+        for file_path in demo_dir.glob("*.svg"):
+            if file_path.is_file():
+                file_path.unlink(missing_ok=True)
+
+    created_or_updated = 0
+    for recipe_index, payload in enumerate(DEMO_PUBLIC_RECIPES):
+        filename = _build_demo_image_filename(recipe_index, payload)
+        svg_path = demo_dir / filename
+        svg_content = _build_demo_cover_svg(recipe_index, payload)
+        if not svg_path.exists() or svg_path.read_text(encoding="utf-8") != svg_content:
+            svg_path.write_text(svg_content, encoding="utf-8")
+            created_or_updated += 1
+
+    return created_or_updated
+
+
+_assign_demo_cover_image_urls()
 
 
 class RecipeReportSelfError(ValueError):
@@ -2640,6 +3059,7 @@ def seed_demo_public_recipes(
 ) -> dict[str, int]:
     created_verified_foods = seed_verified_foods(db)
     demo_user = _get_or_create_demo_recipes_user(db)
+    generated_demo_images = _ensure_demo_cover_images(recreate=replace_demo)
 
     existing_demo_recipes: list[Recipe] = []
     if replace_demo:
@@ -2670,8 +3090,22 @@ def seed_demo_public_recipes(
 
     created_recipes = 0
     skipped_recipes = 0
+    updated_recipes = 0
     for payload in DEMO_PUBLIC_RECIPES:
-        if payload["name"] in existing_by_name:
+        existing = existing_by_name.get(payload["name"])
+        if existing is not None:
+            changed = False
+            if existing.image_url != payload.get("image_url"):
+                existing.image_url = payload.get("image_url")
+                changed = True
+            if existing.instructions != payload.get("instructions"):
+                existing.instructions = payload.get("instructions")
+                changed = True
+            if existing.cook_time_minutes != payload.get("cook_time_minutes"):
+                existing.cook_time_minutes = payload.get("cook_time_minutes")
+                changed = True
+            if changed:
+                updated_recipes += 1
             skipped_recipes += 1
             continue
 
@@ -2715,6 +3149,8 @@ def seed_demo_public_recipes(
     return {
         "created_recipes": created_recipes,
         "skipped_recipes": skipped_recipes,
+        "updated_recipes": updated_recipes,
+        "generated_demo_images": generated_demo_images,
         "total_demo_recipes": len(DEMO_PUBLIC_RECIPES),
         "created_verified_foods": int(created_verified_foods),
         **meal_type_distribution,

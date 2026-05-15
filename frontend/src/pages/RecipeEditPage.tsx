@@ -42,6 +42,20 @@ function nextStepLocalId() {
   return `step-${Date.now()}-${stepLocalCounter}`;
 }
 
+function getCoverUploadErrorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) {
+    return err instanceof Error ? err.message : "Не удалось загрузить фото блюда.";
+  }
+  if (err.status === 413) {
+    return "Файл слишком большой. Максимальный размер — 5 МБ.";
+  }
+  const message = String(err.message || "").toLowerCase();
+  if (err.status === 422 && (message.includes("unsupported image type") || message.includes("image type"))) {
+    return "Поддерживаются JPG, PNG и WEBP до 5 МБ.";
+  }
+  return err.message || "Не удалось загрузить фото блюда.";
+}
+
 function toStepDrafts(steps: RecipeStepRead[] | undefined): StepDraft[] {
   return (steps ?? [])
     .slice()
@@ -199,17 +213,18 @@ export function RecipeEditPage() {
 
   const onUploadCover = async () => {
     if (!recipe || !fileInputRef.current?.files?.[0]) return;
+    const file = fileInputRef.current.files[0];
     setCoverUploading(true);
     setCoverError(null);
     setCoverSuccess(null);
     try {
-      const updated = await uploadRecipeCoverImage(recipe.id, fileInputRef.current.files[0]);
+      const updated = await uploadRecipeCoverImage(recipe.id, file);
       setRecipe(updated);
       setForm(toRecipeFormState(updated));
       if (fileInputRef.current) fileInputRef.current.value = "";
       setCoverSuccess("Фото блюда обновлено.");
     } catch (err) {
-      setCoverError(err instanceof Error ? err.message : "Не удалось загрузить фото.");
+      setCoverError(getCoverUploadErrorMessage(err));
     } finally {
       setCoverUploading(false);
     }
