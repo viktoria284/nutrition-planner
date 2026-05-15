@@ -25,6 +25,49 @@ import {
 } from "../utils/pwa/shoppingOfflineCache";
 import "./PlansPage.css";
 
+const HIDE_CHECKED_STORAGE_KEY = "nutrition:shopping-list:hide-checked";
+const COMPACT_VIEW_STORAGE_KEY = "nutrition:shopping-list:compact-view";
+
+function collapsedCategoriesStorageKey(shoppingListId: number): string {
+  return `nutrition:shopping-list:${shoppingListId}:collapsed-categories`;
+}
+
+function readBooleanStorage(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeBooleanStorage(key: string, value: boolean): void {
+  try {
+    localStorage.setItem(key, value ? "1" : "0");
+  } catch {
+    // ignore storage write errors
+  }
+}
+
+function readCollapsedCategories(shoppingListId: number): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(collapsedCategoriesStorageKey(shoppingListId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    return parsed as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
+
+function writeCollapsedCategories(shoppingListId: number, value: Record<string, boolean>): void {
+  try {
+    localStorage.setItem(collapsedCategoriesStorageKey(shoppingListId), JSON.stringify(value));
+  } catch {
+    // ignore storage write errors
+  }
+}
+
 function resolveError(err: unknown, notFoundMessage: string): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Нужно снова войти в аккаунт.";
@@ -147,6 +190,10 @@ export function ShoppingListPage() {
   const [offlineMissingMessage, setOfflineMissingMessage] = useState<string | null>(null);
   const [offlinePendingChanges, setOfflinePendingChanges] = useState(false);
   const [offlineSyncHint, setOfflineSyncHint] = useState<string | null>(null);
+  const [hideCheckedItems, setHideCheckedItems] = useState<boolean>(() => readBooleanStorage(HIDE_CHECKED_STORAGE_KEY));
+  const [compactView, setCompactView] = useState<boolean>(() => readBooleanStorage(COMPACT_VIEW_STORAGE_KEY));
+  const [searchQuery, setSearchQuery] = useState("");
+  const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
   const shoppingListId = useMemo(() => {
     const parsed = Number(id);
@@ -265,8 +312,42 @@ export function ShoppingListPage() {
     previousOnlineRef.current = isOnline;
   }, [isOnline, offlinePendingChanges]);
 
-  const visibleItems = useMemo(() => shoppingList?.items.filter((item) => !item.excluded) ?? [], [shoppingList]);
-  const hiddenItems = useMemo(() => shoppingList?.items.filter((item) => item.excluded) ?? [], [shoppingList]);
+  useEffect(() => {
+    if (!shoppingListId) return;
+    setCollapsedCategories(readCollapsedCategories(shoppingListId));
+  }, [shoppingListId]);
+
+  useEffect(() => {
+    writeBooleanStorage(HIDE_CHECKED_STORAGE_KEY, hideCheckedItems);
+  }, [hideCheckedItems]);
+
+  useEffect(() => {
+    writeBooleanStorage(COMPACT_VIEW_STORAGE_KEY, compactView);
+  }, [compactView]);
+
+  const baseVisibleItems = useMemo(() => shoppingList?.items.filter((item) => !item.excluded) ?? [], [shoppingList]);
+  const queryNormalized = searchQuery.trim().toLowerCase();
+
+  const searchFilteredVisibleItems = useMemo(() => {
+    if (!queryNormalized) return baseVisibleItems;
+    return baseVisibleItems.filter((item) => item.name_snapshot.toLowerCase().includes(queryNormalized));
+  }, [baseVisibleItems, queryNormalized]);
+
+  const visibleItems = useMemo(() => {
+    if (!hideCheckedItems) return searchFilteredVisibleItems;
+    return searchFilteredVisibleItems.filter((item) => !item.checked);
+  }, [hideCheckedItems, searchFilteredVisibleItems]);
+
+  const hiddenByCheckedCount = useMemo(() => {
+    if (!hideCheckedItems) return 0;
+    return searchFilteredVisibleItems.filter((item) => item.checked).length;
+  }, [hideCheckedItems, searchFilteredVisibleItems]);
+
+  const hiddenItems = useMemo(() => {
+    const excluded = shoppingList?.items.filter((item) => item.excluded) ?? [];
+    if (!queryNormalized) return excluded;
+    return excluded.filter((item) => item.name_snapshot.toLowerCase().includes(queryNormalized));
+  }, [shoppingList, queryNormalized]);
 
   const groupedVisibleItems = useMemo(() => {
     const groups: Record<FoodCategory, ShoppingListItem[]> = {
@@ -298,6 +379,58 @@ export function ShoppingListPage() {
 
     return groups;
   }, [visibleItems]);
+
+  useEffect(() => {
+    if (!shoppingListId) return;
+    writeCollapsedCategories(shoppingListId, collapsedCategories);
+  }, [collapsedCategories, shoppingListId]);
+
+  const hasAnyVisibleCategoryItems = useMemo(
+    () => FOOD_CATEGORIES.some((category) => groupedVisibleItems[category].length > 0),
+    [groupedVisibleItems],
+  );
+
+  const hasAnyDisplayItems = hasAnyVisibleCategoryItems || hiddenItems.length > 0;
+
+  const exportTxt = () => {
+    if (!shoppingList) return;
+
+    const lines: string[] = [];
+    lines.push(`Список покупок: ${shoppingList.title || `#${shoppingList.id}`}`);
+    lines.push(`Сохранено: ${formatSavedAt(offlineSavedAt)}`);
+    lines.push("");
+
+    for (const category of FOOD_CATEGORIES) {
+      const categoryItems = groupedVisibleItems[category];
+      if (categoryItems.length === 0) continue;
+      lines.push(FOOD_CATEGORY_LABELS[category]);
+      for (const item of categoryItems) {
+        const checkedPrefix = item.checked ? "✓ " : "";
+        lines.push(`- ${checkedPrefix}${item.name_snapshot} — ${displayAmount(item)}`);
+      }
+      lines.push("");
+    }
+
+    if (hiddenItems.length > 0) {
+      lines.push("Скрытые позиции");
+      for (const item of hiddenItems) {
+        lines.push(`- ${item.name_snapshot} — ${displayAmount(item)}`);
+      }
+      lines.push("");
+    }
+
+    const content = `${lines.join("\n").trim()}\n`;
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const datePart = shoppingList.created_at.slice(0, 10);
+    link.href = url;
+    link.download = `shopping-list-${shoppingList.id}-${datePart}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const withItemPatch = async (itemId: number, action: () => Promise<void>) => {
     if (!shoppingList) return;
@@ -448,7 +581,7 @@ export function ShoppingListPage() {
   };
 
   return (
-    <section className="plans-page">
+    <section className={`plans-page ${compactView ? "shopping-list--compact" : ""}`}>
       <div className="plans-shell plans-shell-wide">
         <header className="plans-head">
           <div className="plans-head-main">
@@ -559,7 +692,7 @@ export function ShoppingListPage() {
 
         {rebuildError && <Alert text={rebuildError} />}
 
-        {!loading && !error && shoppingList && visibleItems.length === 0 && (
+        {!loading && !error && shoppingList && baseVisibleItems.length === 0 && hiddenItems.length === 0 && (
           <article className="plans-empty-card">
             <p className="plans-empty-title">Список пока пуст</p>
             <p className="plans-empty-subtitle">Добавьте ручные позиции или пересоберите список после заполнения плана.</p>
@@ -569,16 +702,90 @@ export function ShoppingListPage() {
           </article>
         )}
 
-        {!loading && !error && shoppingList && visibleItems.length > 0 && (
+        {!loading && !error && shoppingList && (baseVisibleItems.length > 0 || hiddenItems.length > 0) && (
           <div className="plan-shopping-grid">
+            <section className="plan-shopping-controls-panel" aria-label="Параметры отображения списка">
+              <div className="plan-shopping-controls-top">
+                <label className="plans-field plan-shopping-search-field" htmlFor="shopping-list-search">
+                  <span className="plans-field-label">Поиск</span>
+                  <input
+                    id="shopping-list-search"
+                    className="plans-field-input"
+                    type="search"
+                    placeholder="Найти продукт в списке"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                  />
+                </label>
+                <div className="plan-shopping-controls-actions no-print">
+                  <button type="button" className="btn btn-secondary" onClick={() => window.print()}>
+                    Печать
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={exportTxt}>
+                    Экспорт .txt
+                  </button>
+                </div>
+              </div>
+
+              <div className="plan-shopping-controls-row">
+                <label className="plans-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={hideCheckedItems}
+                    onChange={(event) => setHideCheckedItems(event.target.checked)}
+                  />
+                  <span>Скрыть отмеченные</span>
+                </label>
+                {hideCheckedItems && hiddenByCheckedCount > 0 && (
+                  <p className="plan-shopping-controls-note">Скрыто отмеченных: {hiddenByCheckedCount}</p>
+                )}
+                <label className="plans-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={compactView}
+                    onChange={(event) => setCompactView(event.target.checked)}
+                  />
+                  <span>Компактный вид</span>
+                </label>
+              </div>
+            </section>
+
+            {!hasAnyDisplayItems && (
+              <article className="plans-empty-card">
+                <p className="plans-empty-title">Ничего не найдено</p>
+                <p className="plans-empty-subtitle">Попробуйте изменить поиск или отключить фильтр скрытия отмеченных.</p>
+              </article>
+            )}
+
             {FOOD_CATEGORIES.map((category) => {
               const categoryItems = groupedVisibleItems[category];
               if (categoryItems.length === 0) return null;
+              const isCollapsed = collapsedCategories[category] === true;
               return (
                 <section key={category} className="plan-shopping-card" aria-label={FOOD_CATEGORY_LABELS[category]}>
-                  <h2 className="plan-shopping-section-title">{FOOD_CATEGORY_LABELS[category]}</h2>
-                  <ul className="plan-shopping-list">
-                    {categoryItems.map((item) => {
+                  <button
+                    type="button"
+                    className="plan-shopping-section-toggle"
+                    onClick={() =>
+                      setCollapsedCategories((prev) => ({
+                        ...prev,
+                        [category]: !isCollapsed,
+                      }))
+                    }
+                    aria-expanded={!isCollapsed}
+                  >
+                    <span className="plan-shopping-section-title-wrap">
+                      <span className="plan-shopping-section-arrow" aria-hidden="true">
+                        {isCollapsed ? "▸" : "▾"}
+                      </span>
+                      <span className="plan-shopping-section-title">{FOOD_CATEGORY_LABELS[category]}</span>
+                    </span>
+                    <span className="plan-shopping-section-count">{categoryItems.length}</span>
+                  </button>
+
+                  {!isCollapsed && (
+                    <ul className="plan-shopping-list">
+                      {categoryItems.map((item) => {
                       const isSaving = patchingItemIds.has(item.id);
                       const rowError = rowErrorsByItemId[item.id];
                       const isChecked = item.checked;
@@ -678,15 +885,16 @@ export function ShoppingListPage() {
                           </div>
                         </li>
                       );
-                    })}
-                  </ul>
+                      })}
+                    </ul>
+                  )}
                 </section>
               );
             })}
 
             {hiddenItems.length > 0 && (
               <section className="plan-shopping-card" aria-label="Скрытые позиции">
-                <h2 className="plan-shopping-section-title">Скрытые позиции</h2>
+                <h2 className="plan-shopping-section-title">Скрытые позиции ({hiddenItems.length})</h2>
                 <ul className="plan-shopping-list">
                   {hiddenItems.map((item) => {
                     const isSaving = patchingItemIds.has(item.id);
