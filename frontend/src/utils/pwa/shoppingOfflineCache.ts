@@ -1,11 +1,12 @@
-import type { ShoppingListItem } from "../../types/shopping";
+import type { ShoppingListRead } from "../../types/shopping";
 
 const SHOPPING_CACHE_KEY = "shopping_offline_snapshots_v1";
 
-type ShoppingSnapshot = {
-  planId: string;
+export type ShoppingSnapshot = {
+  shoppingListId: string;
   savedAt: string;
-  items: ShoppingListItem[];
+  payload: ShoppingListRead;
+  pendingCheckedByItemId: Record<string, boolean>;
 };
 
 type ShoppingSnapshotMap = Record<string, ShoppingSnapshot>;
@@ -25,14 +26,18 @@ function readSnapshotMap(): ShoppingSnapshotMap {
       if (!value || typeof value !== "object") continue;
       const candidate = value as Partial<ShoppingSnapshot>;
 
-      if (typeof candidate.planId !== "string") continue;
+      if (typeof candidate.shoppingListId !== "string") continue;
       if (typeof candidate.savedAt !== "string") continue;
-      if (!Array.isArray(candidate.items)) continue;
+      if (!candidate.payload || typeof candidate.payload !== "object") continue;
 
       result[key] = {
-        planId: candidate.planId,
+        shoppingListId: candidate.shoppingListId,
         savedAt: candidate.savedAt,
-        items: candidate.items as ShoppingListItem[],
+        payload: candidate.payload as ShoppingListRead,
+        pendingCheckedByItemId:
+          candidate.pendingCheckedByItemId && typeof candidate.pendingCheckedByItemId === "object"
+            ? (candidate.pendingCheckedByItemId as Record<string, boolean>)
+            : {},
       };
     }
 
@@ -46,27 +51,46 @@ function writeSnapshotMap(snapshotMap: ShoppingSnapshotMap): void {
   localStorage.setItem(SHOPPING_CACHE_KEY, JSON.stringify(snapshotMap));
 }
 
-export function getOfflineShoppingSnapshot(planId: string): ShoppingSnapshot | null {
+export function getOfflineShoppingSnapshot(shoppingListId: string): ShoppingSnapshot | null {
   const snapshotMap = readSnapshotMap();
-  return snapshotMap[planId] ?? null;
+  return snapshotMap[shoppingListId] ?? null;
 }
 
-export function saveOfflineShoppingSnapshot(planId: string, items: ShoppingListItem[]): ShoppingSnapshot | null {
+export function saveOfflineShoppingSnapshot(
+  shoppingListId: string,
+  payload: ShoppingListRead,
+  pendingCheckedByItemId?: Record<string, boolean>,
+): ShoppingSnapshot | null {
   try {
     const snapshotMap = readSnapshotMap();
     const savedAt = new Date().toISOString();
 
     const snapshot: ShoppingSnapshot = {
-      planId,
+      shoppingListId,
       savedAt,
-      items,
+      payload,
+      pendingCheckedByItemId: pendingCheckedByItemId ?? snapshotMap[shoppingListId]?.pendingCheckedByItemId ?? {},
     };
 
-    snapshotMap[planId] = snapshot;
+    snapshotMap[shoppingListId] = snapshot;
     writeSnapshotMap(snapshotMap);
 
     return snapshot;
   } catch {
     return null;
   }
+}
+
+export function saveOfflineCheckedOverride(
+  shoppingListId: string,
+  itemId: number,
+  checked: boolean,
+  payload: ShoppingListRead,
+): ShoppingSnapshot | null {
+  const existing = getOfflineShoppingSnapshot(shoppingListId);
+  const pendingCheckedByItemId = {
+    ...(existing?.pendingCheckedByItemId ?? {}),
+    [String(itemId)]: checked,
+  };
+  return saveOfflineShoppingSnapshot(shoppingListId, payload, pendingCheckedByItemId);
 }

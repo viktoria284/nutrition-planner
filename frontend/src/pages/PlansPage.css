@@ -1307,6 +1307,20 @@
   font-size: 0.9rem;
 }
 
+.plan-shopping-offline-banner {
+  border: 1px solid rgba(var(--primary-rgb), 0.26);
+  border-radius: 10px;
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary-dark);
+  padding: 10px 12px;
+}
+
+.plan-shopping-offline-banner p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
 .plan-shopping-card {
   border: 1px solid var(--border);
   border-radius: 12px;

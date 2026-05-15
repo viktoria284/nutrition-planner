@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
@@ -14,9 +14,15 @@ import {
 import { Alert } from "../components/Alert";
 import { AddManualShoppingItemModal } from "../components/plans/AddManualShoppingItemModal";
 import { PlanConfirmModal } from "../components/plans/PlanConfirmModal";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "../types/foodCategory";
 import type { PlanRead } from "../types/plan";
 import type { ShoppingListItem, ShoppingListRead, ShoppingManualItemCreatePayload } from "../types/shopping";
+import {
+  getOfflineShoppingSnapshot,
+  saveOfflineCheckedOverride,
+  saveOfflineShoppingSnapshot,
+} from "../utils/pwa/shoppingOfflineCache";
 import "./PlansPage.css";
 
 function resolveError(err: unknown, notFoundMessage: string): string {
@@ -70,9 +76,47 @@ function displayAmount(item: ShoppingListItem): string {
   return formatShoppingQuantity(item.effective_grams ?? item.planned_grams, item.unit);
 }
 
+function formatSavedAt(iso: string | null): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 0;
+}
+
+function applyPendingCheckedOverrides(
+  list: ShoppingListRead,
+  overrides: Record<string, boolean>,
+): { list: ShoppingListRead; appliedCount: number } {
+  if (Object.keys(overrides).length === 0) return { list, appliedCount: 0 };
+
+  let appliedCount = 0;
+  const items = list.items.map((item) => {
+    const nextChecked = overrides[String(item.id)];
+    if (typeof nextChecked !== "boolean" || item.checked === nextChecked) {
+      return item;
+    }
+    appliedCount += 1;
+    return { ...item, checked: nextChecked };
+  });
+
+  if (appliedCount === 0) return { list, appliedCount: 0 };
+  return { list: { ...list, items }, appliedCount };
+}
+
 export function ShoppingListPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { isOnline } = useOnlineStatus();
+  const previousOnlineRef = useRef<boolean>(isOnline);
 
   const [shoppingList, setShoppingList] = useState<ShoppingListRead | null>(null);
   const [sourcePlan, setSourcePlan] = useState<PlanRead | null>(null);
@@ -98,6 +142,11 @@ export function ShoppingListPage() {
 
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildError, setRebuildError] = useState<string | null>(null);
+  const [loadedFromOfflineCache, setLoadedFromOfflineCache] = useState(false);
+  const [offlineSavedAt, setOfflineSavedAt] = useState<string | null>(null);
+  const [offlineMissingMessage, setOfflineMissingMessage] = useState<string | null>(null);
+  const [offlinePendingChanges, setOfflinePendingChanges] = useState(false);
+  const [offlineSyncHint, setOfflineSyncHint] = useState<string | null>(null);
 
   const shoppingListId = useMemo(() => {
     const parsed = Number(id);
@@ -116,9 +165,24 @@ export function ShoppingListPage() {
       else setLoading(true);
 
       setError(null);
+      setOfflineMissingMessage(null);
       try {
         const loaded = await getShoppingList(shoppingListId);
-        setShoppingList(loaded);
+        const cacheKey = String(shoppingListId);
+        const snapshot = getOfflineShoppingSnapshot(cacheKey);
+        const withPending = applyPendingCheckedOverrides(loaded, snapshot?.pendingCheckedByItemId ?? {});
+
+        setShoppingList(withPending.list);
+        setLoadedFromOfflineCache(false);
+        setOfflinePendingChanges(withPending.appliedCount > 0);
+        if (withPending.appliedCount > 0) {
+          setOfflineSyncHint("Подключение восстановлено. Обновите список, чтобы синхронизировать данные.");
+        } else if (isOnline) {
+          setOfflineSyncHint(null);
+        }
+
+        const saved = saveOfflineShoppingSnapshot(cacheKey, withPending.list, snapshot?.pendingCheckedByItemId ?? {});
+        setOfflineSavedAt(saved?.savedAt ?? null);
 
         const planId = loaded.sources[0]?.plan_id;
         if (planId) {
@@ -132,15 +196,40 @@ export function ShoppingListPage() {
           setSourcePlan(null);
         }
       } catch (err) {
-        setShoppingList(null);
-        setSourcePlan(null);
-        setError(resolveError(err, "Список покупок не найден."));
+        if (isNetworkError(err) && shoppingListId) {
+          const snapshot = getOfflineShoppingSnapshot(String(shoppingListId));
+          if (snapshot) {
+            const withPending = applyPendingCheckedOverrides(snapshot.payload, snapshot.pendingCheckedByItemId);
+            setShoppingList(withPending.list);
+            setSourcePlan(null);
+            setLoadedFromOfflineCache(true);
+            setOfflineSavedAt(snapshot.savedAt);
+            setOfflinePendingChanges(Object.keys(snapshot.pendingCheckedByItemId).length > 0);
+            setOfflineSyncHint(
+              Object.keys(snapshot.pendingCheckedByItemId).length > 0
+                ? "Изменения сохранены на устройстве и будут применены после подключения."
+                : null,
+            );
+            setError(null);
+          } else {
+            setShoppingList(null);
+            setSourcePlan(null);
+            setError("Не удалось загрузить список без подключения к интернету.");
+            setOfflineMissingMessage(
+              "Список пока не сохранён для офлайн-доступа. Откройте его один раз при подключении к интернету.",
+            );
+          }
+        } else {
+          setShoppingList(null);
+          setSourcePlan(null);
+          setError(resolveError(err, "Список покупок не найден."));
+        }
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [shoppingListId],
+    [isOnline, shoppingListId],
   );
 
   useEffect(() => {
@@ -160,6 +249,21 @@ export function ShoppingListPage() {
     }
     setDraftAdjustedByItemId(nextDrafts);
   }, [shoppingList]);
+
+  useEffect(() => {
+    const wasOnline = previousOnlineRef.current;
+    if (wasOnline === isOnline) return;
+
+    if (!wasOnline && isOnline && offlinePendingChanges) {
+      setOfflineSyncHint("Подключение восстановлено. Обновите список, чтобы синхронизировать данные.");
+    }
+
+    if (wasOnline && !isOnline) {
+      setOfflineSyncHint((prev) => prev ?? "Вы в офлайне. Доступна последняя сохранённая копия списка.");
+    }
+
+    previousOnlineRef.current = isOnline;
+  }, [isOnline, offlinePendingChanges]);
 
   const visibleItems = useMemo(() => shoppingList?.items.filter((item) => !item.excluded) ?? [], [shoppingList]);
   const hiddenItems = useMemo(() => shoppingList?.items.filter((item) => item.excluded) ?? [], [shoppingList]);
@@ -224,6 +328,28 @@ export function ShoppingListPage() {
 
   const handleToggleChecked = async (item: ShoppingListItem) => {
     if (!shoppingList) return;
+
+    if (!isOnline) {
+      const nextChecked = !item.checked;
+      const nextList: ShoppingListRead = {
+        ...shoppingList,
+        items: shoppingList.items.map((entry) => (entry.id === item.id ? { ...entry, checked: nextChecked } : entry)),
+      };
+      setShoppingList(nextList);
+
+      const saved = saveOfflineCheckedOverride(String(shoppingList.id), item.id, nextChecked, nextList);
+      setOfflineSavedAt(saved?.savedAt ?? offlineSavedAt);
+      setLoadedFromOfflineCache(true);
+      setOfflinePendingChanges(true);
+      setOfflineSyncHint("Изменения сохранены на устройстве и будут применены после подключения.");
+      setRowErrorsByItemId((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      return;
+    }
+
     await withItemPatch(item.id, async () => {
       await patchShoppingItem(shoppingList.id, item.id, { checked: !item.checked });
     });
@@ -308,6 +434,11 @@ export function ShoppingListPage() {
     try {
       const rebuilt = await rebuildShoppingList(shoppingList.id);
       setShoppingList(rebuilt);
+      const saved = saveOfflineShoppingSnapshot(String(rebuilt.id), rebuilt, {});
+      setOfflineSavedAt(saved?.savedAt ?? offlineSavedAt);
+      setLoadedFromOfflineCache(false);
+      setOfflinePendingChanges(false);
+      setOfflineSyncHint(null);
       await loadShoppingList({ background: true });
     } catch (err) {
       setRebuildError(resolveError(err, "Не удалось пересобрать список."));
@@ -347,7 +478,12 @@ export function ShoppingListPage() {
             >
               {refreshing ? "Обновляем..." : "Обновить"}
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => setManualModalOpen(true)} disabled={!shoppingList}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setManualModalOpen(true)}
+              disabled={!shoppingList || !isOnline}
+            >
               Добавить вручную
             </button>
             <button
@@ -357,7 +493,7 @@ export function ShoppingListPage() {
                 setDeleteListError(null);
                 setDeleteListModalOpen(true);
               }}
-              disabled={!shoppingList}
+              disabled={!shoppingList || !isOnline}
             >
               Удалить список
             </button>
@@ -367,9 +503,34 @@ export function ShoppingListPage() {
         {loading && <p className="plans-note">Загрузка списка покупок...</p>}
         {!loading && refreshing && <p className="plans-note">Синхронизируем изменения...</p>}
 
+        {!loading && shoppingList && (
+          <div className="plan-shopping-status-row">
+            <p className="plan-shopping-network-status" role="status">
+              <span className={`plan-shopping-network-dot ${isOnline ? "is-online" : "is-offline"}`} />
+              {isOnline ? "Онлайн" : "Офлайн"}
+            </p>
+            {loadedFromOfflineCache ? (
+              <p className="plan-shopping-offline-note">
+                Вы открыли сохранённую копию списка. Данные могут быть неактуальны. Сохранено: {formatSavedAt(offlineSavedAt)}.
+              </p>
+            ) : (
+              <p className="plan-shopping-offline-note">
+                Список сохранён для офлайн-доступа. Сохранено: {formatSavedAt(offlineSavedAt)}.
+              </p>
+            )}
+          </div>
+        )}
+
+        {!loading && shoppingList && offlineSyncHint && (
+          <article className="plan-shopping-offline-banner" role="status">
+            <p>{offlineSyncHint}</p>
+          </article>
+        )}
+
         {!loading && error && (
           <div className="plans-error-block">
             <Alert text={error} />
+            {offlineMissingMessage && <p className="plan-shopping-offline-note">{offlineMissingMessage}</p>}
             <button type="button" className="btn btn-secondary" onClick={() => void loadShoppingList()}>
               Повторить
             </button>
@@ -388,7 +549,7 @@ export function ShoppingListPage() {
               type="button"
               className="btn btn-primary plan-shopping-rebuild-btn"
               onClick={() => void handleRebuild()}
-              disabled={rebuilding}
+              disabled={rebuilding || !isOnline}
             >
               <RefreshCw aria-hidden="true" size={18} />
               {rebuilding ? "Пересобираем..." : "Пересобрать список"}
@@ -402,7 +563,7 @@ export function ShoppingListPage() {
           <article className="plans-empty-card">
             <p className="plans-empty-title">Список пока пуст</p>
             <p className="plans-empty-subtitle">Добавьте ручные позиции или пересоберите список после заполнения плана.</p>
-            <button type="button" className="btn btn-primary" onClick={() => setManualModalOpen(true)}>
+            <button type="button" className="btn btn-primary" onClick={() => setManualModalOpen(true)} disabled={!isOnline}>
               Добавить вручную
             </button>
           </article>
@@ -453,7 +614,7 @@ export function ShoppingListPage() {
                               <button
                                 type="button"
                                 className="btn btn-secondary plan-shopping-inline-btn"
-                                disabled={isSaving}
+                                disabled={isSaving || !isOnline}
                                 onClick={() => {
                                   setDeleteError(null);
                                   setItemToDelete(item);
@@ -468,7 +629,7 @@ export function ShoppingListPage() {
                                   type="text"
                                   inputMode="decimal"
                                   value={draftAdjustedByItemId[item.id] ?? ""}
-                                  disabled={isSaving}
+                                  disabled={isSaving || !isOnline}
                                   onChange={(event) => {
                                     const next = event.target.value;
                                     setDraftAdjustedByItemId((prev) => ({ ...prev, [item.id]: next }));
@@ -482,7 +643,7 @@ export function ShoppingListPage() {
                                 <button
                                   type="button"
                                   className="btn btn-secondary plan-shopping-inline-btn"
-                                  disabled={isSaving}
+                                  disabled={isSaving || !isOnline}
                                   onClick={() => {
                                     void handleSaveAdjusted(item);
                                   }}
@@ -492,7 +653,7 @@ export function ShoppingListPage() {
                                 <button
                                   type="button"
                                   className="btn btn-secondary plan-shopping-inline-btn"
-                                  disabled={isSaving || item.adjusted_grams === null}
+                                  disabled={isSaving || item.adjusted_grams === null || !isOnline}
                                   onClick={() => {
                                     void handleResetAdjusted(item);
                                   }}
@@ -502,7 +663,7 @@ export function ShoppingListPage() {
                                 <button
                                   type="button"
                                   className="btn btn-secondary plan-shopping-inline-btn"
-                                  disabled={isSaving}
+                                  disabled={isSaving || !isOnline}
                                   onClick={() => {
                                     setDeleteError(null);
                                     setItemToDelete(item);
@@ -540,7 +701,7 @@ export function ShoppingListPage() {
                           <button
                             type="button"
                             className="btn btn-secondary plan-shopping-inline-btn"
-                            disabled={isSaving}
+                            disabled={isSaving || !isOnline}
                             onClick={() => {
                               void withItemPatch(item.id, async () => {
                                 await patchShoppingItem(shoppingList.id, item.id, { excluded: false });
@@ -563,7 +724,7 @@ export function ShoppingListPage() {
 
       <AddManualShoppingItemModal
         open={manualModalOpen && shoppingList !== null}
-        saving={creatingManual}
+        saving={creatingManual || !isOnline}
         submitError={createManualError}
         onClose={() => {
           if (creatingManual) return;
