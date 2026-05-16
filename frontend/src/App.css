@@ -26,9 +26,16 @@
 
 .topbar-auth-desktop {
   display: grid;
-  grid-template-columns: max-content 1fr max-content;
+  grid-template-columns: minmax(170px, max-content) minmax(0, 1fr) max-content;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+}
+
+.topbar-brand {
+  justify-self: start;
+  white-space: nowrap;
 }
 
 .topbar-auth-mobile,
@@ -53,17 +60,22 @@
 .main-nav {
   display: flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .main-nav-centered {
   justify-self: center;
+  min-width: 0;
+  width: 100%;
 }
 
 .topbar-nav {
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-self: end;
 }
 
 .nav-link {

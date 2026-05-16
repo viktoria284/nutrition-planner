@@ -54,6 +54,9 @@ export function Navbar() {
                 <NavLink to="/plans" className={`nav-link ${isPlansRoute ? "nav-link-active" : ""}`}>
                   Планы
                 </NavLink>
+                <NavLink to="/calendar" className={navClass}>
+                  Календарь
+                </NavLink>
                 <NavLink to="/plans/autogenerate" className={`nav-link ${isAutoplanRoute ? "nav-link-active" : ""}`}>
                   Автоплан
                 </NavLink>
@@ -154,6 +157,13 @@ export function Navbar() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Планы
+                </NavLink>
+                <NavLink
+                  to="/calendar"
+                  className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Календарь
                 </NavLink>
                 <NavLink
                   to="/plans/autogenerate"

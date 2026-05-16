@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/http";
 import { createPlan } from "../api/plans";
 import { FormErrorSummary } from "../components/FormErrorSummary";
@@ -32,6 +32,25 @@ function toTodayIsoDate(): string {
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function resolveInitialStartDate(rawValue: string | null): string {
+  if (!rawValue) return toTodayIsoDate();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(rawValue);
+  if (!match) return toTodayIsoDate();
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return toTodayIsoDate();
+  }
+  return rawValue;
 }
 
 function validateCreateForm(
@@ -91,8 +110,9 @@ function validateCreateForm(
 
 export function PlanCreatePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { profiles, activeProfileId, loading: loadingProfiles, error: profilesError } = useProfiles();
-  const initialDate = useMemo(() => toTodayIsoDate(), []);
+  const initialDate = useMemo(() => resolveInitialStartDate(searchParams.get("startDate")), [searchParams]);
 
   const [form, setForm] = useState<PlanCreateFormState>({
     start_date: initialDate,

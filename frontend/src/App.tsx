@@ -14,6 +14,7 @@ import { PlanDetailsPage } from "./pages/PlanDetailsPage";
 import { PlanShoppingPage } from "./pages/PlanShoppingPage";
 import { PlansListPage } from "./pages/PlansListPage";
 import { PlansAutogeneratePage } from "./pages/PlansAutogeneratePage";
+import { CalendarPage } from "./pages/CalendarPage";
 import { ShoppingListPage } from "./pages/ShoppingListPage";
 import { ShoppingListsPage } from "./pages/ShoppingListsPage";
 import { RequireAuth } from "./auth/RequireAuth";
@@ -100,6 +101,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <PlansListPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/calendar"
+              element={
+                <RequireAuth>
+                  <CalendarPage />
                 </RequireAuth>
               }
             />
