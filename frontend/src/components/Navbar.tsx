@@ -1,6 +1,8 @@
-import { Link, NavLink } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { useProfiles } from "../context/ProfilesContext";
+import { LogoutConfirmModal } from "./LogoutConfirmModal";
 
 function navClass({ isActive }: { isActive: boolean }) {
   return `nav-link ${isActive ? "nav-link-active" : ""}`;
@@ -9,44 +11,112 @@ function navClass({ isActive }: { isActive: boolean }) {
 export function Navbar() {
   const { token, user, logout } = useAuth();
   const { profiles, activeProfileId, loading, setActiveProfileId } = useProfiles();
+  const location = useLocation();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const profileValue = activeProfileId !== null ? String(activeProfileId) : "";
+  const isAutoplanRoute = location.pathname.startsWith("/plans/autogenerate");
+  const isPlansRoute =
+    location.pathname.startsWith("/plans") &&
+    !location.pathname.startsWith("/plans/autogenerate") &&
+    !location.pathname.startsWith("/plans/autogenerate/");
+
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  const requestLogout = () => {
+    setLogoutConfirmOpen(true);
+  };
+
+  const closeLogoutConfirm = () => {
+    setLogoutConfirmOpen(false);
+  };
+
+  const confirmLogout = () => {
+    setLogoutConfirmOpen(false);
+    setMobileMenuOpen(false);
+    logout();
+  };
 
   return (
     <header className="topbar">
       <div className={`topbar-inner ${token ? "topbar-inner-auth" : ""}`}>
         {token ? (
           <>
-            <Link to="/plans" className="brand topbar-brand">
-              Nutrition Planner
-            </Link>
+            <div className="topbar-auth-desktop">
+              <Link to="/plans" className="brand topbar-brand">
+                Nutrition Planner
+              </Link>
 
-            <nav className="main-nav main-nav-centered" aria-label="Основная навигация">
-              <NavLink to="/foods" className={navClass}>
-                Продукты
-              </NavLink>
-              <NavLink to="/recipes" className={navClass}>
-                Рецепты
-              </NavLink>
-              <NavLink to="/plans" className={navClass}>
-                Планы
-              </NavLink>
-              <NavLink to="/shopping-lists" className={navClass}>
-                Списки покупок
-              </NavLink>
-              {user?.role === "admin" && (
-                <NavLink to="/admin" className={navClass}>
-                  Админ
+              <nav className="main-nav main-nav-centered" aria-label="Основная навигация">
+                <NavLink to="/plans" className={`nav-link ${isPlansRoute ? "nav-link-active" : ""}`}>
+                  Планы
                 </NavLink>
-              )}
-            </nav>
+                <NavLink to="/plans/autogenerate" className={`nav-link ${isAutoplanRoute ? "nav-link-active" : ""}`}>
+                  Автоплан
+                </NavLink>
+                <NavLink to="/recipes" className={navClass}>
+                  Рецепты
+                </NavLink>
+                <NavLink to="/foods" className={navClass}>
+                  Продукты
+                </NavLink>
+                <NavLink to="/shopping-lists" className={navClass}>
+                  Покупки
+                </NavLink>
+                {user?.role === "admin" && (
+                  <NavLink to="/admin" className={navClass}>
+                    Админ
+                  </NavLink>
+                )}
+              </nav>
 
-            <nav className="topbar-nav" aria-label="Пользовательское меню">
-              <label className="profile-picker" htmlFor="active-profile-picker">
+              <nav className="topbar-nav" aria-label="Пользовательское меню">
+                <label className="profile-picker" htmlFor="active-profile-picker">
+                  <span className="sr-only">Активный профиль</span>
+                  <select
+                    id="active-profile-picker"
+                    className="profile-picker-select"
+                    value={profileValue}
+                    disabled={loading || profiles.length === 0}
+                    onChange={(e) => {
+                      const next = Number(e.target.value);
+                      if (Number.isInteger(next)) setActiveProfileId(next);
+                    }}
+                  >
+                    {loading && <option value="">Загрузка…</option>}
+                    {!loading && profiles.length === 0 && <option value="">Нет профилей</option>}
+                    {!loading &&
+                      profiles.map((profile) => (
+                        <option key={profile.id} value={String(profile.id)}>
+                          {profile.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+
+                <NavLink to="/settings" className={navClass}>
+                  Настройки
+                </NavLink>
+
+                <button type="button" className="nav-link nav-link-button" onClick={requestLogout}>
+                  Выйти
+                </button>
+              </nav>
+            </div>
+
+            <div className="topbar-auth-mobile">
+              <Link to="/plans" className="brand topbar-brand topbar-brand-mobile">
+                Nutrition
+              </Link>
+
+              <label className="profile-picker profile-picker-mobile" htmlFor="active-profile-picker-mobile">
                 <span className="sr-only">Активный профиль</span>
                 <select
-                  id="active-profile-picker"
-                  className="profile-picker-select"
+                  id="active-profile-picker-mobile"
+                  className="profile-picker-select profile-picker-select-mobile"
                   value={profileValue}
                   disabled={loading || profiles.length === 0}
                   onChange={(e) => {
@@ -65,14 +135,87 @@ export function Navbar() {
                 </select>
               </label>
 
-              <NavLink to="/settings" className={navClass}>
-                Настройки
-              </NavLink>
-
-              <button type="button" className="nav-link nav-link-button" onClick={logout}>
-                Выйти
+              <button
+                type="button"
+                className="icon-button topbar-menu-toggle"
+                aria-label={mobileMenuOpen ? "Закрыть меню" : "Открыть меню"}
+                aria-expanded={mobileMenuOpen}
+                onClick={() => setMobileMenuOpen((prev) => !prev)}
+              >
+                ☰
               </button>
-            </nav>
+            </div>
+
+            <div className={`topbar-mobile-menu ${mobileMenuOpen ? "is-open" : ""}`} aria-hidden={!mobileMenuOpen}>
+              <nav className="topbar-mobile-menu-nav" aria-label="Мобильная навигация">
+                <NavLink
+                  to="/plans"
+                  className={`nav-link topbar-mobile-menu-link ${isPlansRoute ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Планы
+                </NavLink>
+                <NavLink
+                  to="/plans/autogenerate"
+                  className={`nav-link topbar-mobile-menu-link ${isAutoplanRoute ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Автоплан
+                </NavLink>
+                <NavLink
+                  to="/recipes"
+                  className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Рецепты
+                </NavLink>
+                <NavLink
+                  to="/foods"
+                  className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Продукты
+                </NavLink>
+                <NavLink
+                  to="/shopping-lists"
+                  className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Покупки
+                </NavLink>
+                {user?.role === "admin" && (
+                  <NavLink
+                    to="/admin"
+                    className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Админ
+                  </NavLink>
+                )}
+                <NavLink
+                  to="/settings"
+                  className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Настройки
+                </NavLink>
+                <button
+                  type="button"
+                  className="nav-link nav-link-button topbar-mobile-menu-link"
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    requestLogout();
+                  }}
+                >
+                  Выйти
+                </button>
+              </nav>
+            </div>
+            <LogoutConfirmModal
+              open={logoutConfirmOpen}
+              onCancel={closeLogoutConfirm}
+              onConfirm={confirmLogout}
+            />
           </>
         ) : (
           <>

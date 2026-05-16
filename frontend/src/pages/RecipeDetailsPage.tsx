@@ -24,6 +24,7 @@ import {
   type RecipeIngredientUpdate,
   type RecipeRead,
 } from "../api/recipes";
+import { favoriteAuthor, listFavoriteAuthors, unfavoriteAuthor } from "../api/users";
 import { Alert } from "../components/Alert";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { MarkdownContent } from "../components/MarkdownTextarea";
@@ -291,6 +292,8 @@ export function RecipeDetailsPage() {
   const [reportErrors, setReportErrors] = useState<ReportFormErrors>({});
   const [copying, setCopying] = useState(false);
   const [favoriteUpdating, setFavoriteUpdating] = useState(false);
+  const [favoriteAuthorIds, setFavoriteAuthorIds] = useState<Set<number>>(new Set());
+  const [favoriteAuthorUpdating, setFavoriteAuthorUpdating] = useState(false);
 
   const [noteValue, setNoteValue] = useState("");
   const [noteLoading, setNoteLoading] = useState(false);
@@ -429,7 +432,28 @@ export function RecipeDetailsPage() {
       recipe.status === "approved" &&
       recipe.is_listed,
   );
+  const currentUserIdNumber = Number(currentUserId);
+  const canFavoriteAuthor = Boolean(
+    recipe &&
+      recipe.author_username &&
+      Number.isFinite(currentUserIdNumber) &&
+      recipe.author_id !== currentUserIdNumber,
+  );
+  const isAuthorFavorite = Boolean(recipe && favoriteAuthorIds.has(recipe.author_id));
   const showModerationBanner = Boolean(recipe && isOwner && recipe.status === "pending" && !recipe.is_listed);
+
+  const loadFavoriteAuthors = useCallback(async () => {
+    try {
+      const items = await listFavoriteAuthors();
+      setFavoriteAuthorIds(new Set(items.map((item) => item.id)));
+    } catch {
+      setFavoriteAuthorIds(new Set());
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFavoriteAuthors();
+  }, [loadFavoriteAuthors]);
 
   useEffect(() => {
     hasScrolledToIngredientsRef.current = false;
@@ -884,6 +908,23 @@ export function RecipeDetailsPage() {
     }
   };
 
+  const onToggleFavoriteAuthor = async () => {
+    if (!recipe || !canFavoriteAuthor || favoriteAuthorUpdating) return;
+    setFavoriteAuthorUpdating(true);
+    try {
+      if (favoriteAuthorIds.has(recipe.author_id)) {
+        await unfavoriteAuthor(recipe.author_id);
+      } else {
+        await favoriteAuthor(recipe.author_id);
+      }
+      await loadFavoriteAuthors();
+    } catch (err) {
+      setError(resolveActionError(err, "Не удалось обновить избранных авторов."));
+    } finally {
+      setFavoriteAuthorUpdating(false);
+    }
+  };
+
   const onSaveNote = async () => {
     if (!recipe || noteSaving || noteLoading) return;
     const normalized = noteValue.trim();
@@ -1065,6 +1106,31 @@ export function RecipeDetailsPage() {
               )}
 
               <div className="recipe-meta-grid">
+                {recipe.author_username && (
+                  <div className="recipe-meta-row recipe-meta-row-author">
+                    <b>Автор:</b>{" "}
+                    <Link
+                      to={`/recipes/public?author=${recipe.author_id}${recipe.author_username ? `&author_username=${encodeURIComponent(recipe.author_username)}` : ""}`}
+                      className="recipe-author-link"
+                    >
+                      @{recipe.author_username}
+                    </Link>
+                    {canFavoriteAuthor && (
+                      <button
+                        type="button"
+                        className={isAuthorFavorite ? "btn btn-secondary btn-sm" : "btn btn-primary btn-sm"}
+                        onClick={() => void onToggleFavoriteAuthor()}
+                        disabled={favoriteAuthorUpdating}
+                      >
+                        {favoriteAuthorUpdating
+                          ? "Сохраняем..."
+                          : isAuthorFavorite
+                            ? "Автор в избранном"
+                            : "Добавить автора в избранное"}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <p className="recipe-meta-row">
                   <b>Порций:</b> <span>{recipe.servings_count}</span>
                 </p>

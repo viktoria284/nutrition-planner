@@ -10,7 +10,6 @@ export function RegisterPage() {
 
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -32,7 +31,7 @@ export function RegisterPage() {
 
     setSubmitting(true);
     try {
-      await register({ email, username, password, display_name: displayName ? displayName : null });
+      await register({ email, username, password });
       nav("/", { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
@@ -82,18 +81,6 @@ export function RegisterPage() {
                 onChange={(e) => setUsername(e.target.value)}
                 autoComplete="username"
                 placeholder="username"
-              />
-            </label>
-
-            <label className="auth-field">
-              <span className="auth-label">Display name (опционально)</span>
-              <input
-                className="auth-input"
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                autoComplete="nickname"
-                placeholder="Как к тебе обращаться"
               />
             </label>
 

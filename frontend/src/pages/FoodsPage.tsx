@@ -2,7 +2,6 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { createFood, searchFoods, type FoodCreatePayload, type FoodItem, type FoodSource } from "../api/foods";
 import { Alert } from "../components/Alert";
-import { FoodSearchSelect } from "../components/FoodSearchSelect";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, isFoodCategory, type FoodCategory } from "../types/foodCategory";
 import "./FoodsPage.css";
@@ -179,7 +178,6 @@ export function FoodsPage() {
   const [createForm, setCreateForm] = useState<CreateFoodForm>(EMPTY_CREATE_FORM);
   const [createErrors, setCreateErrors] = useState<CreateFoodErrors>({});
   const [createLoading, setCreateLoading] = useState(false);
-  const [selectedFood, setSelectedFood] = useState<FoodItem | null>(null);
 
   const trimmedQuery = query.trim();
   const canSearch = trimmedQuery.length >= 2;
@@ -304,24 +302,6 @@ export function FoodsPage() {
           />
         </label>
 
-        <article className="foods-picker-card">
-          <h2 className="foods-picker-title">Быстрый выбор продукта</h2>
-          <p className="foods-picker-subtitle">Переиспользуемый селект с поиском для будущих экранов.</p>
-
-          <FoodSearchSelect
-            value={selectedFood}
-            onChange={setSelectedFood}
-            placeholder="Введите название продукта"
-            allowCreate
-          />
-
-          {selectedFood && (
-            <Link className="btn btn-secondary foods-picker-open" to={`/foods/${selectedFood.id}`}>
-              Открыть карточку
-            </Link>
-          )}
-        </article>
-
         {!canSearch && <p className="foods-note">Введите минимум 2 символа</p>}
         {canSearch && loading && <p className="foods-note">Загрузка...</p>}
         {canSearch && !loading && error && <Alert text={error} />}
@@ -359,9 +339,20 @@ export function FoodsPage() {
             aria-labelledby="foods-create-title"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="foods-create-title" className="foods-modal-title">
-              Добавить продукт
-            </h2>
+            <div className="foods-modal-head">
+              <h2 id="foods-create-title" className="foods-modal-title">
+                Добавить продукт
+              </h2>
+              <button
+                type="button"
+                className="icon-button icon-button--secondary foods-modal-close"
+                aria-label="Закрыть"
+                onClick={closeCreateModal}
+                disabled={createLoading}
+              >
+                ×
+              </button>
+            </div>
 
             {createErrors.form && createErrors.form.length > 0 && (
               <div className="foods-form-errors" role="alert">
@@ -374,6 +365,7 @@ export function FoodsPage() {
             )}
 
             <form className="foods-create-form" onSubmit={onCreateFood} noValidate>
+              <div className="foods-create-form-body">
               <label className="foods-field" htmlFor="create_food_name">
                 <span className="foods-field-label">Название</span>
                 <input
@@ -487,11 +479,9 @@ export function FoodsPage() {
                   />
                 </label>
               </div>
+              </div>
 
               <div className="foods-create-actions">
-                <button type="button" className="btn btn-secondary" onClick={closeCreateModal} disabled={createLoading}>
-                  Отмена
-                </button>
                 <button type="submit" className="btn btn-primary" disabled={createLoading}>
                   {createLoading ? "Создание..." : "Создать"}
                 </button>

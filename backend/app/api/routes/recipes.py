@@ -61,6 +61,7 @@ from app.services.recipes import (
     update_my_recipe,
     withdraw_recipe,
 )
+from app.services.users import get_user_by_id, get_usernames_by_ids
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -71,13 +72,17 @@ def get_recipes(
     offset: Annotated[int, Query(ge=0)] = 0,
     include_public: bool = Query(default=False),
     favorite_only: bool = Query(default=False),
+    favorite_authors_only: bool = Query(default=False),
     meal_type: str | None = Query(default=None),
+    author_id: Annotated[int | None, Query(ge=1)] = None,
+    author_username: str | None = Query(default=None),
     min_cook_time_minutes: Annotated[int | None, Query(ge=1, le=1440)] = None,
     max_cook_time_minutes: Annotated[int | None, Query(ge=1, le=1440)] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     normalized_meal_type = meal_type.strip().lower() if meal_type else None
+    normalized_author_username = author_username.strip().lower() if author_username else None
     if normalized_meal_type is not None and normalized_meal_type not in ALLOWED_MEAL_TYPES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -98,19 +103,30 @@ def get_recipes(
         current_user.id,
         include_public=include_public,
         favorite_only=favorite_only,
+        favorite_authors_only=favorite_authors_only,
         limit=limit,
         offset=offset,
         meal_type=normalized_meal_type,
+        author_id=author_id,
+        author_username=normalized_author_username,
         min_cook_time_minutes=min_cook_time_minutes,
         max_cook_time_minutes=max_cook_time_minutes,
         include_ingredients=True,
     )
+    author_usernames_by_id = get_usernames_by_ids(db, {recipe.owner_user_id for recipe in recipes})
     favorite_ids = list_favorite_recipe_ids(
         db,
         user_id=current_user.id,
         recipe_ids={recipe.id for recipe in recipes},
     )
-    return [build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids) for recipe in recipes]
+    return [
+        build_recipe_read(
+            recipe,
+            is_favorite=recipe.id in favorite_ids,
+            author_username=author_usernames_by_id.get(recipe.owner_user_id),
+        )
+        for recipe in recipes
+    ]
 
 
 @router.post("", response_model=RecipeRead, status_code=status.HTTP_201_CREATED)
@@ -120,7 +136,7 @@ def post_recipe(
     current_user: User = Depends(get_current_user),
 ):
     recipe = create_recipe(db, current_user.id, payload)
-    return build_recipe_read(recipe, is_favorite=False)
+    return build_recipe_read(recipe, is_favorite=False, author_username=current_user.username)
 
 
 @router.get("/{recipe_id}", response_model=RecipeRead)
@@ -142,7 +158,8 @@ def get_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    author = get_user_by_id(db, recipe.owner_user_id)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=author.username if author else None)
 
 
 @router.patch("/{recipe_id}", response_model=RecipeRead)
@@ -169,7 +186,7 @@ def patch_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=current_user.username)
 
 
 @router.delete("/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -206,7 +223,7 @@ def publish_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=current_user.username)
 
 
 @router.post("/{recipe_id}/withdraw", response_model=RecipeRead)
@@ -230,7 +247,7 @@ def withdraw_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=current_user.username)
 
 
 @router.post("/{recipe_id}/report", response_model=RecipeRead)
@@ -255,7 +272,8 @@ def report_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    author = get_user_by_id(db, recipe.owner_user_id)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=author.username if author else None)
 
 
 @router.get("/{recipe_id}/note", response_model=RecipeNoteRead)
@@ -315,7 +333,7 @@ def copy_recipe_by_id(
         copied_recipe = copy_accessible_recipe(db, current_user.id, recipe_id)
     except RecipeNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found") from exc
-    return build_recipe_read(copied_recipe, is_favorite=False)
+    return build_recipe_read(copied_recipe, is_favorite=False, author_username=current_user.username)
 
 
 @router.post("/{recipe_id}/cover-image", response_model=RecipeRead)
@@ -346,7 +364,7 @@ def post_recipe_cover_image(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=current_user.username)
 
 
 @router.delete("/{recipe_id}/cover-image", response_model=RecipeRead)
@@ -366,7 +384,7 @@ def delete_recipe_cover_image_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids)
+    return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=current_user.username)
 
 
 @router.post("/{recipe_id}/favorite", response_model=RecipeFavoriteStateRead)

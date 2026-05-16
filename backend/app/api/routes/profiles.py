@@ -7,6 +7,7 @@ from app.schemas.profile import ProfileCreate, ProfileOut, ProfileUpdate
 from app.services.profiles import (
     ProfileFoodNotFoundError,
     ProfileNotFoundError,
+    ProfilePreferenceConflictError,
     create_profile_for_user,
     delete_profile_for_user,
     list_profiles_for_user,
@@ -38,6 +39,8 @@ def create_profile(
         )
     except ProfileFoodNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProfilePreferenceConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.patch("/{profile_id}", response_model=ProfileOut)
@@ -58,6 +61,8 @@ def update_profile(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found") from exc
     except ProfileFoodNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProfilePreferenceConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
 
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)

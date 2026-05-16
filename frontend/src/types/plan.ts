@@ -21,6 +21,7 @@ export type PlanSlot = {
   slot_carbs: DecimalString;
   slot_fiber: DecimalString;
   pinned: boolean;
+  has_overrides?: boolean;
   created_at: string;
   updated_at: string;
 };

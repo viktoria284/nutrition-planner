@@ -26,7 +26,6 @@ import {
 import "./PlansPage.css";
 
 const HIDE_CHECKED_STORAGE_KEY = "nutrition:shopping-list:hide-checked";
-const COMPACT_VIEW_STORAGE_KEY = "nutrition:shopping-list:compact-view";
 
 function collapsedCategoriesStorageKey(shoppingListId: number): string {
   return `nutrition:shopping-list:${shoppingListId}:collapsed-categories`;
@@ -191,7 +190,6 @@ export function ShoppingListPage() {
   const [offlinePendingChanges, setOfflinePendingChanges] = useState(false);
   const [offlineSyncHint, setOfflineSyncHint] = useState<string | null>(null);
   const [hideCheckedItems, setHideCheckedItems] = useState<boolean>(() => readBooleanStorage(HIDE_CHECKED_STORAGE_KEY));
-  const [compactView, setCompactView] = useState<boolean>(() => readBooleanStorage(COMPACT_VIEW_STORAGE_KEY));
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
@@ -320,10 +318,6 @@ export function ShoppingListPage() {
   useEffect(() => {
     writeBooleanStorage(HIDE_CHECKED_STORAGE_KEY, hideCheckedItems);
   }, [hideCheckedItems]);
-
-  useEffect(() => {
-    writeBooleanStorage(COMPACT_VIEW_STORAGE_KEY, compactView);
-  }, [compactView]);
 
   const baseVisibleItems = useMemo(() => shoppingList?.items.filter((item) => !item.excluded) ?? [], [shoppingList]);
   const queryNormalized = searchQuery.trim().toLowerCase();
@@ -581,7 +575,7 @@ export function ShoppingListPage() {
   };
 
   return (
-    <section className={`plans-page ${compactView ? "shopping-list--compact" : ""}`}>
+    <section className="plans-page shopping-list--compact">
       <div className="plans-shell plans-shell-wide">
         <header className="plans-head">
           <div className="plans-head-main">
@@ -591,10 +585,10 @@ export function ShoppingListPage() {
                 ? `Источник: план «${sourcePlan.title ?? sourcePlan.start_date}».`
                 : shoppingList?.sources[0]
                   ? "Источник: план."
-                  : "Источник не указан."}
+                : "Источник не указан."}
             </p>
           </div>
-          <div className="plans-head-actions">
+          <div className="plans-head-actions shopping-header-actions-desktop">
             <Link to="/shopping-lists" className="btn btn-secondary">
               К спискам покупок
             </Link>
@@ -630,6 +624,58 @@ export function ShoppingListPage() {
             >
               Удалить список
             </button>
+          </div>
+
+          <div className="shopping-mobile-toolbar no-print" aria-label="Быстрые действия списка покупок">
+            <Link to="/shopping-lists" className="btn btn-secondary shopping-mobile-btn">
+              Назад
+            </Link>
+            {sourcePlan && (
+              <Link to={`/plans/${sourcePlan.id}`} className="btn btn-secondary shopping-mobile-btn">
+                К плану
+              </Link>
+            )}
+            <button
+              type="button"
+              className="icon-button icon-button--secondary shopping-mobile-refresh"
+              onClick={() => void loadShoppingList({ background: true })}
+              disabled={loading || refreshing}
+              aria-label={refreshing ? "Обновляем список" : "Обновить список"}
+            >
+              <RefreshCw aria-hidden="true" size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary shopping-mobile-add"
+              onClick={() => setManualModalOpen(true)}
+              disabled={!shoppingList || !isOnline}
+              aria-label="Добавить вручную"
+            >
+              <span className="shopping-mobile-add-label-full">+ Добавить</span>
+              <span className="shopping-mobile-add-label-short">+</span>
+            </button>
+            <details className="shopping-mobile-more">
+              <summary className="icon-button icon-button--secondary shopping-mobile-more-trigger">Ещё</summary>
+              <div className="shopping-mobile-more-panel">
+                <button type="button" className="btn btn-secondary shopping-mobile-more-btn" onClick={() => window.print()}>
+                  Печать
+                </button>
+                <button type="button" className="btn btn-secondary shopping-mobile-more-btn" onClick={exportTxt}>
+                  Экспорт .txt
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary shopping-mobile-more-btn"
+                  onClick={() => {
+                    setDeleteListError(null);
+                    setDeleteListModalOpen(true);
+                  }}
+                  disabled={!shoppingList || !isOnline}
+                >
+                  Удалить список
+                </button>
+              </div>
+            </details>
           </div>
         </header>
 
@@ -717,7 +763,7 @@ export function ShoppingListPage() {
                     onChange={(event) => setSearchQuery(event.target.value)}
                   />
                 </label>
-                <div className="plan-shopping-controls-actions no-print">
+                <div className="plan-shopping-controls-actions plan-shopping-controls-actions-desktop no-print">
                   <button type="button" className="btn btn-secondary" onClick={() => window.print()}>
                     Печать
                   </button>
@@ -739,14 +785,6 @@ export function ShoppingListPage() {
                 {hideCheckedItems && hiddenByCheckedCount > 0 && (
                   <p className="plan-shopping-controls-note">Скрыто отмеченных: {hiddenByCheckedCount}</p>
                 )}
-                <label className="plans-checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={compactView}
-                    onChange={(event) => setCompactView(event.target.checked)}
-                  />
-                  <span>Компактный вид</span>
-                </label>
               </div>
             </section>
 
@@ -793,19 +831,19 @@ export function ShoppingListPage() {
 
                       return (
                         <li key={item.id} className={`plan-shopping-item ${isChecked ? "is-checked" : ""}`}>
-                          <div className="plan-shopping-main">
-                            <div className="plan-shopping-title-row">
-                              <p className="plan-shopping-name">{item.name_snapshot}</p>
-                              {isManual && <span className="plan-shopping-badge">добавлено вручную</span>}
+                          <div className="plan-shopping-item-top">
+                            <div className="plan-shopping-main">
+                              <div className="plan-shopping-title-row">
+                                <p className="plan-shopping-name">{item.name_snapshot}</p>
+                                {isManual && <span className="plan-shopping-badge">добавлено вручную</span>}
+                              </div>
+                              <p className="plan-shopping-meta">Количество: {displayAmount(item)}</p>
+                              {!isManual && item.adjusted_grams !== null && (
+                                <p className="plan-shopping-meta">изменено вручную</p>
+                              )}
                             </div>
-                            <p className="plan-shopping-meta">Количество: {displayAmount(item)}</p>
-                            {!isManual && item.adjusted_grams !== null && (
-                              <p className="plan-shopping-meta">изменено вручную</p>
-                            )}
-                          </div>
 
-                          <div className="plan-shopping-controls">
-                            <label className="plan-shopping-checkbox">
+                            <label className="plan-shopping-checkbox plan-shopping-checkbox-main">
                               <input
                                 aria-label={item.checked ? "Отметить как нужно купить" : "Отметить как уже куплено"}
                                 type="checkbox"
@@ -816,7 +854,9 @@ export function ShoppingListPage() {
                                 }}
                               />
                             </label>
+                          </div>
 
+                          <div className="plan-shopping-controls">
                             {isManual ? (
                               <button
                                 type="button"
@@ -869,7 +909,7 @@ export function ShoppingListPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  className="btn btn-secondary plan-shopping-inline-btn"
+                                  className="btn btn-secondary plan-shopping-inline-btn plan-shopping-hide-btn"
                                   disabled={isSaving || !isOnline}
                                   onClick={() => {
                                     setDeleteError(null);

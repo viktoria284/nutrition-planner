@@ -575,14 +575,23 @@ export function EditPlanSlotModal({
           if (event.target === event.currentTarget) onClose();
         }}
       >
-        <div className="plans-modal" role="dialog" aria-modal="true" aria-labelledby="edit-slot-modal-title">
+        <div className="plans-modal plans-modal-slot" role="dialog" aria-modal="true" aria-labelledby="edit-slot-modal-title">
           <header className="plans-modal-head">
-            <h2 id="edit-slot-modal-title" className="plans-modal-title">
-              Редактировать слот
-            </h2>
-            <p className="plans-modal-subtitle">
-              День: {slot.day_date} · Слот: {slot.slot_index + 1}
-            </p>
+            <div className="plans-modal-head-row">
+              <h2 id="edit-slot-modal-title" className="plans-modal-title">
+                Редактировать слот
+              </h2>
+              <button
+                type="button"
+                className="icon-button icon-button--secondary plans-modal-close-btn"
+                aria-label="Закрыть"
+                onClick={onClose}
+                disabled={isBusy}
+              >
+                ×
+              </button>
+            </div>
+            <p className="plans-modal-subtitle">День: {slot.day_date} · Слот: {slot.slot_index + 1}</p>
           </header>
 
           <form className="plans-modal-form" onSubmit={onSubmit} noValidate>
@@ -903,9 +912,6 @@ export function EditPlanSlotModal({
             </label>
 
             <div className="plans-modal-actions">
-              <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isBusy}>
-                Отмена
-              </button>
               <button
                 type="button"
                 className="btn btn-secondary"

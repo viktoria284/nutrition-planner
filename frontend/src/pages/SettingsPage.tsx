@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { updateMe } from "../api/auth";
 import { ApiError } from "../api/http";
 import {
   createProfile,
@@ -9,6 +10,7 @@ import {
 } from "../api/profiles";
 import { useAuth } from "../auth/useAuth";
 import { Alert } from "../components/Alert";
+import { LogoutConfirmModal } from "../components/LogoutConfirmModal";
 import { ProfileTargetsCard } from "../components/ProfileTargetsCard";
 import "./SettingsPage.css";
 
@@ -68,7 +70,7 @@ function parseNullableFiberInt(value: string): number | null {
 
 export function SettingsPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, refreshMe } = useAuth();
 
   const [tab, setTab] = useState<SettingsTab>("goals");
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -82,8 +84,13 @@ export function SettingsPage() {
   const [creatingProfile, setCreatingProfile] = useState(false);
 
   const [highlightedProfileId, setHighlightedProfileId] = useState<number | null>(null);
+  const [accountUsername, setAccountUsername] = useState("");
+  const [accountEmail, setAccountEmail] = useState("");
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountSuccess, setAccountSuccess] = useState<string | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
-  const accountName = user?.display_name || user?.username || "Пользователь";
   const defaultProfileId = useMemo(() => (profiles.length ? profiles[0].id : null), [profiles]);
 
   const forceLogin = useCallback(() => {
@@ -137,6 +144,17 @@ export function SettingsPage() {
     return () => window.clearTimeout(timer);
   }, [highlightedProfileId, profiles.length]);
 
+  useEffect(() => {
+    setAccountUsername(user?.username ?? "");
+    setAccountEmail(user?.email ?? "");
+  }, [user?.username, user?.email]);
+
+  useEffect(() => {
+    if (!accountSuccess) return undefined;
+    const timeoutId = window.setTimeout(() => setAccountSuccess(null), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [accountSuccess]);
+
   const onProfileSaved = (updatedProfile: Profile) => {
     setProfiles((prev) => sortProfilesWithDefaultFirst(prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p))));
   };
@@ -150,6 +168,70 @@ export function SettingsPage() {
       }
       return next;
     });
+  };
+
+  const onAccountSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!user) return;
+
+    const nextUsername = accountUsername.trim().toLowerCase();
+    const nextEmail = accountEmail.trim().toLowerCase();
+    if (!nextUsername) {
+      setAccountError("Username не должен быть пустым.");
+      return;
+    }
+    if (!nextEmail) {
+      setAccountError("Email не должен быть пустым.");
+      return;
+    }
+
+    const payload: { username?: string; email?: string } = {};
+    if (nextUsername !== user.username) payload.username = nextUsername;
+    if (nextEmail !== user.email) payload.email = nextEmail;
+
+    if (Object.keys(payload).length === 0) {
+      setAccountSuccess("Изменений нет.");
+      setAccountError(null);
+      return;
+    }
+
+    setAccountSaving(true);
+    setAccountError(null);
+    setAccountSuccess(null);
+    try {
+      await updateMe(payload);
+      await refreshMe();
+      setAccountSuccess("Данные аккаунта обновлены.");
+    } catch (err) {
+      if (handleUnauthorized(err)) return;
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setAccountError("Email или username уже заняты.");
+        } else if (err.status === 422) {
+          setAccountError("Проверьте корректность email и username.");
+        } else {
+          setAccountError("Не удалось сохранить изменения аккаунта.");
+        }
+      } else {
+        setAccountError(err instanceof Error ? err.message : "Не удалось сохранить изменения аккаунта.");
+      }
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  const openLogoutConfirm = () => {
+    setLogoutConfirmOpen(true);
+  };
+
+  const closeLogoutConfirm = () => {
+    setLogoutConfirmOpen(false);
+  };
+
+  const confirmLogout = () => {
+    setLogoutConfirmOpen(false);
+    logout();
+    navigate("/login", { replace: true });
   };
 
   const openCreateModal = () => {
@@ -231,21 +313,53 @@ export function SettingsPage() {
           {tab === "account" && (
             <>
               <h2 className="settings-panel-title">Аккаунт</h2>
-              <p className="settings-subtitle">Базовая информация учётной записи.</p>
-              <div className="settings-account-grid">
-                <p>
-                  <span>Имя:</span> <b>{accountName}</b>
-                </p>
-                <p>
-                  <span>Email:</span> {user?.email ?? "Не указан"}
-                </p>
-                <p>
-                  <span>Username:</span> {user?.username ?? "Не указан"}
-                </p>
-                <p>
-                  <span>Роль:</span> {user?.role ?? "Не указана"}
-                </p>
-              </div>
+              <form className="settings-account-form" onSubmit={onAccountSave} noValidate>
+                <label className="profile-name-field" htmlFor="settings-username">
+                  <span className="profile-name-label">Username</span>
+                  <input
+                    id="settings-username"
+                    className="profile-name-input"
+                    type="text"
+                    autoComplete="username"
+                    value={accountUsername}
+                    onChange={(event) => {
+                      setAccountUsername(event.target.value);
+                      setAccountError(null);
+                    }}
+                    disabled={accountSaving}
+                  />
+                </label>
+                <label className="profile-name-field" htmlFor="settings-email">
+                  <span className="profile-name-label">Email</span>
+                  <input
+                    id="settings-email"
+                    className="profile-name-input"
+                    type="email"
+                    autoComplete="email"
+                    value={accountEmail}
+                    onChange={(event) => {
+                      setAccountEmail(event.target.value);
+                      setAccountError(null);
+                    }}
+                    disabled={accountSaving}
+                  />
+                </label>
+                {accountError && <Alert text={accountError} />}
+                {accountSuccess && <p className="settings-success">{accountSuccess}</p>}
+                <div className="settings-account-actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={openLogoutConfirm}
+                    disabled={accountSaving}
+                  >
+                    Выйти
+                  </button>
+                  <button type="submit" className="btn btn-primary" disabled={accountSaving}>
+                    {accountSaving ? "Сохраняем..." : "Сохранить изменения"}
+                  </button>
+                </div>
+              </form>
             </>
           )}
 
@@ -432,6 +546,11 @@ export function SettingsPage() {
           </div>
         </div>
       )}
+      <LogoutConfirmModal
+        open={logoutConfirmOpen}
+        onCancel={closeLogoutConfirm}
+        onConfirm={confirmLogout}
+      />
     </section>
   );
 }

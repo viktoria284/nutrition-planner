@@ -31,12 +31,15 @@
 }
 
 .settings-tab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   height: 42px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text-main);
-  text-align: left;
+  text-align: center;
   padding: 0 12px;
   cursor: pointer;
 }
@@ -108,6 +111,19 @@
   color: var(--text-soft);
 }
 
+.settings-account-form {
+  margin-top: 6px;
+  max-width: 520px;
+  display: grid;
+  gap: 12px;
+}
+
+.settings-account-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
 .settings-form {
   max-width: 760px;
   display: grid;
@@ -155,6 +171,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+
+.profile-delete-btn {
+  flex-shrink: 0;
 }
 
 .profile-card-title {
@@ -233,6 +253,38 @@
 
 .profile-preferences-block {
   display: grid;
+  gap: 8px;
+}
+
+.profile-preferences-section {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.profile-preferences-section--spaced {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.profile-preferences-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.profile-field-label-row,
+.goals-kcal-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.profile-keywords-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
 }
 
@@ -595,9 +647,8 @@
     justify-content: flex-start;
   }
 
-  .profile-card-head {
-    flex-direction: column;
-    align-items: flex-start;
+  .profile-keywords-row {
+    grid-template-columns: 1fr;
   }
 }
 

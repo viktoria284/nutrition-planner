@@ -2290,6 +2290,265 @@ def test_autogenerate_respects_profile_excluded_food_ids(
     assert lunch_slot["recipe_id"] != excluded_lunch["id"]
 
 
+def test_autogenerate_respects_profile_excluded_categories(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_profile_excluded_category@example.com",
+        username="autoplan_profile_excluded_category",
+    )
+
+    blocked_food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Autoplan Category Blocked Food",
+            "category": "dairy",
+            "kcal": "260.00",
+            "protein": "18.00",
+            "fat": "9.00",
+            "carbs": "24.00",
+        },
+    )
+    assert blocked_food_response.status_code == 201, blocked_food_response.text
+    blocked_food = blocked_food_response.json()
+
+    allowed_food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Autoplan Category Allowed Food",
+            "category": "vegetables",
+            "kcal": "260.00",
+            "protein": "18.00",
+            "fat": "9.00",
+            "carbs": "24.00",
+        },
+    )
+    assert allowed_food_response.status_code == 201, allowed_food_response.text
+    allowed_food = allowed_food_response.json()
+
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Autoplan Category Dinner Food",
+        kcal="520.00",
+        protein="30.00",
+        fat="16.00",
+        carbs="58.00",
+    )
+
+    blocked_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Category Blocked Lunch",
+        meal_types=["lunch"],
+        food_id=blocked_food["id"],
+    )
+    allowed_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Category Allowed Lunch",
+        meal_types=["lunch"],
+        food_id=allowed_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Category Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profiles = _list_profiles(client, token)
+    profile_id = profiles[0]["id"]
+    _patch_profile_via_api(client, token, profile_id, {"excluded_categories": ["dairy"]})
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-11",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_slot = next(slot for slot in slots if slot["slot_index"] == 0)
+    assert lunch_slot["recipe_id"] == allowed_lunch["id"]
+    assert lunch_slot["recipe_id"] != blocked_lunch["id"]
+
+
+def test_autogenerate_respects_profile_excluded_terms_casefold(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_profile_excluded_term@example.com",
+        username="autoplan_profile_excluded_term",
+    )
+
+    blocked_food = create_food_via_api(
+        client,
+        token,
+        name="МОЛОКО безлактозное",
+        kcal="210.00",
+        protein="12.00",
+        fat="8.00",
+        carbs="22.00",
+    )
+    allowed_food = create_food_via_api(
+        client,
+        token,
+        name="Куриная грудка",
+        kcal="210.00",
+        protein="12.00",
+        fat="8.00",
+        carbs="22.00",
+    )
+    dinner_food = create_food_via_api(
+        client,
+        token,
+        name="Рис басмати",
+        kcal="380.00",
+        protein="9.00",
+        fat="2.00",
+        carbs="80.00",
+    )
+
+    blocked_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Term Blocked Lunch",
+        meal_types=["lunch"],
+        food_id=blocked_food["id"],
+    )
+    allowed_lunch = _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Term Allowed Lunch",
+        meal_types=["lunch"],
+        food_id=allowed_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Term Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profiles = _list_profiles(client, token)
+    profile_id = profiles[0]["id"]
+    _patch_profile_via_api(client, token, profile_id, {"excluded_terms": ["молоко"]})
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-12",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 201, response.text
+    slots = sorted(response.json()["slots"], key=lambda slot: (slot["day_date"], slot["slot_index"], slot["id"]))
+    lunch_slot = next(slot for slot in slots if slot["slot_index"] == 0)
+    assert lunch_slot["recipe_id"] == allowed_lunch["id"]
+    assert lunch_slot["recipe_id"] != blocked_lunch["id"]
+
+
+def test_autogenerate_returns_friendly_422_when_generalized_exclusions_too_strict(
+    client: TestClient,
+    db_session_factory: sessionmaker[Session],
+) -> None:
+    _user, token = create_user_with_token(
+        db_session_factory,
+        email="autoplan_profile_general_exclusions_422@example.com",
+        username="autoplan_profile_general_exclusions_422",
+    )
+
+    lunch_food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Autoplan Strict Dairy Lunch",
+            "category": "dairy",
+            "kcal": "260.00",
+            "protein": "16.00",
+            "fat": "9.00",
+            "carbs": "24.00",
+        },
+    )
+    assert lunch_food_response.status_code == 201, lunch_food_response.text
+    lunch_food = lunch_food_response.json()
+
+    dinner_food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Autoplan Strict Dairy Dinner",
+            "category": "dairy",
+            "kcal": "420.00",
+            "protein": "24.00",
+            "fat": "16.00",
+            "carbs": "40.00",
+        },
+    )
+    assert dinner_food_response.status_code == 201, dinner_food_response.text
+    dinner_food = dinner_food_response.json()
+
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Strict Lunch",
+        meal_types=["lunch"],
+        food_id=lunch_food["id"],
+    )
+    _create_recipe_with_ingredient(
+        client,
+        token,
+        name="Autoplan Strict Dinner",
+        meal_types=["dinner"],
+        food_id=dinner_food["id"],
+    )
+
+    profiles = _list_profiles(client, token)
+    profile_id = profiles[0]["id"]
+    _patch_profile_via_api(client, token, profile_id, {"excluded_categories": ["dairy"]})
+
+    response = _post_autogenerate_plan(
+        client,
+        token,
+        {
+            "start_date": "2026-04-13",
+            "days_count": 1,
+            "meals_per_day": 2,
+            "profile_id": profile_id,
+            "use_public_recipes": False,
+            "excluded_recipe_ids": [],
+            "excluded_food_ids": [],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == (
+        "Недостаточно рецептов с учётом исключённых продуктов и категорий. "
+        "Ослабьте ограничения или добавьте больше подходящих рецептов."
+    )
+
+
 def test_autogenerate_applies_request_max_cook_time_minutes(
     client: TestClient,
     db_session_factory: sessionmaker[Session],

@@ -257,6 +257,8 @@ class RecipeStepsReplace(BaseModel):
 class RecipeRead(BaseModel):
     id: int
     owner_user_id: int
+    author_id: int
+    author_username: str | None = None
     name: str
     description: str | None
     instructions: str | None

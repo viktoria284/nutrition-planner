@@ -5,6 +5,7 @@ import { ApiError } from "../api/http";
 import { autogeneratePlan } from "../api/plans";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { FormErrorSummary } from "../components/FormErrorSummary";
+import { InfoPopover } from "../components/InfoPopover";
 import { PlanProfileSelect } from "../components/plans/PlanProfileSelect";
 import { useAutoSelectedProfileId } from "../components/plans/useAutoSelectedProfileId";
 import { useProfiles } from "../context/ProfilesContext";
@@ -389,13 +390,8 @@ export function PlansAutogeneratePage() {
             onChange={(value) => updateTextField("profile_id", value)}
             error={errors.profile_id}
             disabled={saving || loadingProfiles || profiles.length === 0}
-            hint="План будет создан с целями выбранного профиля."
+            infoText="План будет создан с целями выбранного профиля."
           />
-          {selectedProfile?.target_fiber !== null && (
-            <p className="plans-field-hint">
-              Автоплан также учитывает цель по клетчатке, если она указана в профиле.
-            </p>
-          )}
 
           {!loadingProfiles && profiles.length === 0 && (
             <div className="plans-empty-card">
@@ -410,7 +406,13 @@ export function PlansAutogeneratePage() {
           {profilesError && <p className="plans-note">{profilesError}</p>}
 
           <label className="plans-field" htmlFor="autoplan-title">
-            <span className="plans-field-label">Название плана</span>
+            <span className="plans-field-label-row">
+              <span className="plans-field-label">Название плана</span>
+              <InfoPopover
+                text="Если оставить пустым, название будет создано автоматически."
+                ariaLabel="Подсказка для названия плана"
+              />
+            </span>
             <input
               id="autoplan-title"
               className="plans-field-input"
@@ -420,11 +422,16 @@ export function PlansAutogeneratePage() {
               placeholder="Например, Рацион на неделю"
               disabled={saving}
             />
-            <p className="plans-field-hint">Если оставить пустым, название будет создано автоматически.</p>
           </label>
 
           <label className="plans-field" htmlFor="autoplan-max-cook-time">
-            <span className="plans-field-label">Максимальное время приготовления, мин</span>
+            <span className="plans-field-label-row">
+              <span className="plans-field-label">Максимальное время приготовления, мин</span>
+              <InfoPopover
+                text="По умолчанию берётся из выбранного профиля. Здесь можно задать значение только для этой генерации."
+                ariaLabel="Подсказка по времени приготовления"
+              />
+            </span>
             <input
               id="autoplan-max-cook-time"
               className={`plans-field-input ${errors.max_cook_time_minutes ? "is-invalid" : ""}`}
@@ -440,9 +447,6 @@ export function PlansAutogeneratePage() {
             <div className="plans-field-error-slot" aria-live="polite">
               {errors.max_cook_time_minutes && <p className="plans-field-error">{errors.max_cook_time_minutes}</p>}
             </div>
-            <p className="plans-field-hint">
-              По умолчанию берётся из выбранного профиля. Здесь можно задать значение только для этой генерации.
-            </p>
           </label>
 
           <label className="plans-checkbox-row" htmlFor="autoplan-use-public">
@@ -454,13 +458,20 @@ export function PlansAutogeneratePage() {
               disabled={saving}
             />
             <span>Использовать публичные рецепты</span>
+            <InfoPopover
+              text="Если включено, автоплан сможет использовать ваши рецепты и публичные опубликованные рецепты."
+              ariaLabel="Подсказка по публичным рецептам"
+            />
           </label>
-          <p className="plans-field-hint">
-            Если включено, автоплан сможет использовать ваши рецепты и публичные опубликованные рецепты.
-          </p>
 
           <label className="plans-field" htmlFor="autoplan-favorite-mode">
-            <span className="plans-field-label">Избранные рецепты</span>
+            <span className="plans-field-label-row">
+              <span className="plans-field-label">Избранные рецепты</span>
+              <InfoPopover
+                text="Приоритет избранных повышает вероятность выбора сохранённых рецептов, но не нарушает ограничения профиля."
+                ariaLabel="Подсказка по избранным рецептам"
+              />
+            </span>
             <select
               id="autoplan-favorite-mode"
               className="plans-field-input"
@@ -472,16 +483,19 @@ export function PlansAutogeneratePage() {
               <option value="prefer">Использовать в приоритете</option>
               <option value="only">Только избранные</option>
             </select>
-            <p className="plans-field-hint">
-              Приоритет избранных повышает вероятность выбора сохранённых рецептов, но не нарушает ограничения профиля.
-            </p>
             {form.favorite_recipes_mode === "only" && (
               <p className="plans-field-hint">План будет составляться только из избранных доступных рецептов.</p>
             )}
           </label>
 
           <div className="plans-field">
-            <span className="plans-field-label">Исключить продукты</span>
+            <span className="plans-field-label-row">
+              <span className="plans-field-label">Исключить продукты</span>
+              <InfoPopover
+                text="Выбранные продукты не будут использоваться при автогенерации."
+                ariaLabel="Подсказка по исключённым продуктам"
+              />
+            </span>
             <div className="plans-excluded-foods">
               <FoodSearchSelect
                 key={excludedFoodInputKey}
@@ -509,16 +523,18 @@ export function PlansAutogeneratePage() {
                 </ul>
               )}
             </div>
-            <p className="plans-field-hint">
-              Выбранные продукты не будут использоваться при автогенерации.
-            </p>
           </div>
 
           <details className="plans-advanced-card">
-            <summary className="plans-advanced-summary">Приготовление на несколько дней</summary>
-            <p className="plans-field-hint">
-              Если выбрать приготовление на 2–3 дня, блюдо может повторяться несколько дней подряд — это считается запланированным повтором.
-            </p>
+            <summary className="plans-advanced-summary">
+              <span className="plans-advanced-summary-row">
+                <span>Приготовление на несколько дней</span>
+                <InfoPopover
+                  text="Если выбрать приготовление на 2–3 дня, блюдо может повторяться несколько дней подряд — это считается запланированным повтором."
+                  ariaLabel="Подсказка по приготовлению на несколько дней"
+                />
+              </span>
+            </summary>
             <div className="plans-batch-grid">
               <label className="plans-field" htmlFor="autoplan-batch-breakfast">
                 <span className="plans-field-label">Завтрак</span>

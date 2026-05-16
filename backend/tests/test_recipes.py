@@ -1263,6 +1263,45 @@ def test_public_recipes_filter_by_lunch(client: TestClient) -> None:
     assert breakfast["id"] not in ids
 
 
+def test_recipe_payload_includes_author_fields(client: TestClient) -> None:
+    register_user(client, email="author-fields-owner@example.com", username="authorfieldsowner")
+    owner_token = login_and_get_token(client, identifier="author-fields-owner@example.com")
+    recipe = create_recipe_via_api(client, owner_token, name="Author fields", meal_types=["dinner"])
+
+    response = client.get(f"/recipes/{recipe['id']}", headers=auth_headers(owner_token))
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["author_id"] == payload["owner_user_id"]
+    assert payload["author_username"] == "authorfieldsowner"
+
+
+def test_public_recipes_filter_by_author_id(client: TestClient) -> None:
+    register_user(client, email="author-filter-owner1@example.com", username="authorfilterowner1")
+    owner1_token = login_and_get_token(client, identifier="author-filter-owner1@example.com")
+    register_user(client, email="author-filter-owner2@example.com", username="authorfilterowner2")
+    owner2_token = login_and_get_token(client, identifier="author-filter-owner2@example.com")
+    register_user(client, email="author-filter-viewer@example.com", username="authorfilterviewer")
+    viewer_token = login_and_get_token(client, identifier="author-filter-viewer@example.com")
+
+    owner1_recipe = create_recipe_via_api(client, owner1_token, name="Owner one public", meal_types=["lunch"])
+    owner2_recipe = create_recipe_via_api(client, owner2_token, name="Owner two public", meal_types=["lunch"])
+    for recipe in (owner1_recipe, owner2_recipe):
+        token = owner1_token if recipe["id"] == owner1_recipe["id"] else owner2_token
+        publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(token))
+        assert publish_response.status_code == 200, publish_response.text
+
+    response = client.get(
+        f"/recipes?include_public=true&author_id={owner1_recipe['owner_user_id']}&limit=100",
+        headers=auth_headers(viewer_token),
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()
+    ids = {item["id"] for item in items}
+    assert owner1_recipe["id"] in ids
+    assert owner2_recipe["id"] not in ids
+    assert all(item["author_username"] == "authorfilterowner1" for item in items)
+
+
 def test_max_cook_time_filter_returns_only_recipes_up_to_max(client: TestClient) -> None:
     register_user(client, email="cook-filter-owner@example.com", username="cookfilterowner")
     token = login_and_get_token(client, identifier="cook-filter-owner@example.com")

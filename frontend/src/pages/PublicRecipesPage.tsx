@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../api/http";
 import {
   addRecipeFavorite,
@@ -8,6 +8,7 @@ import {
   type MealType,
   type RecipeRead,
 } from "../api/recipes";
+import { favoriteAuthor, listFavoriteAuthors, unfavoriteAuthor } from "../api/users";
 import { Alert } from "../components/Alert";
 import { RecipeGridCard } from "../components/recipes/RecipeGridCard";
 import "./RecipesPage.css";
@@ -43,6 +44,7 @@ function resolvePublicRecipesError(err: unknown): string {
 }
 
 export function PublicRecipesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [recipes, setRecipes] = useState<RecipeRead[]>([]);
   const [query, setQuery] = useState("");
   const [selectedMealTypes, setSelectedMealTypes] = useState<MealType[]>([]);
@@ -50,7 +52,17 @@ export function PublicRecipesPage() {
   const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [favoriteUpdatingIds, setFavoriteUpdatingIds] = useState<Set<number>>(new Set());
+  const [favoriteAuthorIds, setFavoriteAuthorIds] = useState<Set<number>>(new Set());
+  const [favoriteAuthorUpdating, setFavoriteAuthorUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const authorIdFilter = useMemo(() => {
+    const raw = searchParams.get("author");
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [searchParams]);
+  const authorUsernameFilter = (searchParams.get("author_username") ?? "").trim().toLowerCase();
+  const favoriteAuthorsFilter = searchParams.get("favoriteAuthors") === "1";
 
   const loadRecipes = useCallback(async () => {
     setLoading(true);
@@ -60,6 +72,9 @@ export function PublicRecipesPage() {
       const items = await listRecipes({
         includePublic: true,
         favoriteOnly,
+        favoriteAuthorsOnly: favoriteAuthorsFilter,
+        authorId: authorIdFilter ?? undefined,
+        authorUsername: authorUsernameFilter || undefined,
         maxCookTimeMinutes: Number.isFinite(maxCookTime) ? maxCookTime : undefined,
         limit: 500,
       });
@@ -72,11 +87,24 @@ export function PublicRecipesPage() {
     } finally {
       setLoading(false);
     }
-  }, [cookTimeFilter, favoriteOnly]);
+  }, [authorIdFilter, authorUsernameFilter, cookTimeFilter, favoriteAuthorsFilter, favoriteOnly]);
+
+  const loadFavoriteAuthors = useCallback(async () => {
+    try {
+      const authors = await listFavoriteAuthors();
+      setFavoriteAuthorIds(new Set(authors.map((item) => item.id)));
+    } catch {
+      setFavoriteAuthorIds(new Set());
+    }
+  }, []);
 
   useEffect(() => {
     void loadRecipes();
   }, [loadRecipes]);
+
+  useEffect(() => {
+    void loadFavoriteAuthors();
+  }, [loadFavoriteAuthors]);
 
   const filteredRecipes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -89,6 +117,17 @@ export function PublicRecipesPage() {
     });
   }, [query, recipes, selectedMealTypes]);
 
+  const authorLabel = useMemo(() => {
+    if (!recipes.length) return null;
+    const byUsername = authorUsernameFilter
+      ? recipes.find((item) => item.author_username?.toLowerCase() === authorUsernameFilter)
+      : null;
+    if (byUsername?.author_username) return byUsername.author_username;
+    if (authorIdFilter === null) return null;
+    const byId = recipes.find((item) => item.author_id === authorIdFilter);
+    return byId?.author_username ?? null;
+  }, [authorIdFilter, authorUsernameFilter, recipes]);
+
   const toggleMealFilter = (mealType: MealType) => {
     setSelectedMealTypes((prev) =>
       prev.includes(mealType) ? prev.filter((item) => item !== mealType) : [...prev, mealType],
@@ -100,6 +139,30 @@ export function PublicRecipesPage() {
     setSelectedMealTypes([]);
     setCookTimeFilter("any");
     setFavoriteOnly(false);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete("author");
+    nextParams.delete("author_username");
+    nextParams.delete("favoriteAuthors");
+    setSearchParams(nextParams, { replace: false });
+  };
+
+  const currentAuthorIsFavorite = authorIdFilter !== null && favoriteAuthorIds.has(authorIdFilter);
+
+  const toggleCurrentAuthorFavorite = async () => {
+    if (authorIdFilter === null || favoriteAuthorUpdating) return;
+    setFavoriteAuthorUpdating(true);
+    try {
+      if (favoriteAuthorIds.has(authorIdFilter)) {
+        await unfavoriteAuthor(authorIdFilter);
+      } else {
+        await favoriteAuthor(authorIdFilter);
+      }
+      await loadFavoriteAuthors();
+    } catch (err) {
+      setError(resolvePublicRecipesError(err));
+    } finally {
+      setFavoriteAuthorUpdating(false);
+    }
   };
 
   const toggleRecipeFavorite = async (recipe: RecipeRead) => {
@@ -141,7 +204,9 @@ export function PublicRecipesPage() {
         <header className="recipes-head">
           <div className="recipes-head-main">
             <h1 className="recipes-title">Публичные рецепты</h1>
-            <p className="recipes-subtitle">Публичный каталог для просмотра и использования в автоплане.</p>
+            <p className="recipes-subtitle">
+              Публичный каталог для просмотра и использования в автоплане.
+            </p>
           </div>
 
           <div className="recipes-head-actions">
@@ -153,6 +218,39 @@ export function PublicRecipesPage() {
             </Link>
           </div>
         </header>
+
+        {(authorIdFilter !== null || authorUsernameFilter) && (
+          <article className="recipes-author-filter-card" aria-label="Фильтр по автору">
+            <div className="recipes-author-filter-text">
+              <p className="recipes-author-filter-caption">Рецепты автора</p>
+              <p className="recipes-author-filter-name">{authorLabel ? `@${authorLabel}` : "Автор"}</p>
+            </div>
+            <div className="recipes-author-filter-actions">
+              <button
+                type="button"
+                className={`icon-button icon-button--secondary recipes-author-filter-action ${currentAuthorIsFavorite ? "is-active" : ""}`}
+                disabled={favoriteAuthorUpdating || authorIdFilter === null}
+                aria-label={currentAuthorIsFavorite ? "Убрать автора из избранного" : "Добавить автора в избранное"}
+                onClick={() => void toggleCurrentAuthorFavorite()}
+              >
+                {favoriteAuthorUpdating ? "…" : currentAuthorIsFavorite ? "♥" : "♡"}
+              </button>
+              <button
+                type="button"
+                className="icon-button icon-button--secondary recipes-author-filter-action"
+                aria-label="Сбросить фильтр автора"
+                onClick={() => {
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.delete("author");
+                  nextParams.delete("author_username");
+                  setSearchParams(nextParams, { replace: true });
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </article>
+        )}
 
         <section className="recipes-filter-card" aria-label="Поиск публичных рецептов">
           <p className="recipes-filter-group-label">Поиск по названию</p>
@@ -222,6 +320,23 @@ export function PublicRecipesPage() {
             />
             Только избранные
           </label>
+          <label className={`recipes-filter-chip ${favoriteAuthorsFilter ? "is-active" : ""}`} htmlFor="filter-favorite-authors-public">
+            <input
+              id="filter-favorite-authors-public"
+              type="checkbox"
+              checked={favoriteAuthorsFilter}
+              onChange={(event) => {
+                const next = new URLSearchParams(searchParams);
+                if (event.target.checked) {
+                  next.set("favoriteAuthors", "1");
+                } else {
+                  next.delete("favoriteAuthors");
+                }
+                setSearchParams(next, { replace: false });
+              }}
+            />
+            Авторы в избранном
+          </label>
         </section>
 
         {loading && <p className="recipes-note">Загрузка...</p>}
@@ -263,6 +378,16 @@ export function PublicRecipesPage() {
                   recipe={recipe}
                   mealTypeLabels={MEAL_TYPE_LABELS}
                   favoriteUpdating={favoriteUpdatingIds.has(recipe.id)}
+                  onAuthorClick={(item) => {
+                    const next = new URLSearchParams(searchParams);
+                    next.set("author", String(item.author_id));
+                    if (item.author_username) {
+                      next.set("author_username", item.author_username);
+                    } else {
+                      next.delete("author_username");
+                    }
+                    setSearchParams(next, { replace: false });
+                  }}
                   onToggleFavorite={(item) => {
                     void toggleRecipeFavorite(item);
                   }}

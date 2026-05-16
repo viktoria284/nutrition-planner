@@ -12,6 +12,8 @@ export type Profile = {
   target_carbs: number | null;
   target_fiber: number | null;
   excluded_food_ids: number[];
+  excluded_categories: string[];
+  excluded_terms: string[];
   preferred_food_ids: number[];
   preferred_categories: string[];
   max_cook_time_minutes: number | null;
@@ -25,6 +27,8 @@ export type ProfileUpdatePayload = {
   target_carbs?: number | null;
   target_fiber?: number | null;
   excluded_food_ids?: number[];
+  excluded_categories?: string[];
+  excluded_terms?: string[];
   preferred_food_ids?: number[];
   preferred_categories?: string[];
   max_cook_time_minutes?: number | null;
@@ -38,6 +42,8 @@ export type ProfileCreatePayload = {
   target_carbs?: number | null;
   target_fiber?: number | null;
   excluded_food_ids?: number[];
+  excluded_categories?: string[];
+  excluded_terms?: string[];
   preferred_food_ids?: number[];
   preferred_categories?: string[];
   max_cook_time_minutes?: number | null;

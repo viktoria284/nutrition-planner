@@ -6,6 +6,7 @@ type RecipeGridCardProps = {
   mealTypeLabels: Record<MealType, string>;
   favoriteUpdating?: boolean;
   onToggleFavorite?: (recipe: RecipeRead) => void;
+  onAuthorClick?: (recipe: RecipeRead) => void;
 };
 
 function formatMetric(value: string | number): string {
@@ -20,6 +21,7 @@ export function RecipeGridCard({
   mealTypeLabels,
   favoriteUpdating = false,
   onToggleFavorite,
+  onAuthorClick,
 }: RecipeGridCardProps) {
   const imageSrc = resolveRecipeImageSrc(recipe.image_url);
 
@@ -91,6 +93,23 @@ export function RecipeGridCard({
           </div>
 
           <p className="recipe-grid-servings">{recipe.servings_count} порции</p>
+          {(onAuthorClick || recipe.source === "community") && recipe.author_username && (
+            onAuthorClick ? (
+              <button
+                type="button"
+                className="recipe-grid-author-link"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onAuthorClick(recipe);
+                }}
+              >
+                Автор: @{recipe.author_username}
+              </button>
+            ) : (
+              <p className="recipe-grid-author">Автор: @{recipe.author_username}</p>
+            )
+          )}
         </div>
       </Link>
     </article>

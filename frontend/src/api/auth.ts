@@ -1,5 +1,7 @@
 import { apiRequest } from "./http";
 
+const TOKEN_KEY = "access_token";
+
 export type User = {
   id: number | string;
   email: string;
@@ -17,6 +19,11 @@ export type RegisterRequest = {
   username: string;
   password: string;
   display_name?: string | null;
+};
+
+export type UpdateMeRequest = {
+  email?: string;
+  username?: string;
 };
 
 export async function register(req: RegisterRequest): Promise<User> {
@@ -39,4 +46,8 @@ export async function login(identifier: string, password: string): Promise<Token
 
 export async function me(token: string): Promise<User> {
   return apiRequest<User>({ method: "GET", path: "/auth/me", token });
+}
+
+export async function updateMe(req: UpdateMeRequest): Promise<User> {
+  return apiRequest<User>({ method: "PATCH", path: "/auth/me", body: req, token: localStorage.getItem(TOKEN_KEY) });
 }

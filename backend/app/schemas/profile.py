@@ -35,6 +35,27 @@ def _normalize_categories(value: list[str] | None) -> list[str]:
     return normalized
 
 
+def _normalize_excluded_terms(value: list[str] | None) -> list[str]:
+    if not value:
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        term = item.strip().casefold()
+        if not term:
+            continue
+        if len(term) < 2:
+            raise ValueError("excluded term is too short")
+        if len(term) > 50:
+            raise ValueError("excluded term is too long")
+        if term in seen:
+            continue
+        seen.add(term)
+        normalized.append(term)
+    return normalized
+
+
 class ProfileCreate(BaseModel):
     name: str
     target_kcal: TargetKcal | None = None
@@ -43,6 +64,8 @@ class ProfileCreate(BaseModel):
     target_carbs: TargetGrams | None = None
     target_fiber: TargetFiber | None = None
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
+    excluded_categories: list[str] = Field(default_factory=list)
+    excluded_terms: list[str] = Field(default_factory=list)
     preferred_food_ids: list[Annotated[int, Field(ge=1)]] = Field(default_factory=list)
     preferred_categories: list[str] = Field(default_factory=list)
     max_cook_time_minutes: CookTimeMinutes | None = None
@@ -57,6 +80,16 @@ class ProfileCreate(BaseModel):
     def validate_preferred_categories(cls, value: list[str]) -> list[str]:
         return _normalize_categories(value)
 
+    @field_validator("excluded_categories")
+    @classmethod
+    def validate_excluded_categories(cls, value: list[str]) -> list[str]:
+        return _normalize_categories(value)
+
+    @field_validator("excluded_terms")
+    @classmethod
+    def validate_excluded_terms(cls, value: list[str]) -> list[str]:
+        return _normalize_excluded_terms(value)
+
 
 class ProfileUpdate(BaseModel):
     name: str | None = None
@@ -66,6 +99,8 @@ class ProfileUpdate(BaseModel):
     target_carbs: TargetGrams | None = None
     target_fiber: TargetFiber | None = None
     excluded_food_ids: list[Annotated[int, Field(ge=1)]] | None = None
+    excluded_categories: list[str] | None = None
+    excluded_terms: list[str] | None = None
     preferred_food_ids: list[Annotated[int, Field(ge=1)]] | None = None
     preferred_categories: list[str] | None = None
     max_cook_time_minutes: CookTimeMinutes | None = None
@@ -80,6 +115,16 @@ class ProfileUpdate(BaseModel):
     def validate_preferred_categories(cls, value: list[str] | None) -> list[str]:
         return _normalize_categories(value)
 
+    @field_validator("excluded_categories")
+    @classmethod
+    def validate_excluded_categories(cls, value: list[str] | None) -> list[str]:
+        return _normalize_categories(value)
+
+    @field_validator("excluded_terms")
+    @classmethod
+    def validate_excluded_terms(cls, value: list[str] | None) -> list[str]:
+        return _normalize_excluded_terms(value)
+
 
 class ProfileOut(BaseModel):
     id: int
@@ -91,6 +136,8 @@ class ProfileOut(BaseModel):
     target_carbs: int | None
     target_fiber: int | None
     excluded_food_ids: list[int] = Field(default_factory=list)
+    excluded_categories: list[str] = Field(default_factory=list)
+    excluded_terms: list[str] = Field(default_factory=list)
     preferred_food_ids: list[int] = Field(default_factory=list)
     preferred_categories: list[str] = Field(default_factory=list)
     max_cook_time_minutes: int | None

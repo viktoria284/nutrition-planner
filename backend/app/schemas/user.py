@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, TypeAdapter, ValidationError, field_validator
+from pydantic import BaseModel, EmailStr, TypeAdapter, ValidationError, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 from app.models.enums import UserRole
 import re
@@ -73,3 +73,56 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UserUpdateMe(BaseModel):
+    email: EmailStr | None = None
+    username: str | None = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def validate_email(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise PydanticCustomError("email_format", "Некорректный формат email.")
+        email = v.strip().lower()
+        try:
+            EMAIL_ADAPTER.validate_python(email)
+        except ValidationError:
+            raise PydanticCustomError("email_format", "Некорректный формат email.") from None
+        return email
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        normalized = v.strip().lower()
+        if not USERNAME_RE.match(normalized):
+            raise PydanticCustomError(
+                "username_format",
+                "Username должен начинаться с буквы и содержать только латинские буквы, цифры или _. Длина — 3–30 символов.",
+            )
+        reserved = {"admin", "root", "auth", "me", "api", "support"}
+        if normalized in reserved:
+            raise PydanticCustomError("username_reserved", "Username зарезервирован.")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_non_empty_update(self) -> "UserUpdateMe":
+        if len(self.model_fields_set) == 0:
+            raise PydanticCustomError("empty_payload", "Нужно передать хотя бы одно поле для обновления.")
+        return self
+
+
+class FavoriteAuthorStateRead(BaseModel):
+    author_id: int
+    is_favorite: bool
+
+
+class FavoriteAuthorRead(BaseModel):
+    id: int
+    username: str
+    public_recipes_count: int
+    is_favorite: bool = True

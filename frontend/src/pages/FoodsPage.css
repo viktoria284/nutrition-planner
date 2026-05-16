@@ -53,30 +53,6 @@
   border-color: var(--primary);
 }
 
-.foods-picker-card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  padding: 14px;
-  display: grid;
-  gap: 10px;
-}
-
-.foods-picker-title {
-  margin: 0;
-  font-size: 1.08rem;
-  font-weight: 700;
-}
-
-.foods-picker-subtitle {
-  margin: 0;
-  color: var(--text-soft);
-}
-
-.foods-picker-open {
-  justify-self: start;
-}
-
 .foods-note {
   margin: 0;
   color: var(--text-soft);
@@ -178,9 +154,26 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
-  padding: 18px;
+  padding: 14px;
   display: grid;
   gap: 12px;
+  max-height: min(90vh, calc(100dvh - 24px));
+  overflow: hidden;
+}
+
+.foods-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.foods-modal-close {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  font-size: 1.3rem;
+  line-height: 1;
 }
 
 .foods-modal-title {
@@ -213,6 +206,15 @@
 }
 
 .foods-create-form {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
+.foods-create-form-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
   display: grid;
   gap: 12px;
 }
@@ -286,7 +288,15 @@
 .foods-create-actions {
   display: flex;
   gap: 8px;
-  justify-content: flex-end;
+  justify-content: center;
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding-top: 8px;
+}
+
+.foods-create-actions .btn {
+  min-height: 42px;
 }
 
 .foods-details-head {
@@ -512,9 +522,14 @@
     justify-content: stretch;
   }
 
-  .foods-picker-open {
+  .foods-create-actions .btn {
     width: 100%;
-    justify-self: stretch;
+  }
+
+  .foods-modal {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+    height: calc(100dvh - 24px);
   }
 
   .food-details-top {

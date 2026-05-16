@@ -307,6 +307,13 @@
   font-weight: 600;
 }
 
+.plans-field-label-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .plans-field-input {
   width: 100%;
   height: 42px;
@@ -427,6 +434,82 @@
 
 .plan-totals-cell {
   background: #fbfffb;
+}
+
+.plan-mobile-days {
+  display: none;
+}
+
+.plan-mobile-day-switcher {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.plan-mobile-day-chip {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fbfbfb;
+  color: var(--text-main);
+  padding: 0 10px;
+  white-space: nowrap;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.plan-mobile-day-chip.is-active {
+  border-color: rgba(var(--primary-rgb), 0.35);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-dark);
+}
+
+.plan-mobile-day-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fbfbfb;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+}
+
+.plan-mobile-day-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.plan-mobile-day-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.plan-mobile-day-totals {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 8px;
+}
+
+.plan-mobile-slots {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-mobile-slot-card {
+  display: grid;
+  gap: 6px;
+}
+
+.plan-mobile-slot-title {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text-soft);
+  font-weight: 700;
 }
 
 .plan-day-totals {
@@ -719,6 +802,7 @@
 .plan-slot-main {
   margin: 0;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .plan-slot-empty {
@@ -748,6 +832,12 @@
   padding: 3px 8px;
   font-size: 0.78rem;
   font-weight: 700;
+}
+
+.plan-slot-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .plan-slot-trigger {
@@ -794,9 +884,28 @@
   gap: 12px;
 }
 
+.plans-modal-slot {
+  width: min(760px, 100%);
+}
+
 .plans-modal-head {
   display: grid;
   gap: 4px;
+}
+
+.plans-modal-head-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.plans-modal-close-btn {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
+  font-size: 1.3rem;
+  line-height: 1;
 }
 
 .plans-modal-title {
@@ -890,6 +999,12 @@
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-main);
+}
+
+.plans-advanced-summary-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .plans-batch-grid {
@@ -1463,8 +1578,15 @@
   background: #fcfcfc;
   padding: 10px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(310px, auto);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  align-items: start;
+}
+
+.plan-shopping-item-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
   align-items: start;
 }
 
@@ -1527,10 +1649,20 @@
   align-items: center;
   gap: 8px;
   font-size: 0.92rem;
+  min-width: 40px;
+  min-height: 40px;
+  justify-content: center;
+}
+
+.plan-shopping-checkbox-main {
+  align-self: start;
+  justify-self: end;
 }
 
 .plan-shopping-checkbox input {
   margin: 0;
+  width: 22px;
+  height: 22px;
 }
 
 .plan-shopping-adjust-row {
@@ -1612,7 +1744,64 @@
   gap: 5px;
 }
 
-@media (max-width: 860px) {
+.shopping-mobile-toolbar {
+  display: none;
+}
+
+.shopping-header-actions-desktop {
+  display: flex;
+}
+
+.shopping-mobile-more {
+  position: relative;
+}
+
+.shopping-mobile-more-trigger {
+  width: 100%;
+  min-width: 0;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.shopping-mobile-more > summary {
+  list-style: none;
+}
+
+.shopping-mobile-more > summary::-webkit-details-marker {
+  display: none;
+}
+
+.shopping-mobile-more-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  width: min(220px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  z-index: 5;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 8px 20px rgba(18, 18, 18, 0.12);
+  padding: 6px;
+  display: grid;
+  gap: 6px;
+}
+
+.shopping-mobile-more-btn {
+  width: 100%;
+  justify-content: flex-start;
+  white-space: nowrap;
+}
+
+.shopping-mobile-add-label-short {
+  display: none;
+}
+
+@media (max-width: 768px) {
   .plans-page {
     padding-left: 14px;
     padding-right: 14px;
@@ -1625,6 +1814,49 @@
 
   .plans-head-actions {
     justify-content: flex-start;
+  }
+
+  .shopping-header-actions-desktop {
+    display: none;
+  }
+
+  .shopping-mobile-toolbar {
+    width: 100%;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .shopping-mobile-btn {
+    height: 40px;
+    padding: 0 10px;
+    font-size: 0.84rem;
+    white-space: nowrap;
+    width: auto;
+    min-width: 0;
+    flex: 0 0 auto;
+  }
+
+  .shopping-mobile-refresh {
+    height: 40px;
+    min-width: 40px;
+    width: 40px;
+    padding: 0;
+    flex: 0 0 40px;
+  }
+
+  .shopping-mobile-add {
+    height: 40px;
+    padding: 0 10px;
+    font-size: 0.86rem;
+    white-space: nowrap;
+    min-width: 120px;
+    flex: 1 1 auto;
+  }
+
+  .shopping-mobile-more {
+    flex: 0 0 44px;
   }
 
   .plan-list-item {
@@ -1663,7 +1895,8 @@
   }
 
   .plans-modal-actions {
-    justify-content: stretch;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .plans-modal-actions .btn {
@@ -1671,7 +1904,7 @@
   }
 
   .plan-shopping-item {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .plan-shopping-status-row {
@@ -1695,6 +1928,10 @@
     flex: 1;
   }
 
+  .plan-shopping-controls-actions-desktop {
+    display: none;
+  }
+
   .plan-shopping-outdated-banner {
     flex-direction: column;
     align-items: stretch;
@@ -1706,6 +1943,10 @@
 
   .plan-shopping-adjust-row {
     flex-wrap: wrap;
+  }
+
+  .plan-shopping-hide-btn {
+    display: none;
   }
 
   .plan-shopping-adjust-input {
@@ -1727,6 +1968,218 @@
 
   .plan-slot-ingredient-actions {
     justify-content: flex-start;
+  }
+
+  .plan-calendar-table-desktop {
+    display: none;
+  }
+
+  .plan-mobile-days {
+    display: grid;
+    gap: 10px;
+  }
+
+  .plan-day-indicator-popover {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(236px, calc(100vw - 48px));
+  }
+
+  .plan-analytics-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+  .plans-page {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .shopping-mobile-toolbar {
+    flex-wrap: nowrap;
+  }
+
+  .plan-shopping-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .plan-shopping-controls {
+    justify-items: stretch;
+  }
+
+  .plan-shopping-adjust-row {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 480px) {
+  .plans-page {
+    padding: 18px 12px 28px;
+  }
+
+  .shopping-mobile-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .shopping-mobile-btn {
+    font-size: 0.82rem;
+    padding: 0 8px;
+  }
+
+  .shopping-mobile-add {
+    min-width: 112px;
+  }
+
+  .shopping-mobile-more-panel {
+    right: 0;
+  }
+
+  .plan-shopping-controls-panel {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .plan-shopping-controls-row {
+    gap: 8px;
+  }
+
+  .plan-shopping-offline-banner {
+    padding: 8px 10px;
+  }
+
+  .plan-shopping-offline-banner p {
+    font-size: 0.84rem;
+  }
+
+  .plan-shopping-checkbox {
+    min-height: 40px;
+  }
+
+  .plan-shopping-checkbox input,
+  .plans-checkbox-row input,
+  .shopping-list-card-select input {
+    width: 20px;
+    height: 20px;
+  }
+
+  .plan-shopping-adjust-input,
+  .plan-shopping-inline-btn {
+    height: 40px;
+  }
+
+  .plan-shopping-item {
+    padding: 9px;
+    gap: 10px;
+  }
+
+  .plan-shopping-item-top {
+    gap: 8px;
+  }
+
+  .shopping-list--compact .plan-shopping-inline-btn,
+  .shopping-list--compact .plan-shopping-adjust-input {
+    height: 40px;
+  }
+
+
+  .plan-day-regenerate-btn {
+    min-width: 40px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .plan-mobile-day-card {
+    padding: 9px;
+  }
+
+  .plan-mobile-day-chip {
+    height: 34px;
+    font-size: 0.8rem;
+    padding: 0 9px;
+  }
+
+  .plan-mobile-day-totals .plan-day-totals {
+    gap: 5px;
+  }
+
+  .plan-mobile-day-totals .plan-day-totals-item {
+    font-size: 0.83rem;
+  }
+
+  .plan-mobile-days .plan-slot-trigger {
+    min-height: 44px;
+  }
+
+  .plan-mobile-days .plan-slot-nutrition {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 8px;
+    font-size: 0.77rem;
+  }
+
+  .plan-analytics-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-analytics-progress {
+    height: 8px;
+  }
+
+  .plans-modal-slot {
+    width: 100%;
+    max-height: calc(100dvh - 32px);
+    height: calc(100dvh - 32px);
+    border-radius: 12px;
+    padding: 12px;
+    gap: 10px;
+    overflow: hidden;
+  }
+
+  .plans-modal-slot .plans-modal-form {
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 2px;
+    padding-bottom: 4px;
+  }
+
+  .plans-modal-slot .plans-modal-actions {
+    position: sticky;
+    bottom: 0;
+    background: var(--surface);
+    padding-top: 8px;
+    margin-top: 2px;
+    grid-template-columns: 1fr;
+  }
+
+  .plans-modal-slot .plans-modal-actions .btn {
+    min-height: 44px;
+    width: 100%;
+  }
+
+  .plans-modal-slot .plan-recipe-picker-dropdown {
+    max-height: 220px;
+  }
+
+  .plans-modal-slot .plan-slot-ingredients-actions .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .shopping-mobile-add {
+    min-width: 64px;
+    flex: 1 1 64px;
+    padding: 0 8px;
+  }
+
+  .shopping-mobile-add-label-full {
+    display: none;
+  }
+
+  .shopping-mobile-add-label-short {
+    display: inline;
+    font-weight: 700;
   }
 }
 

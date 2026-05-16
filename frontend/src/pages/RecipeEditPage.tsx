@@ -338,7 +338,6 @@ export function RecipeEditPage() {
         <header className="recipes-head">
           <div className="recipes-head-main">
             <h1 className="recipes-title">Редактирование рецепта</h1>
-            <p className="recipes-subtitle">Изменения сохраняются только для editable-рецептов.</p>
           </div>
 
           <div className="recipes-head-actions">

@@ -99,6 +99,7 @@ export function PlanDetailsPage() {
   const [regenerateDayError, setRegenerateDayError] = useState<string | null>(null);
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [replacementHistoryBySlotId, setReplacementHistoryBySlotId] = useState<Record<number, number[]>>({});
+  const [selectedMobileDayDate, setSelectedMobileDayDate] = useState<string | null>(null);
 
   const loadAnalytics = useCallback(async (planId: number | string) => {
     setAnalyticsLoading(true);
@@ -220,10 +221,23 @@ export function PlanDetailsPage() {
   }, [plan, recipeNamesById]);
 
   const days = useMemo(() => plan?.days ?? [], [plan?.days]);
+  const selectedMobileDay = useMemo(() => {
+    if (days.length === 0) return null;
+    if (!selectedMobileDayDate) return days[0];
+    return days.find((day) => day.date === selectedMobileDayDate) ?? days[0];
+  }, [days, selectedMobileDayDate]);
   const slotIndexes = useMemo(() => {
     if (!plan) return [];
     return Array.from({ length: plan.meals_per_day }, (_, index) => index);
   }, [plan]);
+
+  useEffect(() => {
+    if (days.length === 0) {
+      setSelectedMobileDayDate(null);
+      return;
+    }
+    setSelectedMobileDayDate((prev) => (prev && days.some((day) => day.date === prev) ? prev : days[0].date));
+  }, [days]);
 
   const canShowCalendar = !error && !isNotFound && plan !== null;
   const initialLoading = loading && !plan;
@@ -329,7 +343,7 @@ export function PlanDetailsPage() {
               Закреплённые слоты отмечены бейджем и не меняются при перегенерации дня.
             </p>
             <div className="plan-calendar-scroll">
-              <table className="plan-calendar-table" aria-label="Календарь плана">
+              <table className="plan-calendar-table plan-calendar-table-desktop" aria-label="Календарь плана">
                 <thead>
                   <tr>
                     <th className="plan-sticky-col">Слот</th>
@@ -397,6 +411,77 @@ export function PlanDetailsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <div className="plan-mobile-days" aria-label="План по дням">
+              <div className="plan-mobile-day-switcher" role="tablist" aria-label="Выбор дня плана">
+                {days.map((day) => (
+                  <button
+                    key={`mobile-day-tab-${day.date}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selectedMobileDay?.date === day.date}
+                    className={`plan-mobile-day-chip ${selectedMobileDay?.date === day.date ? "is-active" : ""}`}
+                    onClick={() => setSelectedMobileDayDate(day.date)}
+                  >
+                    {formatPlanDayLabel(day.date)}
+                  </button>
+                ))}
+              </div>
+
+              {selectedMobileDay && (
+                <article key={`mobile-day-${selectedMobileDay.date}`} className="plan-mobile-day-card">
+                  <header className="plan-mobile-day-head">
+                    <h2 className="plan-mobile-day-title">{formatPlanDayLabel(selectedMobileDay.date)}</h2>
+                    <button
+                      type="button"
+                      className="icon-button icon-button--secondary icon-button--compact plan-day-regenerate-btn"
+                      aria-label="Перегенерировать день"
+                      onClick={() => {
+                        setDayToRegenerate(selectedMobileDay);
+                        setRegenerateDayError(null);
+                        setPageNotice(null);
+                      }}
+                      disabled={loading || regeneratingDay}
+                    >
+                      <RefreshCw aria-hidden="true" size={16} />
+                    </button>
+                  </header>
+
+                  <div className="plan-mobile-day-totals">
+                    <DayTotalsCompact
+                      day={{
+                        ...selectedMobileDay,
+                        analytics: analytics?.day_analytics.find((item) => item.date === selectedMobileDay.date),
+                      }}
+                    />
+                  </div>
+
+                  <div className="plan-mobile-slots">
+                    {slotIndexes.map((slotIndex) => {
+                      const slot = findSlotByIndex(selectedMobileDay.slots, slotIndex);
+                      const recipeName =
+                        slot?.recipe_id === null || !slot
+                          ? null
+                          : recipeNamesById[slot.recipe_id] ?? "Рецепт недоступен";
+
+                      return (
+                        <div key={`mobile-slot-${selectedMobileDay.date}-${slotIndex}`} className="plan-mobile-slot-card">
+                          <p className="plan-mobile-slot-title">Слот {slotIndex + 1}</p>
+                          <SlotCell
+                            slot={slot}
+                            recipeName={recipeName}
+                            onClick={() => {
+                              if (!slot) return;
+                              setEditingSlot(slot);
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </article>
+              )}
             </div>
           </div>
         )}
@@ -841,7 +926,10 @@ function SlotCell({
           <span>Клетчатка: {formatDecimal(slot.slot_fiber)}</span>
         </div>
 
-        {slot.pinned && <span className="plan-slot-badge">Закреплён</span>}
+        <div className="plan-slot-badges">
+          {slot.pinned && <span className="plan-slot-badge">Закреплён</span>}
+          {slot.has_overrides && <span className="plan-slot-badge">Ингредиенты изменены</span>}
+        </div>
       </div>
     </button>
   );

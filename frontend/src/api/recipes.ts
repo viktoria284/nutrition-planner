@@ -22,6 +22,8 @@ export type RecipeUpdate = Partial<RecipeCreate>;
 export type RecipeRead = {
   id: number;
   owner_user_id: number;
+  author_id: number;
+  author_username: string | null;
   name: string;
   description: string | null;
   instructions: string | null;
@@ -106,7 +108,10 @@ export type RecipeNoteRead = {
 export type ListRecipesOptions = {
   includePublic?: boolean;
   favoriteOnly?: boolean;
+  favoriteAuthorsOnly?: boolean;
   mealType?: MealType;
+  authorId?: number;
+  authorUsername?: string;
   minCookTimeMinutes?: number;
   maxCookTimeMinutes?: number;
   limit?: number;
@@ -187,6 +192,15 @@ export async function listRecipes(options: ListRecipesOptions = {}): Promise<Rec
   }
   if (options.favoriteOnly) {
     params.set("favorite_only", "true");
+  }
+  if (options.favoriteAuthorsOnly) {
+    params.set("favorite_authors_only", "true");
+  }
+  if (typeof options.authorId === "number") {
+    params.set("author_id", String(options.authorId));
+  }
+  if (options.authorUsername) {
+    params.set("author_username", options.authorUsername);
   }
   if (typeof options.minCookTimeMinutes === "number") {
     params.set("min_cook_time_minutes", String(options.minCookTimeMinutes));

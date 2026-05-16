@@ -249,6 +249,143 @@ def test_profile_can_save_preferred_categories(client: TestClient) -> None:
     assert response.json()["preferred_categories"] == ["meat_fish", "vegetables"]
 
 
+def test_profile_can_save_excluded_categories(client: TestClient) -> None:
+    register_user(client, email="profile-excluded-categories@example.com", username="profileexcludedcategories")
+    token = login_and_get_token(client, identifier="profile-excluded-categories@example.com")
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={"excluded_categories": ["dairy", "meat_fish"]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["excluded_categories"] == ["dairy", "meat_fish"]
+
+
+def test_profile_can_save_excluded_terms_and_normalizes_duplicates(client: TestClient) -> None:
+    register_user(client, email="profile-excluded-terms@example.com", username="profileexcludedterms")
+    token = login_and_get_token(client, identifier="profile-excluded-terms@example.com")
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={"excluded_terms": ["  Молоко  ", "молоко", " АРАХИС ", " "]},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["excluded_terms"] == ["молоко", "арахис"]
+
+
+def test_profile_rejects_invalid_excluded_category(client: TestClient) -> None:
+    register_user(client, email="profile-invalid-excluded-category@example.com", username="profileinvalidexcludedcategory")
+    token = login_and_get_token(client, identifier="profile-invalid-excluded-category@example.com")
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={"excluded_categories": ["unknown_category"]},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_profile_rejects_too_short_excluded_term(client: TestClient) -> None:
+    register_user(client, email="profile-invalid-excluded-term@example.com", username="profileinvalidexcludedterm")
+    token = login_and_get_token(client, identifier="profile-invalid-excluded-term@example.com")
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={"excluded_terms": ["а"]},
+    )
+    assert response.status_code == 422, response.text
+
+
+def test_profile_rejects_same_food_in_excluded_and_preferred(client: TestClient) -> None:
+    register_user(client, email="profile-conflict-food@example.com", username="profileconflictfood")
+    token = login_and_get_token(client, identifier="profile-conflict-food@example.com")
+    food = create_food(client, token, name="Конфликтный продукт")
+
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={
+            "excluded_food_ids": [food["id"]],
+            "preferred_food_ids": [food["id"]],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Продукт не может одновременно быть в исключениях и предпочтениях."
+
+
+def test_profile_rejects_same_category_in_excluded_and_preferred(client: TestClient) -> None:
+    register_user(client, email="profile-conflict-category@example.com", username="profileconflictcategory")
+    token = login_and_get_token(client, identifier="profile-conflict-category@example.com")
+
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={
+            "excluded_categories": ["dairy"],
+            "preferred_categories": ["dairy"],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Категория не может одновременно быть исключённой и предпочитаемой."
+
+
+def test_profile_rejects_preferred_food_inside_excluded_category(client: TestClient) -> None:
+    register_user(client, email="profile-conflict-food-category@example.com", username="profileconflictfoodcategory")
+    token = login_and_get_token(client, identifier="profile-conflict-food-category@example.com")
+    food_response = client.post(
+        "/foods",
+        headers=auth_headers(token),
+        json={
+            "name": "Молоко пастеризованное",
+            "category": "dairy",
+            "kcal": "52.00",
+            "protein": "2.80",
+            "fat": "2.50",
+            "carbs": "4.70",
+        },
+    )
+    assert food_response.status_code == 201, food_response.text
+    dairy_food = food_response.json()
+
+    profiles = client.get("/profiles", headers=auth_headers(token))
+    assert profiles.status_code == 200, profiles.text
+    profile_id = profiles.json()[0]["id"]
+
+    response = client.patch(
+        f"/profiles/{profile_id}",
+        headers=auth_headers(token),
+        json={
+            "excluded_categories": ["dairy"],
+            "preferred_food_ids": [dairy_food["id"]],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["detail"] == "Предпочитаемый продукт относится к исключённой категории."
+
+
 def test_profile_max_cook_time_validation(client: TestClient) -> None:
     register_user(client, email="profile-max-cook@example.com", username="profilemaxcook")
     token = login_and_get_token(client, identifier="profile-max-cook@example.com")
@@ -298,8 +435,10 @@ def test_read_profile_returns_restrictions_and_preferences(client: TestClient) -
         headers=auth_headers(token),
         json={
             "excluded_food_ids": [excluded["id"]],
+            "excluded_categories": ["dairy"],
+            "excluded_terms": ["молоко"],
             "preferred_food_ids": [preferred["id"]],
-            "preferred_categories": ["dairy", "fruits"],
+            "preferred_categories": ["fruits"],
             "max_cook_time_minutes": 45,
         },
     )
@@ -309,6 +448,8 @@ def test_read_profile_returns_restrictions_and_preferences(client: TestClient) -
     assert get_response.status_code == 200, get_response.text
     profile = next(item for item in get_response.json() if item["id"] == profile_id)
     assert profile["excluded_food_ids"] == [excluded["id"]]
+    assert profile["excluded_categories"] == ["dairy"]
+    assert profile["excluded_terms"] == ["молоко"]
     assert profile["preferred_food_ids"] == [preferred["id"]]
-    assert profile["preferred_categories"] == ["dairy", "fruits"]
+    assert profile["preferred_categories"] == ["fruits"]
     assert profile["max_cook_time_minutes"] == 45

@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
+from app.models.author_favorite import AuthorFavorite
 from app.models.enums import FoodSource, FoodStatus
 from app.models.foods import FoodItem, FoodServing
 from app.models.recipe import Recipe, RecipeFavorite, RecipeIngredient, RecipeNote, RecipeReport, RecipeStep
@@ -2338,6 +2339,9 @@ def list_accessible_recipes(
     meal_type: str | None = None,
     min_cook_time_minutes: int | None = None,
     max_cook_time_minutes: int | None = None,
+    author_id: int | None = None,
+    author_username: str | None = None,
+    favorite_authors_only: bool = False,
     favorite_only: bool = False,
     include_ingredients: bool = False,
 ) -> list[Recipe]:
@@ -2357,6 +2361,18 @@ def list_accessible_recipes(
             and_(
                 RecipeFavorite.recipe_id == Recipe.id,
                 RecipeFavorite.user_id == user_id,
+            ),
+        )
+    if author_id is not None:
+        stmt = stmt.where(Recipe.owner_user_id == author_id)
+    if author_username is not None:
+        stmt = stmt.join(User, User.id == Recipe.owner_user_id).where(User.username == author_username)
+    if favorite_authors_only:
+        stmt = stmt.join(
+            AuthorFavorite,
+            and_(
+                AuthorFavorite.user_id == user_id,
+                AuthorFavorite.author_id == Recipe.owner_user_id,
             ),
         )
     if include_ingredients:
@@ -3199,7 +3215,7 @@ def calculate_recipe_nutrients(recipe: Recipe) -> dict[str, Decimal]:
     }
 
 
-def build_recipe_read(recipe: Recipe, *, is_favorite: bool = False) -> RecipeRead:
+def build_recipe_read(recipe: Recipe, *, is_favorite: bool = False, author_username: str | None = None) -> RecipeRead:
     nutrients = calculate_recipe_nutrients(recipe)
     ingredients_payload = []
     for ingredient in recipe.ingredients:
@@ -3244,6 +3260,8 @@ def build_recipe_read(recipe: Recipe, *, is_favorite: bool = False) -> RecipeRea
         {
             "id": recipe.id,
             "owner_user_id": recipe.owner_user_id,
+            "author_id": recipe.owner_user_id,
+            "author_username": author_username,
             "name": recipe.name,
             "description": recipe.description,
             "instructions": recipe.instructions,
