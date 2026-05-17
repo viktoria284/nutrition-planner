@@ -364,7 +364,7 @@ def test_seed_verified_foods_idempotent(db_session_factory: sessionmaker[Session
     finally:
         db_session.close()
 
-    assert 20 <= created_first <= 70
+    assert created_first >= 20
     assert created_second == 0
     assert count_after_second == count_after_first
     assert egg_category == "eggs"

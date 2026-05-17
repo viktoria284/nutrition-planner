@@ -92,7 +92,7 @@ def _build_plan_with_recipe_foods(client: TestClient, token: str, *, food_ids: l
     for food_id in food_ids:
         add_ingredient_via_api(client, token, recipe_id=recipe["id"], food_id=food_id, grams="100")
 
-    plan = create_plan_via_api(client, token, start_date="2026-05-18", days_count=1, meals_per_day=1)
+    plan = create_plan_via_api(client, token, start_date="2026-05-18", days_count=1, meals_per_day=2)
     slot_id = plan["slots"][0]["id"]
     patch_slot = client.patch(
         f"/plans/{plan['id']}/slots/{slot_id}",
