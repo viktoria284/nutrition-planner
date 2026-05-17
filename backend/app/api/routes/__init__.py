@@ -4,6 +4,7 @@ from app.api.routes.admin import router as admin_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.foods import router as foods_router
 from app.api.routes.plans import router as plans_router
+from app.api.routes.pantry import router as pantry_router
 from app.api.routes.profiles import router as profiles_router
 from app.api.routes.recipes import router as recipes_router
 from app.api.routes.shopping import router as shopping_router
@@ -15,6 +16,7 @@ api_router.include_router(auth_router)
 api_router.include_router(profiles_router)
 api_router.include_router(recipes_router)
 api_router.include_router(plans_router)
+api_router.include_router(pantry_router)
 api_router.include_router(shopping_router)
 api_router.include_router(foods_router)
 api_router.include_router(servings_router)

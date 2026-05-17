@@ -25,6 +25,7 @@ export type ShoppingListItem = {
   unit: string;
   checked: boolean;
   excluded: boolean;
+  in_pantry_section: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -82,6 +83,7 @@ export type ShoppingItemPatchPayload = {
   checked?: boolean;
   adjusted_grams?: DecimalString | null;
   excluded?: boolean;
+  in_pantry_section?: boolean;
   category?: FoodCategory;
   name_snapshot?: string;
   unit?: string;

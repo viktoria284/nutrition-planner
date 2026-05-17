@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
 import { getPlan } from "../api/plans";
+import { addPantryItem, deletePantryItem, listPantryItems } from "../api/pantry";
 import {
   createManualShoppingItem,
   deleteShoppingList,
@@ -23,9 +24,11 @@ import {
   saveOfflineCheckedOverride,
   saveOfflineShoppingSnapshot,
 } from "../utils/pwa/shoppingOfflineCache";
+import { InfoPopover } from "../components/InfoPopover";
 import "./PlansPage.css";
 
 const HIDE_CHECKED_STORAGE_KEY = "nutrition:shopping-list:hide-checked";
+const PANTRY_COLLAPSE_KEY = "__pantry__";
 
 function collapsedCategoriesStorageKey(shoppingListId: number): string {
   return `nutrition:shopping-list:${shoppingListId}:collapsed-categories`;
@@ -192,6 +195,7 @@ export function ShoppingListPage() {
   const [hideCheckedItems, setHideCheckedItems] = useState<boolean>(() => readBooleanStorage(HIDE_CHECKED_STORAGE_KEY));
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+  const [pantryFoodIds, setPantryFoodIds] = useState<Set<number>>(new Set());
 
   const shoppingListId = useMemo(() => {
     const parsed = Number(id);
@@ -282,6 +286,25 @@ export function ShoppingListPage() {
   }, [loadShoppingList]);
 
   useEffect(() => {
+    if (!isOnline) return;
+    let cancelled = false;
+
+    listPantryItems()
+      .then((items) => {
+        if (cancelled) return;
+        setPantryFoodIds(new Set(items.map((item) => item.food_id)));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPantryFoodIds(new Set());
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnline]);
+
+  useEffect(() => {
     if (!shoppingList) {
       setDraftAdjustedByItemId({});
       return;
@@ -332,6 +355,16 @@ export function ShoppingListPage() {
     return searchFilteredVisibleItems.filter((item) => !item.checked);
   }, [hideCheckedItems, searchFilteredVisibleItems]);
 
+  const pantryVisibleItems = useMemo(
+    () => visibleItems.filter((item) => item.item_type === "computed" && item.in_pantry_section),
+    [visibleItems],
+  );
+
+  const mainVisibleItems = useMemo(
+    () => visibleItems.filter((item) => item.item_type !== "computed" || !item.in_pantry_section),
+    [visibleItems],
+  );
+
   const hiddenByCheckedCount = useMemo(() => {
     if (!hideCheckedItems) return 0;
     return searchFilteredVisibleItems.filter((item) => item.checked).length;
@@ -359,7 +392,7 @@ export function ShoppingListPage() {
       other: [],
     };
 
-    for (const item of visibleItems) {
+    for (const item of mainVisibleItems) {
       groups[item.category].push(item);
     }
 
@@ -372,7 +405,7 @@ export function ShoppingListPage() {
     }
 
     return groups;
-  }, [visibleItems]);
+  }, [mainVisibleItems]);
 
   useEffect(() => {
     if (!shoppingListId) return;
@@ -384,7 +417,7 @@ export function ShoppingListPage() {
     [groupedVisibleItems],
   );
 
-  const hasAnyDisplayItems = hasAnyVisibleCategoryItems || hiddenItems.length > 0;
+  const hasAnyDisplayItems = pantryVisibleItems.length > 0 || hasAnyVisibleCategoryItems || hiddenItems.length > 0;
 
   const exportTxt = () => {
     if (!shoppingList) return;
@@ -393,6 +426,15 @@ export function ShoppingListPage() {
     lines.push(`Список покупок: ${shoppingList.title || `#${shoppingList.id}`}`);
     lines.push(`Сохранено: ${formatSavedAt(offlineSavedAt)}`);
     lines.push("");
+
+    if (pantryVisibleItems.length > 0) {
+      lines.push("Проверьте дома");
+      for (const item of pantryVisibleItems) {
+        const checkedPrefix = item.checked ? "✓ " : "";
+        lines.push(`- ${checkedPrefix}${item.name_snapshot} — ${displayAmount(item)}`);
+      }
+      lines.push("");
+    }
 
     for (const category of FOOD_CATEGORIES) {
       const categoryItems = groupedVisibleItems[category];
@@ -503,6 +545,38 @@ export function ShoppingListPage() {
     if (!shoppingList) return;
     await withItemPatch(item.id, async () => {
       await patchShoppingItem(shoppingList.id, item.id, { adjusted_grams: null });
+    });
+  };
+
+  const handleMoveToMainList = async (item: ShoppingListItem) => {
+    if (!shoppingList) return;
+    await withItemPatch(item.id, async () => {
+      await patchShoppingItem(shoppingList.id, item.id, { in_pantry_section: false });
+    });
+  };
+
+  const handleMarkAsPantry = async (item: ShoppingListItem) => {
+    if (!shoppingList || item.item_type !== "computed" || item.food_id === null) return;
+
+    await withItemPatch(item.id, async () => {
+      if (!pantryFoodIds.has(item.food_id!)) {
+        await addPantryItem({ food_id: item.food_id! });
+        setPantryFoodIds((prev) => new Set([...prev, item.food_id!]));
+      }
+      await patchShoppingItem(shoppingList.id, item.id, { in_pantry_section: true });
+    });
+  };
+
+  const handleDisablePantryPreference = async (item: ShoppingListItem) => {
+    if (!shoppingList || item.item_type !== "computed" || item.food_id === null) return;
+    await withItemPatch(item.id, async () => {
+      await deletePantryItem(item.food_id!);
+      setPantryFoodIds((prev) => {
+        const next = new Set(prev);
+        next.delete(item.food_id!);
+        return next;
+      });
+      await patchShoppingItem(shoppingList.id, item.id, { in_pantry_section: false });
     });
   };
 
@@ -795,6 +869,96 @@ export function ShoppingListPage() {
               </article>
             )}
 
+            {pantryVisibleItems.length > 0 && (
+              <section className="plan-shopping-card" aria-label="Проверьте дома">
+                <div className="plan-shopping-section-head plan-shopping-section-head--with-info">
+                  <span className="plan-shopping-section-title-with-info">
+                    <button
+                      type="button"
+                      className="plan-shopping-section-toggle plan-shopping-section-toggle--pantry"
+                      onClick={() =>
+                        setCollapsedCategories((prev) => ({
+                          ...prev,
+                          [PANTRY_COLLAPSE_KEY]: !(prev[PANTRY_COLLAPSE_KEY] === true),
+                        }))
+                      }
+                      aria-expanded={!(collapsedCategories[PANTRY_COLLAPSE_KEY] === true)}
+                    >
+                      <span className="plan-shopping-section-title-wrap">
+                        <span className="plan-shopping-section-arrow" aria-hidden="true">
+                          {collapsedCategories[PANTRY_COLLAPSE_KEY] === true ? "▸" : "▾"}
+                        </span>
+                        <span className="plan-shopping-section-title">Проверьте дома</span>
+                      </span>
+                    </button>
+                    <span className="plan-shopping-section-info">
+                      <InfoPopover
+                        text="Эти продукты отмечены как обычно имеющиеся дома. Проверьте, что они не закончились. Если продукт нужно купить, нажмите «Купить»."
+                        ariaLabel="Пояснение для секции проверьте дома"
+                      />
+                    </span>
+                  </span>
+                  <span className="plan-shopping-section-count">{pantryVisibleItems.length}</span>
+                </div>
+                {!(collapsedCategories[PANTRY_COLLAPSE_KEY] === true) && (
+                  <ul className="plan-shopping-list">
+                    {pantryVisibleItems.map((item) => {
+                      const isSaving = patchingItemIds.has(item.id);
+                      const rowError = rowErrorsByItemId[item.id];
+                      return (
+                        <li key={item.id} className={`plan-shopping-item plan-shopping-item--pantry ${item.checked ? "is-checked" : ""}`}>
+                          <div className="plan-shopping-item-top plan-shopping-item-top--pantry">
+                            <div className="plan-shopping-main">
+                              <p className="plan-shopping-name">{item.name_snapshot}</p>
+                              <p className="plan-shopping-meta">Количество: {displayAmount(item)}</p>
+                            </div>
+
+                            <div className="plan-shopping-pantry-side">
+                              <label className="plan-shopping-checkbox plan-shopping-checkbox-main">
+                                <input
+                                  aria-label={item.checked ? "Отметить как нужно купить" : "Отметить как уже куплено"}
+                                  type="checkbox"
+                                  checked={item.checked}
+                                  disabled={isSaving}
+                                  onChange={() => {
+                                    void handleToggleChecked(item);
+                                  }}
+                                />
+                              </label>
+                              <div className="plan-shopping-pantry-actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary plan-shopping-pantry-btn"
+                                  disabled={isSaving || !isOnline}
+                                  onClick={() => {
+                                    void handleMoveToMainList(item);
+                                  }}
+                                >
+                                  Купить
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary plan-shopping-pantry-btn"
+                                  disabled={isSaving || !isOnline || item.food_id === null}
+                                  onClick={() => {
+                                    void handleDisablePantryPreference(item);
+                                  }}
+                                  aria-label="Убрать продукт из «Есть дома»"
+                                >
+                                  Убрать из «Есть дома»
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {rowError && <p className="plan-shopping-row-error">{rowError}</p>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+            )}
+
             {FOOD_CATEGORIES.map((category) => {
               const categoryItems = groupedVisibleItems[category];
               if (categoryItems.length === 0) return null;
@@ -917,6 +1081,16 @@ export function ShoppingListPage() {
                                   }}
                                 >
                                   Скрыть
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-secondary plan-shopping-inline-btn plan-shopping-home-btn"
+                                  disabled={isSaving || !isOnline || item.food_id === null}
+                                  onClick={() => {
+                                    void handleMarkAsPantry(item);
+                                  }}
+                                >
+                                  Есть дома
                                 </button>
                               </div>
                             )}

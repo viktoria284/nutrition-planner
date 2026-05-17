@@ -124,6 +124,93 @@
   gap: 8px;
 }
 
+.settings-pantry-search {
+  max-width: 560px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-pantry-quick,
+.settings-pantry-manual,
+.settings-pantry-selected {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-pantry-section-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.settings-pantry-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-pantry-section-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.settings-pantry-categories-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-pantry-category {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fbfbfb;
+  padding: 8px 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.settings-pantry-category-summary {
+  cursor: pointer;
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.settings-pantry-check-list {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-pantry-check-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.settings-pantry-check-item input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.settings-pantry-check-item.is-active {
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+
+.settings-pantry-selected-count {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
 .settings-form {
   max-width: 760px;
   display: grid;
@@ -629,7 +716,7 @@
 
   .settings-sidebar {
     position: static;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: center;
   }
 
@@ -648,6 +735,10 @@
   }
 
   .profile-keywords-row {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-pantry-categories-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -677,5 +768,22 @@
 
   .create-profile-actions {
     justify-content: stretch;
+  }
+
+  .settings-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-pantry-search {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-pantry-search .btn {
+    width: 100%;
+    height: 40px;
+  }
+
+  .settings-pantry-check-item {
+    min-height: 40px;
   }
 }

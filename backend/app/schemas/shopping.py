@@ -34,6 +34,7 @@ class ShoppingListItemRead(BaseModel):
     unit: str
     checked: bool
     excluded: bool
+    in_pantry_section: bool
     sort_order: int
     created_at: datetime
     updated_at: datetime
@@ -123,6 +124,7 @@ class ShoppingListItemUpdate(BaseModel):
     checked: bool | None = None
     adjusted_grams: PositiveDecimal | None = None
     excluded: bool | None = None
+    in_pantry_section: bool | None = None
     category: str | None = None
     name_snapshot: Annotated[str, Field(max_length=255)] | None = None
     unit: Annotated[str, Field(max_length=32)] | None = None

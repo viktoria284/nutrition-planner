@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { updateMe } from "../api/auth";
+import { searchFoods, type FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
+import { addPantryItem, deletePantryItem, listPantryItems, type PantryItem } from "../api/pantry";
 import {
   createProfile,
   getProfiles,
@@ -10,11 +12,15 @@ import {
 } from "../api/profiles";
 import { useAuth } from "../auth/useAuth";
 import { Alert } from "../components/Alert";
+import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
+import { InfoPopover } from "../components/InfoPopover";
 import { LogoutConfirmModal } from "../components/LogoutConfirmModal";
 import { ProfileTargetsCard } from "../components/ProfileTargetsCard";
+import { PANTRY_PRESET_CATEGORIES, type PantryPresetItem } from "../config/pantryPresets";
+import { FOOD_CATEGORY_LABELS } from "../types/foodCategory";
 import "./SettingsPage.css";
 
-type SettingsTab = "account" | "goals";
+type SettingsTab = "account" | "goals" | "pantry";
 
 type CreateProfileForm = {
   name: string;
@@ -68,6 +74,43 @@ function parseNullableFiberInt(value: string): number | null {
   return parsed;
 }
 
+function sortPantryItems(items: PantryItem[]): PantryItem[] {
+  return [...items].sort((a, b) => a.food.name.localeCompare(b.food.name, "ru"));
+}
+
+function normalizeText(value: string): string {
+  return value.trim().toLocaleLowerCase("ru");
+}
+
+function scorePresetMatch(food: FoodItem, alias: string): number {
+  const normalizedAlias = normalizeText(alias);
+  const normalizedName = normalizeText(food.name);
+  if (normalizedName === normalizedAlias) return 120;
+  if (normalizedName.startsWith(`${normalizedAlias} `)) return 100;
+  if (normalizedName.startsWith(normalizedAlias)) return 90;
+  if (normalizedName.includes(normalizedAlias)) return 70;
+  return 0;
+}
+
+async function resolvePresetFood(item: PantryPresetItem): Promise<FoodItem | null> {
+  let bestMatch: { food: FoodItem; score: number } | null = null;
+
+  for (const alias of item.aliases) {
+    const results = await searchFoods({ q: alias, limit: 25 });
+    const verified = results.filter((food) => food.source === "verified");
+    for (const food of verified) {
+      const score = scorePresetMatch(food, alias);
+      if (score <= 0) continue;
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { food, score };
+      }
+    }
+    if (bestMatch && bestMatch.score >= 120) break;
+  }
+
+  return bestMatch?.food ?? null;
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { user, logout, refreshMe } = useAuth();
@@ -90,6 +133,16 @@ export function SettingsPage() {
   const [accountSuccess, setAccountSuccess] = useState<string | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
+  const [loadingPantry, setLoadingPantry] = useState(false);
+  const [pantryError, setPantryError] = useState<string | null>(null);
+  const [pantrySaving, setPantrySaving] = useState(false);
+  const [pantryInputKey, setPantryInputKey] = useState(0);
+  const [manualPantrySelection, setManualPantrySelection] = useState<FoodSearchOption | null>(null);
+  const [loadingPantryPresets, setLoadingPantryPresets] = useState(false);
+  const [pantryPresetsError, setPantryPresetsError] = useState<string | null>(null);
+  const [resolvedPantryPresets, setResolvedPantryPresets] = useState<Record<string, FoodItem>>({});
+  const [pendingPresetFoodIds, setPendingPresetFoodIds] = useState<Set<number>>(new Set());
 
   const defaultProfileId = useMemo(() => (profiles.length ? profiles[0].id : null), [profiles]);
 
@@ -154,6 +207,66 @@ export function SettingsPage() {
     const timeoutId = window.setTimeout(() => setAccountSuccess(null), 2600);
     return () => window.clearTimeout(timeoutId);
   }, [accountSuccess]);
+
+  const loadPantry = useCallback(async () => {
+    setLoadingPantry(true);
+    setPantryError(null);
+    try {
+      const items = await listPantryItems();
+      setPantryItems(sortPantryItems(items));
+    } catch (err) {
+      if (handleUnauthorized(err)) return;
+      setPantryItems([]);
+      setPantryError(err instanceof Error ? err.message : "Не удалось загрузить список «Есть дома».");
+    } finally {
+      setLoadingPantry(false);
+    }
+  }, [handleUnauthorized]);
+
+  useEffect(() => {
+    void loadPantry();
+  }, [loadPantry]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingPantryPresets(true);
+    setPantryPresetsError(null);
+
+    const resolveAll = async () => {
+      const entries = PANTRY_PRESET_CATEGORIES.flatMap((category) =>
+        category.items.map(async (item) => {
+          const food = await resolvePresetFood(item).catch(() => null);
+          return { key: item.key, food };
+        }),
+      );
+
+      const resolved = await Promise.all(entries);
+      if (cancelled) return;
+
+      const next: Record<string, FoodItem> = {};
+      for (const entry of resolved) {
+        if (entry.food) {
+          next[entry.key] = entry.food;
+        }
+      }
+      setResolvedPantryPresets(next);
+      if (Object.keys(next).length === 0) {
+        setPantryPresetsError("Не удалось загрузить быстрый выбор.");
+      }
+      setLoadingPantryPresets(false);
+    };
+
+    void resolveAll().catch((err) => {
+      if (cancelled) return;
+      setResolvedPantryPresets({});
+      setLoadingPantryPresets(false);
+      setPantryPresetsError(err instanceof Error ? err.message : "Не удалось загрузить быстрый выбор.");
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const onProfileSaved = (updatedProfile: Profile) => {
     setProfiles((prev) => sortProfilesWithDefaultFirst(prev.map((p) => (p.id === updatedProfile.id ? updatedProfile : p))));
@@ -288,6 +401,84 @@ export function SettingsPage() {
     }
   };
 
+  const onAddPantryFood = async (foodId: number) => {
+    if (pantrySaving) return;
+    setPantrySaving(true);
+    setPantryError(null);
+    try {
+      const created = await addPantryItem({ food_id: foodId });
+      setPantryItems((prev) => {
+        const existingIndex = prev.findIndex((item) => item.food_id === created.food_id);
+        if (existingIndex >= 0) {
+          const next = [...prev];
+          next[existingIndex] = created;
+          return sortPantryItems(next);
+        }
+        return sortPantryItems([...prev, created]);
+      });
+      setPantryInputKey((prev) => prev + 1);
+      setManualPantrySelection(null);
+    } catch (err) {
+      if (handleUnauthorized(err)) return;
+      if (err instanceof ApiError && err.status === 404) {
+        setPantryError("Продукт недоступен для добавления в список «Есть дома».");
+      } else {
+        setPantryError(err instanceof Error ? err.message : "Не удалось обновить список продуктов дома.");
+      }
+    } finally {
+      setPantrySaving(false);
+    }
+  };
+
+  const onRemovePantryFood = async (foodId: number) => {
+    if (pantrySaving) return;
+    setPantrySaving(true);
+    setPantryError(null);
+    try {
+      await deletePantryItem(foodId);
+      setPantryItems((prev) => prev.filter((item) => item.food_id !== foodId));
+    } catch (err) {
+      if (handleUnauthorized(err)) return;
+      setPantryError(err instanceof Error ? err.message : "Не удалось обновить список продуктов дома.");
+    } finally {
+      setPantrySaving(false);
+    }
+  };
+
+  const togglePresetPantryItem = async (food: FoodItem, nextChecked: boolean) => {
+    setPendingPresetFoodIds((prev) => new Set(prev).add(food.id));
+    setPantryError(null);
+    try {
+      if (nextChecked) {
+        await onAddPantryFood(food.id);
+      } else {
+        await onRemovePantryFood(food.id);
+      }
+    } finally {
+      setPendingPresetFoodIds((prev) => {
+        const next = new Set(prev);
+        next.delete(food.id);
+        return next;
+      });
+    }
+  };
+
+  const pantryFoodIds = useMemo(() => new Set(pantryItems.map((item) => item.food_id)), [pantryItems]);
+
+  const resolvedPresetCategories = useMemo(
+    () =>
+      PANTRY_PRESET_CATEGORIES.map((category) => ({
+        ...category,
+        resolvedItems: category.items
+          .map((item) => ({
+            item,
+            food: resolvedPantryPresets[item.key] ?? null,
+          }))
+          .filter((entry): entry is { item: PantryPresetItem; food: FoodItem } => entry.food !== null),
+      })).filter((category) => category.resolvedItems.length > 0),
+    [resolvedPantryPresets],
+  );
+
   return (
     <section className="settings-page">
       <div className="settings-shell">
@@ -306,6 +497,13 @@ export function SettingsPage() {
             onClick={() => setTab("goals")}
           >
             Цели
+          </button>
+          <button
+            type="button"
+            className={`settings-tab-btn ${tab === "pantry" ? "is-active" : ""}`}
+            onClick={() => setTab("pantry")}
+          >
+            Есть дома
           </button>
         </aside>
 
@@ -435,6 +633,122 @@ export function SettingsPage() {
                     />
                   ))}
                 </div>
+              )}
+            </>
+          )}
+
+          {tab === "pantry" && (
+            <>
+              <div className="settings-panel-head">
+                <div>
+                  <h2 className="settings-panel-title">Что уже есть дома</h2>
+                  <p className="settings-subtitle">
+                    Эти продукты будут попадать в отдельный блок списка покупок «Проверьте дома».
+                  </p>
+                </div>
+              </div>
+
+              <section className="settings-pantry-quick">
+                <span className="settings-pantry-title-row">
+                  <h3 className="settings-pantry-section-title">Быстрый выбор</h3>
+                  <InfoPopover
+                    ariaLabel="Пояснение по быстрому выбору"
+                    text="Отметьте продукты, которые обычно есть дома. При создании списка покупок они будут попадать в отдельный блок «Проверьте дома», чтобы не перегружать основной список."
+                  />
+                </span>
+
+                {loadingPantryPresets && <p className="settings-note">Загрузка быстрого выбора...</p>}
+                {!loadingPantryPresets && pantryPresetsError && <Alert text={pantryPresetsError} />}
+
+                {!loadingPantryPresets && !pantryPresetsError && (
+                  <div className="settings-pantry-categories-grid">
+                    {resolvedPresetCategories.map((category) => (
+                      <details key={category.key} className="settings-pantry-category" open={category.defaultOpen}>
+                        <summary className="settings-pantry-category-summary">{category.title}</summary>
+                        <div className="settings-pantry-check-list">
+                          {category.resolvedItems.map(({ item, food }) => {
+                            const checked = pantryFoodIds.has(food.id);
+                            const pending = pendingPresetFoodIds.has(food.id);
+                            return (
+                              <label key={item.key} className={`settings-pantry-check-item ${checked ? "is-active" : ""}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  disabled={pending}
+                                  onChange={(event) => {
+                                    void togglePresetPantryItem(food, event.target.checked);
+                                  }}
+                                />
+                                <span>{item.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="settings-pantry-manual">
+                <h3 className="settings-pantry-section-title">Добавить другой продукт</h3>
+                <div className="settings-pantry-search">
+                  <FoodSearchSelect
+                    key={pantryInputKey}
+                    value={manualPantrySelection}
+                    onChange={(food) => {
+                      setManualPantrySelection(food ? { id: food.id, name: food.name, brand: food.brand ?? null } : null);
+                    }}
+                    placeholder="Найти продукт"
+                    disabled={pantrySaving}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={pantrySaving || !manualPantrySelection}
+                    onClick={() => {
+                      if (!manualPantrySelection) return;
+                      void onAddPantryFood(manualPantrySelection.id);
+                    }}
+                  >
+                    Добавить
+                  </button>
+                </div>
+              </section>
+
+              <div className="settings-pantry-selected">
+                <p className="settings-pantry-selected-count">Выбрано: {pantryItems.length} продуктов</p>
+                {pantryItems.length > 0 && (
+                  <ul className="profile-chip-list">
+                    {pantryItems.map((item) => (
+                      <li key={item.food_id} className="profile-chip">
+                        <span className="profile-chip-label">
+                          {item.food.name}
+                          {item.food.brand ? ` — ${item.food.brand}` : ""}
+                          {` · ${FOOD_CATEGORY_LABELS[item.food.category] ?? item.food.category}`}
+                        </span>
+                        <button
+                          type="button"
+                          className="profile-chip-remove"
+                          onClick={() => {
+                            void onRemovePantryFood(item.food_id);
+                          }}
+                          disabled={pantrySaving}
+                          aria-label={`Убрать ${item.food.name} из списка есть дома`}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              {pantryError && <Alert text={pantryError} />}
+              {loadingPantry && <p className="settings-note">Загрузка списка «Есть дома»...</p>}
+
+              {!loadingPantry && pantryItems.length === 0 && (
+                <p className="settings-note">Пока ничего не выбрано. Отметьте продукты в быстром выборе или добавьте через поиск.</p>
               )}
             </>
           )}

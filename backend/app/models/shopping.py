@@ -197,6 +197,12 @@ class ShoppingListItem(Base):
         default=False,
         server_default=text("false"),
     )
+    in_pantry_section: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     sort_order: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

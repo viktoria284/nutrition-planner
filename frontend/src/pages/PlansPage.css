@@ -1506,6 +1506,35 @@
   min-width: 0;
 }
 
+.plan-shopping-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.plan-shopping-section-head--with-info .plan-shopping-section-toggle {
+  flex: 1 1 auto;
+}
+
+.plan-shopping-section-title-with-info {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plan-shopping-section-toggle--pantry {
+  width: auto;
+  justify-content: flex-start;
+}
+
+.plan-shopping-section-info {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
 .plan-shopping-section-arrow {
   color: var(--text-soft);
   font-size: 0.9rem;
@@ -1564,6 +1593,13 @@
   padding: 0 8px;
 }
 
+.plan-shopping-section-meta {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .plan-shopping-list {
   list-style: none;
   margin: 0;
@@ -1588,6 +1624,14 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
+}
+
+.plan-shopping-item--pantry {
+  gap: 8px;
+}
+
+.plan-shopping-item-top--pantry {
+  align-items: center;
 }
 
 .plan-shopping-main {
@@ -1665,6 +1709,28 @@
   height: 22px;
 }
 
+.plan-shopping-pantry-side {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.plan-shopping-pantry-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.plan-shopping-pantry-btn {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
 .plan-shopping-adjust-row {
   display: flex;
   align-items: center;
@@ -1738,6 +1804,11 @@
 .shopping-list--compact .plan-shopping-inline-btn,
 .shopping-list--compact .plan-shopping-adjust-input {
   height: 34px;
+}
+
+.shopping-list--compact .plan-shopping-pantry-btn {
+  height: 30px;
+  padding: 0 9px;
 }
 
 .shopping-list--compact .plan-shopping-adjust-row {
@@ -1941,8 +2012,30 @@
     justify-items: stretch;
   }
 
+  .plan-shopping-section-head {
+    align-items: flex-start;
+  }
+
+  .plan-shopping-section-head--with-info {
+    align-items: center;
+  }
+
+  .plan-shopping-section-meta {
+    font-size: 0.84rem;
+  }
+
   .plan-shopping-adjust-row {
     flex-wrap: wrap;
+  }
+
+  .plan-shopping-pantry-side {
+    display: grid;
+    justify-items: end;
+    gap: 6px;
+  }
+
+  .plan-shopping-pantry-actions {
+    max-width: 220px;
   }
 
   .plan-shopping-hide-btn {
@@ -2067,6 +2160,12 @@
   .plan-shopping-adjust-input,
   .plan-shopping-inline-btn {
     height: 40px;
+  }
+
+  .plan-shopping-pantry-btn {
+    height: 34px;
+    padding: 0 10px;
+    font-size: 0.81rem;
   }
 
   .plan-shopping-item {

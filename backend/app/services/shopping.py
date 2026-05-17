@@ -26,6 +26,7 @@ from app.schemas.shopping import (
     ShoppingManualItemCreate,
 )
 from app.services.plan_slot_ingredients import build_slot_effective_items
+from app.services.pantry import list_pantry_food_ids
 
 
 class ShoppingPlanNotFoundError(ValueError):
@@ -216,6 +217,7 @@ def _build_item_read(item: ShoppingListItem) -> ShoppingListItemRead:
             "unit": item.unit,
             "checked": item.checked,
             "excluded": item.excluded,
+            "in_pantry_section": item.in_pantry_section,
             "sort_order": item.sort_order,
             "created_at": item.created_at,
             "updated_at": item.updated_at,
@@ -312,6 +314,7 @@ def create_shopping_list_from_plan(
     payload: ShoppingListCreateFromPlanRequest,
 ) -> ShoppingListRead:
     plan = _get_plan_or_404(db, user_id, payload.plan_id, with_slots=True)
+    pantry_food_ids = list_pantry_food_ids(db, user_id)
 
     grouped = _build_computed_food_totals(plan)
     source_signature = _compute_plan_sources_signature(db, user_id, [plan.id])
@@ -356,6 +359,7 @@ def create_shopping_list_from_plan(
                 unit="g",
                 checked=False,
                 excluded=False,
+                in_pantry_section=item["food_id"] in pantry_food_ids,
                 sort_order=index,
             )
         )
@@ -492,6 +496,10 @@ def update_shopping_list_item(
         item.adjusted_grams = update_data["adjusted_grams"]
     if "excluded" in update_data:
         item.excluded = update_data["excluded"]
+    if "in_pantry_section" in update_data:
+        if item.item_type != "computed":
+            raise ShoppingItemUpdateForbiddenError("Only computed items can be moved to pantry section")
+        item.in_pantry_section = update_data["in_pantry_section"]
     if "category" in update_data:
         item.category = update_data["category"]
     if "name_snapshot" in update_data:
@@ -536,6 +544,7 @@ def merge_shopping_lists(
     user_id: int,
     payload: ShoppingListMergeRequest,
 ) -> ShoppingListRead:
+    pantry_food_ids = list_pantry_food_ids(db, user_id)
     source_lists = db.execute(
         select(ShoppingList)
         .where(
@@ -647,6 +656,7 @@ def merge_shopping_lists(
                 unit="g",
                 checked=False,
                 excluded=False,
+                in_pantry_section=item["food_id"] in pantry_food_ids,
                 sort_order=sort_order,
             )
         )
@@ -713,6 +723,7 @@ def rebuild_shopping_list_from_sources(
     source_plans = [_get_plan_or_404(db, user_id, source.plan_id, with_slots=True) for source in sorted_sources]
 
     grouped = _build_computed_food_totals_for_plans(source_plans)
+    pantry_food_ids = list_pantry_food_ids(db, user_id)
     sorted_grouped = sorted(
         grouped.values(),
         key=lambda value: (str(value["name_snapshot"]).lower(), int(value["food_id"])),
@@ -734,6 +745,9 @@ def rebuild_shopping_list_from_sources(
             existing.name_snapshot = bucket["name_snapshot"]
             existing.category = bucket["category"]
             existing.planned_grams = planned_grams
+            # Preserve a manual "В основной список" choice across rebuilds:
+            # if an item was moved out of pantry section, keep it there while matching persists.
+            existing.in_pantry_section = existing.in_pantry_section and (food_id in pantry_food_ids)
             existing.sort_order = index
             touched_food_ids.add(food_id)
             continue
@@ -750,6 +764,7 @@ def rebuild_shopping_list_from_sources(
                 unit="g",
                 checked=False,
                 excluded=False,
+                in_pantry_section=food_id in pantry_food_ids,
                 sort_order=index,
             )
         )
