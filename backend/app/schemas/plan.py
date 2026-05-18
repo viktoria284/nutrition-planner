@@ -33,6 +33,19 @@ class PlanCreate(BaseModel):
         return normalized or None
 
 
+class PlanCopyRequest(BaseModel):
+    start_date: date
+    title: Annotated[str, Field(max_length=120)] | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class PlanAutogenerateRequest(BaseModel):
     start_date: date
     days_count: Annotated[int, Field(ge=1, le=7)]

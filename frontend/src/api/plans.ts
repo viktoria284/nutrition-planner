@@ -3,6 +3,7 @@ import type {
   PlanAnalyticsResponse,
   PlanBulkDeletePayload,
   PlanBulkDeleteResponse,
+  PlanCopyPayload,
   PlanCreatePayload,
   PlanListItem,
   PlanRegenerateDayPayload,
@@ -27,6 +28,14 @@ function normalizeCreatePayload(payload: PlanCreatePayload): PlanCreatePayload {
     days_count: payload.days_count,
     meals_per_day: payload.meals_per_day,
     profile_id: payload.profile_id,
+    ...(title ? { title } : {}),
+  };
+}
+
+function normalizeCopyPayload(payload: PlanCopyPayload): PlanCopyPayload {
+  const title = payload.title?.trim();
+  return {
+    start_date: payload.start_date,
     ...(title ? { title } : {}),
   };
 }
@@ -118,6 +127,17 @@ export async function createPlan(payload: PlanCreatePayload): Promise<PlanRead> 
       path: "/plans",
       token: getToken(),
       body: normalizeCreatePayload(payload),
+    }),
+  );
+}
+
+export async function copyPlan(planId: number | string, payload: PlanCopyPayload): Promise<PlanRead> {
+  return requestWithApiError(
+    apiRequest<PlanRead>({
+      method: "POST",
+      path: `/plans/${planId}/copy`,
+      token: getToken(),
+      body: normalizeCopyPayload(payload),
     }),
   );
 }

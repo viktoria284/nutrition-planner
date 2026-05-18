@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import delete, select
@@ -15,6 +15,7 @@ from app.models.shopping import ShoppingListSource
 from app.schemas.plan import (
     NutritionTotalsRead,
     PlanBulkDeleteResponse,
+    PlanCopyRequest,
     PlanCreate,
     PlanDayRead,
     PlanListItem,
@@ -47,6 +48,20 @@ class PlanProfileNotFoundError(ValueError):
 
 
 NUTRIENT_QUANT = Decimal("0.01")
+MONTHS_RU_GENITIVE = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
 
 
 def _quantize_nutrient(value: Decimal) -> Decimal:
@@ -87,6 +102,20 @@ def _build_slot_payload(slot: PlanSlot, *, slot_totals: dict[str, Decimal]) -> d
         "created_at": slot.created_at,
         "updated_at": slot.updated_at,
     }
+
+
+def _format_plan_date_label(day: date) -> str:
+    month_label = MONTHS_RU_GENITIVE.get(day.month, str(day.month))
+    return f"{day.day} {month_label} {day.year} г."
+
+
+def _build_copied_plan_title(*, source_plan: Plan, custom_title: str | None) -> str:
+    if custom_title:
+        return custom_title
+    source_title = source_plan.title.strip() if source_plan.title and source_plan.title.strip() else None
+    if source_title:
+        return f"Копия: {source_title}"
+    return f"Копия: План с {_format_plan_date_label(source_plan.start_date)}"
 
 
 def _get_plan_or_404(db: Session, user_id: int, plan_id: int, *, with_slots: bool = False) -> Plan:
@@ -276,6 +305,72 @@ def create_plan(db: Session, user_id: int, payload: PlanCreate) -> Plan:
     db.commit()
 
     return _get_plan_or_404(db, user_id, plan.id, with_slots=True)
+
+
+def copy_plan_for_user(
+    db: Session,
+    user_id: int,
+    *,
+    plan_id: int,
+    payload: PlanCopyRequest,
+) -> Plan:
+    source_plan = _get_plan_or_404(db, user_id, plan_id, with_slots=True)
+    source_slots = _sort_slots(list(source_plan.slots))
+
+    copied_plan = Plan(
+        owner_user_id=user_id,
+        profile_id=source_plan.profile_id,
+        start_date=payload.start_date,
+        days_count=source_plan.days_count,
+        meals_per_day=source_plan.meals_per_day,
+        title=_build_copied_plan_title(source_plan=source_plan, custom_title=payload.title),
+        target_kcal=source_plan.target_kcal,
+        target_protein=source_plan.target_protein,
+        target_fat=source_plan.target_fat,
+        target_carbs=source_plan.target_carbs,
+        target_fiber=source_plan.target_fiber,
+    )
+    db.add(copied_plan)
+    db.flush()
+
+    slot_map: dict[int, PlanSlot] = {}
+    copied_slots: list[PlanSlot] = []
+    for source_slot in source_slots:
+        day_offset = (source_slot.day_date - source_plan.start_date).days
+        copied_slot = PlanSlot(
+            plan_id=copied_plan.id,
+            day_date=payload.start_date + timedelta(days=day_offset),
+            slot_index=source_slot.slot_index,
+            recipe_id=source_slot.recipe_id,
+            servings_multiplier=source_slot.servings_multiplier,
+            pinned=False,
+        )
+        copied_slots.append(copied_slot)
+        slot_map[source_slot.id] = copied_slot
+
+    db.add_all(copied_slots)
+    db.flush()
+
+    copied_overrides: list[PlanSlotIngredientOverride] = []
+    for source_slot in source_slots:
+        copied_slot = slot_map[source_slot.id]
+        for override in source_slot.ingredient_overrides:
+            copied_overrides.append(
+                PlanSlotIngredientOverride(
+                    slot_id=copied_slot.id,
+                    recipe_ingredient_id=override.recipe_ingredient_id,
+                    food_id=override.food_id,
+                    grams=override.grams,
+                    is_excluded=override.is_excluded,
+                    is_manual=override.is_manual,
+                )
+            )
+
+    if copied_overrides:
+        db.add_all(copied_overrides)
+
+    db.commit()
+    return _get_plan_or_404(db, user_id, copied_plan.id, with_slots=True)
 
 
 def get_plan_for_user(db: Session, user_id: int, plan_id: int) -> Plan:

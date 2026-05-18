@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
-import { getPlan, getPlanAnalytics, regeneratePlanDay } from "../api/plans";
+import { copyPlan, getPlan, getPlanAnalytics, regeneratePlanDay } from "../api/plans";
 import { getRecipe, listRecipes, type RecipeRead } from "../api/recipes";
 import { EditPlanSlotModal } from "../components/plans/EditPlanSlotModal";
 import { PlanConfirmModal } from "../components/plans/PlanConfirmModal";
@@ -48,6 +48,26 @@ function resolvePlanAnalyticsError(err: unknown): string {
   return err instanceof Error ? err.message : "Не удалось загрузить оценку плана.";
 }
 
+function resolveCopyPlanError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "Нужно снова войти в аккаунт.";
+    if (err.status === 404) return "План не найден.";
+    if (err.status === 422) return "Проверьте дату начала и название.";
+  }
+  return err instanceof Error ? err.message : "Не удалось скопировать план.";
+}
+
+function addDaysToDateIso(dateIso: string, days: number): string {
+  const [yearRaw, monthRaw, dayRaw] = dateIso.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return dateIso;
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+  utcDate.setUTCDate(utcDate.getUTCDate() + days);
+  return utcDate.toISOString().slice(0, 10);
+}
+
 function buildDaySlotsSignature(day: PlanDay): string {
   return day.slots
     .slice()
@@ -79,6 +99,7 @@ function buildPlanTargetSummary(plan: PlanRead): string {
 
 export function PlanDetailsPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
 
   const [plan, setPlan] = useState<PlanRead | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,6 +121,11 @@ export function PlanDetailsPage() {
   const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [replacementHistoryBySlotId, setReplacementHistoryBySlotId] = useState<Record<number, number[]>>({});
   const [selectedMobileDayDate, setSelectedMobileDayDate] = useState<string | null>(null);
+  const [copyModalOpen, setCopyModalOpen] = useState(false);
+  const [copyStartDate, setCopyStartDate] = useState("");
+  const [copyTitle, setCopyTitle] = useState("");
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const loadAnalytics = useCallback(async (planId: number | string) => {
     setAnalyticsLoading(true);
@@ -280,6 +306,37 @@ export function PlanDetailsPage() {
     }
   }, [dayToRegenerate, loadPlan, plan]);
 
+  const openCopyModal = useCallback(() => {
+    if (!plan) return;
+    setCopyStartDate(addDaysToDateIso(plan.start_date, plan.days_count));
+    setCopyTitle("");
+    setCopyError(null);
+    setCopyModalOpen(true);
+  }, [plan]);
+
+  const handleCopyPlan = useCallback(async () => {
+    if (!plan) return;
+    if (!copyStartDate) {
+      setCopyError("Укажите дату начала.");
+      return;
+    }
+
+    setCopyLoading(true);
+    setCopyError(null);
+    try {
+      const copied = await copyPlan(plan.id, {
+        start_date: copyStartDate,
+        title: copyTitle,
+      });
+      setCopyModalOpen(false);
+      navigate(`/plans/${copied.id}`);
+    } catch (err) {
+      setCopyError(resolveCopyPlanError(err));
+    } finally {
+      setCopyLoading(false);
+    }
+  }, [copyStartDate, copyTitle, navigate, plan]);
+
   return (
     <section className="plans-page">
       <div className="plans-shell plans-shell-wide">
@@ -306,6 +363,11 @@ export function PlanDetailsPage() {
               <Link to={`/plans/${plan.id}/shopping`} className="btn btn-secondary">
                 Список покупок
               </Link>
+            )}
+            {plan && (
+              <button type="button" className="btn btn-secondary" onClick={openCopyModal}>
+                Копировать
+              </button>
             )}
             <Link to="/plans" className="btn btn-secondary">
               К списку
@@ -499,6 +561,86 @@ export function PlanDetailsPage() {
           />
         )}
       </div>
+
+      {copyModalOpen && (
+        <div
+          className="plans-modal-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (copyLoading) return;
+            if (event.target === event.currentTarget) {
+              setCopyModalOpen(false);
+              setCopyError(null);
+            }
+          }}
+        >
+          <div className="plans-modal" role="dialog" aria-modal="true" aria-label="Скопировать план">
+            <header className="plans-modal-head">
+              <div className="plans-modal-head-row">
+                <h2 className="plans-modal-title">Скопировать план</h2>
+                <button
+                  type="button"
+                  className="btn btn-ghost plans-modal-close-btn"
+                  aria-label="Закрыть"
+                  onClick={() => {
+                    if (copyLoading) return;
+                    setCopyModalOpen(false);
+                    setCopyError(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <p className="plans-modal-subtitle">Выберите новую дату начала и при желании укажите название.</p>
+            </header>
+
+            <div className="plans-modal-form">
+              <label className="plans-field-label" htmlFor="copy-plan-start-date">
+                Дата начала
+              </label>
+              <input
+                id="copy-plan-start-date"
+                className="plans-field-input"
+                type="date"
+                value={copyStartDate}
+                onChange={(event) => setCopyStartDate(event.target.value)}
+              />
+
+              <label className="plans-field-label" htmlFor="copy-plan-title">
+                Название (необязательно)
+              </label>
+              <input
+                id="copy-plan-title"
+                className="plans-field-input"
+                type="text"
+                maxLength={120}
+                placeholder="Например, План на следующую неделю"
+                value={copyTitle}
+                onChange={(event) => setCopyTitle(event.target.value)}
+              />
+            </div>
+
+            {copyError && <Alert text={copyError} />}
+
+            <div className="plans-modal-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                disabled={copyLoading}
+                onClick={() => {
+                  setCopyModalOpen(false);
+                  setCopyError(null);
+                }}
+              >
+                Отмена
+              </button>
+              <button type="button" className="btn btn-primary" disabled={copyLoading} onClick={() => void handleCopyPlan()}>
+                {copyLoading ? "Копируем..." : "Скопировать"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <EditPlanSlotModal
         isOpen={editingSlot !== null}

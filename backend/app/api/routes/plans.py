@@ -13,6 +13,7 @@ from app.schemas.plan import (
     PlanAutogenerateResponse,
     PlanBulkDeleteRequest,
     PlanBulkDeleteResponse,
+    PlanCopyRequest,
     PlanCreate,
     PlanListItem,
     PlanRead,
@@ -48,6 +49,7 @@ from app.services.plans import (
     build_plan_list_item,
     build_plan_read,
     build_plan_slot_read,
+    copy_plan_for_user,
     create_plan,
     delete_plans_for_user,
     delete_plan_for_user,
@@ -129,6 +131,25 @@ def post_plan_bulk_delete(
         return delete_plans_for_user(db, current_user.id, payload.plan_ids)
     except PlanNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+
+
+@router.post("/{plan_id}/copy", response_model=PlanRead, status_code=status.HTTP_201_CREATED)
+def post_plan_copy(
+    plan_id: int,
+    payload: PlanCopyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        copied = copy_plan_for_user(
+            db,
+            current_user.id,
+            plan_id=plan_id,
+            payload=payload,
+        )
+    except PlanNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found") from exc
+    return build_plan_read(copied)
 
 
 @router.post("/{plan_id}/slots/{slot_id}/replace", response_model=PlanRead)

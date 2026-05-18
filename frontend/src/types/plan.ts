@@ -78,6 +78,11 @@ export type PlanCreatePayload = {
   title?: string;
 };
 
+export type PlanCopyPayload = {
+  start_date: string;
+  title?: string | null;
+};
+
 export type PlanAutogeneratePayload = {
   start_date: string;
   days_count: number;
