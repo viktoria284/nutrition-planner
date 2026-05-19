@@ -44,6 +44,7 @@ export type RecipeRead = {
   total_fat: DecimalValue;
   total_carbs: DecimalValue;
   total_fiber: DecimalValue;
+  per_serving_grams?: DecimalValue;
   per_serving_kcal: DecimalValue;
   per_serving_protein: DecimalValue;
   per_serving_fat: DecimalValue;

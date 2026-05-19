@@ -210,6 +210,14 @@
   grid-template-columns: repeat(1, minmax(0, 1fr));
 }
 
+.recipes-list > li {
+  display: flex;
+}
+
+.recipes-list > li > .recipe-grid-card {
+  flex: 1 1 auto;
+}
+
 .recipe-grid-card {
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -217,6 +225,10 @@
   overflow: hidden;
   box-shadow: 0 6px 18px rgba(12, 18, 16, 0.05);
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
 }
 
 .recipe-grid-card:hover {
@@ -232,23 +244,26 @@
 
 .recipe-grid-media-wrap {
   position: relative;
+  width: 100%;
 }
 
 .recipe-grid-media-link {
   display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
 }
 
 .recipe-grid-image {
   width: 100%;
-  aspect-ratio: 16 / 10;
+  height: 100%;
   object-fit: cover;
   display: block;
 }
 
 .recipe-grid-image-fallback {
   width: 100%;
-  aspect-ratio: 16 / 10;
-  border-radius: 10px;
+  height: 100%;
   display: grid;
   place-items: center;
   font-size: 1.5rem;
@@ -299,14 +314,19 @@
 .recipe-grid-body-link {
   color: inherit;
   text-decoration: none;
-  display: block;
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 .recipe-grid-body {
   padding: 12px 12px 14px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   min-width: 0;
+  height: 100%;
+  width: 100%;
 }
 
 .recipe-grid-title {
@@ -376,11 +396,22 @@
   font-weight: 600;
 }
 
+.recipe-grid-meta-bottom {
+  margin-top: auto;
+  display: grid;
+  gap: 6px;
+}
+
 .recipe-grid-author {
   margin: 0;
   color: var(--text-soft);
   font-size: 0.82rem;
   font-weight: 600;
+  min-height: 1.2em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recipe-grid-author-link {
@@ -393,6 +424,11 @@
   font-weight: 700;
   text-align: left;
   cursor: pointer;
+  min-height: 1.2em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .recipe-grid-author-link:hover {
@@ -1202,6 +1238,11 @@
 @media (min-width: 769px) {
   .recipes-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .recipe-metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
   }
 }
 

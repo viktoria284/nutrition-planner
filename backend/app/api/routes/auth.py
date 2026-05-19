@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.schemas.user import UserCreate, UserOut, UserUpdateMe
+from app.schemas.user import UserCreate, UserOut, UserUpdateMe, UserUpdatePassword
 from app.services.security import create_access_token, hash_password, verify_password
 from app.services.users import (
     create_user,
@@ -73,3 +73,18 @@ def update_me(payload: UserUpdateMe, db: Session = Depends(get_db), current_user
     db.commit()
     db.refresh(current_user)
     return current_user
+
+
+@router.patch("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+def update_my_password(
+    payload: UserUpdatePassword,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    if not verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Текущий пароль указан неверно.")
+
+    current_user.hashed_password = hash_password(payload.new_password)
+    db.add(current_user)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

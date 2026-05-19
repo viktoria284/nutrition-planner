@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { resolveRecipeImageSrc, type MealType, type RecipeRead } from "../../api/recipes";
+import { formatRoundedNumber } from "../../utils/numberFormat";
 
 type RecipeGridCardProps = {
   recipe: RecipeRead;
@@ -8,13 +9,6 @@ type RecipeGridCardProps = {
   onToggleFavorite?: (recipe: RecipeRead) => void;
   onAuthorClick?: (recipe: RecipeRead) => void;
 };
-
-function formatMetric(value: string | number): string {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "0";
-  if (Number.isInteger(numeric)) return String(numeric);
-  return numeric.toFixed(2).replace(/\.?0+$/, "");
-}
 
 export function RecipeGridCard({
   recipe,
@@ -85,31 +79,35 @@ export function RecipeGridCard({
           </div>
 
           <div className="recipe-grid-metrics">
-            <p className="recipe-grid-kcal">{formatMetric(recipe.per_serving_kcal)} ккал</p>
+            <p className="recipe-grid-kcal">{formatRoundedNumber(recipe.per_serving_kcal)} ккал</p>
             <p className="recipe-grid-macros">
-              Б {formatMetric(recipe.per_serving_protein)} · Ж {formatMetric(recipe.per_serving_fat)} · У {formatMetric(recipe.per_serving_carbs)}
+              Б {formatRoundedNumber(recipe.per_serving_protein)} г · Ж {formatRoundedNumber(recipe.per_serving_fat)} г · У {formatRoundedNumber(recipe.per_serving_carbs)} г
             </p>
-            <p className="recipe-grid-fiber">Клетчатка {formatMetric(recipe.per_serving_fiber)} г</p>
+            <p className="recipe-grid-fiber">Клетчатка {formatRoundedNumber(recipe.per_serving_fiber)} г</p>
           </div>
 
-          <p className="recipe-grid-servings">{recipe.servings_count} порции</p>
-          {(onAuthorClick || recipe.source === "community") && recipe.author_username && (
-            onAuthorClick ? (
-              <button
-                type="button"
-                className="recipe-grid-author-link"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onAuthorClick(recipe);
-                }}
-              >
-                Автор: @{recipe.author_username}
-              </button>
+          <div className="recipe-grid-meta-bottom">
+            <p className="recipe-grid-servings">{recipe.servings_count} порции</p>
+            {(onAuthorClick || recipe.source === "community") && recipe.author_username ? (
+              onAuthorClick ? (
+                <button
+                  type="button"
+                  className="recipe-grid-author-link"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onAuthorClick(recipe);
+                  }}
+                >
+                  Автор: @{recipe.author_username}
+                </button>
+              ) : (
+                <p className="recipe-grid-author">Автор: @{recipe.author_username}</p>
+              )
             ) : (
-              <p className="recipe-grid-author">Автор: @{recipe.author_username}</p>
-            )
-          )}
+              <p className="recipe-grid-author">{recipe.source === "community" ? "Автор: —" : "Ваш рецепт"}</p>
+            )}
+          </div>
         </div>
       </Link>
     </article>

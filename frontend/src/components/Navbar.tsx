@@ -51,11 +51,11 @@ export function Navbar() {
               </Link>
 
               <nav className="main-nav main-nav-centered" aria-label="Основная навигация">
-                <NavLink to="/plans" className={`nav-link ${isPlansRoute ? "nav-link-active" : ""}`}>
-                  Планы
-                </NavLink>
                 <NavLink to="/calendar" className={navClass}>
                   Календарь
+                </NavLink>
+                <NavLink to="/plans" className={`nav-link ${isPlansRoute ? "nav-link-active" : ""}`}>
+                  Планы
                 </NavLink>
                 <NavLink to="/plans/autogenerate" className={`nav-link ${isAutoplanRoute ? "nav-link-active" : ""}`}>
                   Автоплан
@@ -152,18 +152,18 @@ export function Navbar() {
             <div className={`topbar-mobile-menu ${mobileMenuOpen ? "is-open" : ""}`} aria-hidden={!mobileMenuOpen}>
               <nav className="topbar-mobile-menu-nav" aria-label="Мобильная навигация">
                 <NavLink
-                  to="/plans"
-                  className={`nav-link topbar-mobile-menu-link ${isPlansRoute ? "nav-link-active" : ""}`}
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  Планы
-                </NavLink>
-                <NavLink
                   to="/calendar"
                   className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   Календарь
+                </NavLink>
+                <NavLink
+                  to="/plans"
+                  className={`nav-link topbar-mobile-menu-link ${isPlansRoute ? "nav-link-active" : ""}`}
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  Планы
                 </NavLink>
                 <NavLink
                   to="/plans/autogenerate"

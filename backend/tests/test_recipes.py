@@ -1164,7 +1164,49 @@ def test_withdraw_recipe_owner_only_and_unlist(client: TestClient) -> None:
 
     owner_withdraw = client.post(f"/recipes/{recipe['id']}/withdraw", headers=auth_headers(owner_token))
     assert owner_withdraw.status_code == 200, owner_withdraw.text
+    assert owner_withdraw.json()["source"] == "private"
+    assert owner_withdraw.json()["status"] == "draft"
     assert owner_withdraw.json()["is_listed"] is False
+
+
+def test_recipe_editable_after_withdraw(client: TestClient) -> None:
+    register_user(client, email="withdraw-edit@example.com", username="withdrawedit")
+    token = login_and_get_token(client, identifier="withdraw-edit@example.com")
+    recipe = create_recipe_via_api(client, token, name="Editable after withdraw")
+    food = create_food_via_api(
+        client,
+        token,
+        name="Withdraw Editable Ingredient",
+        kcal="100.00",
+        protein="10.00",
+        fat="5.00",
+        carbs="10.00",
+    )
+
+    publish_response = client.post(f"/recipes/{recipe['id']}/publish", headers=auth_headers(token))
+    assert publish_response.status_code == 200, publish_response.text
+
+    withdraw_response = client.post(f"/recipes/{recipe['id']}/withdraw", headers=auth_headers(token))
+    assert withdraw_response.status_code == 200, withdraw_response.text
+    withdrawn = withdraw_response.json()
+    assert withdrawn["source"] == "private"
+    assert withdrawn["status"] == "draft"
+    assert withdrawn["is_listed"] is False
+
+    patch_response = client.patch(
+        f"/recipes/{recipe['id']}",
+        headers=auth_headers(token),
+        json={"name": "Updated after withdraw"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["name"] == "Updated after withdraw"
+
+    add_ingredient_response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={"food_id": food["id"], "grams": "50"},
+    )
+    assert add_ingredient_response.status_code == 201, add_ingredient_response.text
 
 
 def test_recipe_not_editable_after_publish(client: TestClient) -> None:

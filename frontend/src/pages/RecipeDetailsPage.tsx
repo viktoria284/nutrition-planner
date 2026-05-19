@@ -29,6 +29,7 @@ import { Alert } from "../components/Alert";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { MarkdownContent } from "../components/MarkdownTextarea";
 import { getCurrentUserIdFromJwt } from "../utils/auth";
+import { formatRoundedNumber, formatTrimmedNumber, toSafeNumber } from "../utils/numberFormat";
 import "./RecipesPage.css";
 
 type ConfirmModalProps = {
@@ -108,19 +109,12 @@ const TOTAL_METRICS: Array<{ key: keyof RecipeRead; label: string }> = [
 ];
 
 const PER_SERVING_METRICS: Array<{ key: keyof RecipeRead; label: string }> = [
-  { key: "per_serving_kcal", label: "Калории/порция (ккал)" },
-  { key: "per_serving_protein", label: "Белки/порция (г)" },
-  { key: "per_serving_fat", label: "Жиры/порция (г)" },
-  { key: "per_serving_carbs", label: "Углеводы/порция (г)" },
-  { key: "per_serving_fiber", label: "Клетчатка/порция (г)" },
+  { key: "per_serving_kcal", label: "Калории (ккал)" },
+  { key: "per_serving_protein", label: "Белки (г)" },
+  { key: "per_serving_fat", label: "Жиры (г)" },
+  { key: "per_serving_carbs", label: "Углеводы (г)" },
+  { key: "per_serving_fiber", label: "Клетчатка (г)" },
 ];
-
-function formatMetric(value: string | number): string {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return "0";
-  if (Number.isInteger(numeric)) return String(numeric);
-  return numeric.toFixed(2).replace(/\.?0+$/, "");
-}
 
 function mapApiStatusToMessage(status: number): string | null {
   if (status === 404) return "Не найдено или нет доступа";
@@ -472,16 +466,29 @@ export function RecipeDetailsPage() {
     if (!recipe) return [];
     return TOTAL_METRICS.map((item) => ({
       label: item.label,
-      value: formatMetric(recipe[item.key] as string | number),
+      value: formatRoundedNumber(recipe[item.key] as string | number),
     }));
   }, [recipe]);
 
   const perServingMetrics = useMemo(() => {
     if (!recipe) return [];
-    return PER_SERVING_METRICS.map((item) => ({
+    const perServingWeight = (() => {
+      const direct = recipe.per_serving_grams;
+      if (direct !== undefined && direct !== null) return direct;
+      const servings = Number(recipe.servings_count);
+      if (!Number.isFinite(servings) || servings <= 0) return 0;
+      return toSafeNumber(recipe.total_grams) / servings;
+    })();
+
+    const metrics = PER_SERVING_METRICS.map((item) => ({
       label: item.label,
-      value: formatMetric(recipe[item.key] as string | number),
+      value: formatRoundedNumber(recipe[item.key] as string | number),
     }));
+
+    return [
+      { label: "Вес (г)", value: formatRoundedNumber(perServingWeight) },
+      ...metrics,
+    ];
   }, [recipe]);
 
   const visibleIngredientRows = useMemo(
@@ -1331,7 +1338,7 @@ export function RecipeDetailsPage() {
                               <option value="">Выберите порцию</option>
                               {(row.food_id ? servingsCache.get(row.food_id) : [])?.map((serving) => (
                                 <option key={serving.id} value={serving.id}>
-                                  {serving.name} ({formatMetric(serving.grams)} г)
+                                  {serving.name} ({formatTrimmedNumber(serving.grams)} г)
                                 </option>
                               ))}
                             </select>
@@ -1374,7 +1381,7 @@ export function RecipeDetailsPage() {
                               if (!serving || !Number.isFinite(multiplier) || multiplier <= 0) {
                                 return "Итого грамм: —";
                               }
-                              return `Итого грамм: ${formatMetric(serving.grams * multiplier)} г`;
+                              return `Итого грамм: ${formatTrimmedNumber(serving.grams * multiplier)} г`;
                             })()}
                           </p>
                         </div>
@@ -1411,7 +1418,7 @@ export function RecipeDetailsPage() {
                             })()
                           : ""}
                       </span>
-                      <b>{formatMetric(row.grams)} г</b>
+                      <b>{formatTrimmedNumber(row.grams)} г</b>
                     </li>
                   ))}
                 </ul>

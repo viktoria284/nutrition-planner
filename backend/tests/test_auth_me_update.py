@@ -90,3 +90,47 @@ def test_update_invalid_email_returns_422(client: TestClient) -> None:
 def test_update_me_requires_auth(client: TestClient) -> None:
     response = client.patch("/auth/me", json={"username": "anonymous"})
     assert response.status_code == 401, response.text
+
+
+def test_user_can_change_password_and_login_with_new_password(client: TestClient) -> None:
+    register_user(client, email="change-pass@example.com", username="changepass")
+    token = login_and_get_token(client, identifier="change-pass@example.com")
+
+    response = client.patch(
+        "/auth/me/password",
+        json={"current_password": TEST_PASSWORD, "new_password": "NewPassword_123!"},
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 204, response.text
+
+    old_login = client.post(
+        "/auth/login",
+        data={"username": "change-pass@example.com", "password": TEST_PASSWORD, "grant_type": "password"},
+    )
+    assert old_login.status_code == 401, old_login.text
+
+    new_login = client.post(
+        "/auth/login",
+        data={"username": "change-pass@example.com", "password": "NewPassword_123!", "grant_type": "password"},
+    )
+    assert new_login.status_code == 200, new_login.text
+
+
+def test_change_password_wrong_current_returns_400(client: TestClient) -> None:
+    register_user(client, email="wrong-current@example.com", username="wrongcurrent")
+    token = login_and_get_token(client, identifier="wrong-current@example.com")
+
+    response = client.patch(
+        "/auth/me/password",
+        json={"current_password": "WrongPassword_123!", "new_password": "NewPassword_123!"},
+        headers=auth_headers(token),
+    )
+    assert response.status_code == 400, response.text
+
+
+def test_change_password_requires_auth(client: TestClient) -> None:
+    response = client.patch(
+        "/auth/me/password",
+        json={"current_password": TEST_PASSWORD, "new_password": "NewPassword_123!"},
+    )
+    assert response.status_code == 401, response.text

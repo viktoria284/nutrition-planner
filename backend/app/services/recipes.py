@@ -2974,6 +2974,8 @@ def withdraw_recipe(db: Session, owner_id: int, recipe_id: int) -> Recipe | None
     if not recipe.is_listed:
         raise RecipeWithdrawConflictError("Recipe is already withdrawn")
 
+    recipe.source = FoodSource.private
+    recipe.status = FoodStatus.draft
     recipe.is_listed = False
     db.commit()
     db.refresh(recipe)

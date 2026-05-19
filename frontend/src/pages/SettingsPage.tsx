@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { updateMe } from "../api/auth";
+import { changePassword, updateMe } from "../api/auth";
 import { searchFoods, type FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
 import { addPantryItem, deletePantryItem, listPantryItems, type PantryItem } from "../api/pantry";
@@ -132,6 +132,12 @@ export function SettingsPage() {
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountSuccess, setAccountSuccess] = useState<string | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [passwordCurrent, setPasswordCurrent] = useState("");
+  const [passwordNext, setPasswordNext] = useState("");
+  const [passwordRepeat, setPasswordRepeat] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [pantryItems, setPantryItems] = useState<PantryItem[]>([]);
   const [loadingPantry, setLoadingPantry] = useState(false);
@@ -207,6 +213,12 @@ export function SettingsPage() {
     const timeoutId = window.setTimeout(() => setAccountSuccess(null), 2600);
     return () => window.clearTimeout(timeoutId);
   }, [accountSuccess]);
+
+  useEffect(() => {
+    if (!passwordSuccess) return undefined;
+    const timeoutId = window.setTimeout(() => setPasswordSuccess(null), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [passwordSuccess]);
 
   const loadPantry = useCallback(async () => {
     setLoadingPantry(true);
@@ -335,6 +347,49 @@ export function SettingsPage() {
 
   const openLogoutConfirm = () => {
     setLogoutConfirmOpen(true);
+  };
+
+  const onPasswordSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!passwordCurrent) {
+      setPasswordError("Введите текущий пароль.");
+      return;
+    }
+    if (!passwordNext) {
+      setPasswordError("Введите новый пароль.");
+      return;
+    }
+    if (passwordNext !== passwordRepeat) {
+      setPasswordError("Новый пароль и подтверждение не совпадают.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    setPasswordError(null);
+    setPasswordSuccess(null);
+    try {
+      await changePassword({
+        current_password: passwordCurrent,
+        new_password: passwordNext,
+      });
+      setPasswordCurrent("");
+      setPasswordNext("");
+      setPasswordRepeat("");
+      setPasswordSuccess("Пароль обновлён.");
+    } catch (err) {
+      if (handleUnauthorized(err)) return;
+      if (err instanceof ApiError) {
+        if (err.status === 400 || err.status === 422) {
+          setPasswordError(err.message);
+        } else {
+          setPasswordError("Не удалось изменить пароль.");
+        }
+      } else {
+        setPasswordError(err instanceof Error ? err.message : "Не удалось изменить пароль.");
+      }
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   const closeLogoutConfirm = () => {
@@ -549,12 +604,68 @@ export function SettingsPage() {
                     type="button"
                     className="btn btn-secondary"
                     onClick={openLogoutConfirm}
-                    disabled={accountSaving}
+                    disabled={accountSaving || passwordSaving}
                   >
                     Выйти
                   </button>
                   <button type="submit" className="btn btn-primary" disabled={accountSaving}>
                     {accountSaving ? "Сохраняем..." : "Сохранить изменения"}
+                  </button>
+                </div>
+              </form>
+
+              <form className="settings-account-form" onSubmit={onPasswordSave} noValidate>
+                <h3 className="settings-profile-title">Сменить пароль</h3>
+                <label className="profile-name-field" htmlFor="settings-current-password">
+                  <span className="profile-name-label">Текущий пароль</span>
+                  <input
+                    id="settings-current-password"
+                    className="profile-name-input"
+                    type="password"
+                    autoComplete="current-password"
+                    value={passwordCurrent}
+                    onChange={(event) => {
+                      setPasswordCurrent(event.target.value);
+                      setPasswordError(null);
+                    }}
+                    disabled={passwordSaving}
+                  />
+                </label>
+                <label className="profile-name-field" htmlFor="settings-new-password">
+                  <span className="profile-name-label">Новый пароль</span>
+                  <input
+                    id="settings-new-password"
+                    className="profile-name-input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordNext}
+                    onChange={(event) => {
+                      setPasswordNext(event.target.value);
+                      setPasswordError(null);
+                    }}
+                    disabled={passwordSaving}
+                  />
+                </label>
+                <label className="profile-name-field" htmlFor="settings-repeat-password">
+                  <span className="profile-name-label">Повторите новый пароль</span>
+                  <input
+                    id="settings-repeat-password"
+                    className="profile-name-input"
+                    type="password"
+                    autoComplete="new-password"
+                    value={passwordRepeat}
+                    onChange={(event) => {
+                      setPasswordRepeat(event.target.value);
+                      setPasswordError(null);
+                    }}
+                    disabled={passwordSaving}
+                  />
+                </label>
+                {passwordError && <Alert text={passwordError} />}
+                {passwordSuccess && <p className="settings-success">{passwordSuccess}</p>}
+                <div className="settings-account-actions">
+                  <button type="submit" className="btn btn-primary" disabled={passwordSaving}>
+                    {passwordSaving ? "Сохраняем..." : "Обновить пароль"}
                   </button>
                 </div>
               </form>

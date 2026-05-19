@@ -26,6 +26,11 @@ export type UpdateMeRequest = {
   username?: string;
 };
 
+export type ChangePasswordRequest = {
+  current_password: string;
+  new_password: string;
+};
+
 export async function register(req: RegisterRequest): Promise<User> {
   return apiRequest<User>({ method: "POST", path: "/auth/register", body: req });
 }
@@ -50,4 +55,13 @@ export async function me(token: string): Promise<User> {
 
 export async function updateMe(req: UpdateMeRequest): Promise<User> {
   return apiRequest<User>({ method: "PATCH", path: "/auth/me", body: req, token: localStorage.getItem(TOKEN_KEY) });
+}
+
+export async function changePassword(req: ChangePasswordRequest): Promise<void> {
+  await apiRequest<string>({
+    method: "PATCH",
+    path: "/auth/me/password",
+    body: req,
+    token: localStorage.getItem(TOKEN_KEY),
+  });
 }
