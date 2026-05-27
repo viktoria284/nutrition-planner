@@ -4,6 +4,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.profile import ProfileCreate, ProfileOut, ProfileUpdate
+from app.services.profile_target_calculation_service import (
+    ProfileNotFoundError as ProfileApplyNotFoundError,
+    ProfileTargetCalculationNotFoundError,
+    apply_latest_calculation_to_profile,
+)
 from app.services.profiles import (
     ProfileFoodNotFoundError,
     ProfileNotFoundError,
@@ -80,3 +85,21 @@ def delete_profile(
     except ProfileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile not found") from exc
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{profile_id}/apply-latest-calculation", response_model=ProfileOut)
+def apply_latest_calculation(
+    profile_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return apply_latest_calculation_to_profile(
+            db,
+            user_id=current_user.id,
+            profile_id=profile_id,
+        )
+    except ProfileTargetCalculationNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ProfileApplyNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

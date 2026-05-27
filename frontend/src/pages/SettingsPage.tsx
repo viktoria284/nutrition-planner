@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { changePassword, updateMe } from "../api/auth";
 import { searchFoods, type FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
 import { addPantryItem, deletePantryItem, listPantryItems, type PantryItem } from "../api/pantry";
+import { getLatestProfileTargetCalculation } from "../api/profileTargetCalculations";
 import {
   createProfile,
   getProfiles,
@@ -16,11 +17,12 @@ import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearc
 import { InfoPopover } from "../components/InfoPopover";
 import { LogoutConfirmModal } from "../components/LogoutConfirmModal";
 import { ProfileTargetsCard } from "../components/ProfileTargetsCard";
+import { ProfileTargetCalculatorPage } from "./ProfileTargetCalculatorPage";
 import { PANTRY_PRESET_CATEGORIES, type PantryPresetItem } from "../config/pantryPresets";
 import { FOOD_CATEGORY_LABELS } from "../types/foodCategory";
 import "./SettingsPage.css";
 
-type SettingsTab = "account" | "goals" | "pantry";
+type SettingsTab = "account" | "profiles" | "kbju_calculator" | "pantry";
 
 type CreateProfileForm = {
   name: string;
@@ -113,9 +115,9 @@ async function resolvePresetFood(item: PantryPresetItem): Promise<FoodItem | nul
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout, refreshMe } = useAuth();
 
-  const [tab, setTab] = useState<SettingsTab>("goals");
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
   const [profilesError, setProfilesError] = useState<string | null>(null);
@@ -124,7 +126,9 @@ export function SettingsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createForm, setCreateForm] = useState<CreateProfileForm>(EMPTY_CREATE_FORM);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [createInfo, setCreateInfo] = useState<string | null>(null);
   const [creatingProfile, setCreatingProfile] = useState(false);
+  const [applyingLatestToCreate, setApplyingLatestToCreate] = useState(false);
 
   const [highlightedProfileId, setHighlightedProfileId] = useState<number | null>(null);
   const [accountUsername, setAccountUsername] = useState("");
@@ -151,11 +155,17 @@ export function SettingsPage() {
   const [pendingPresetFoodIds, setPendingPresetFoodIds] = useState<Set<number>>(new Set());
 
   const defaultProfileId = useMemo(() => (profiles.length ? profiles[0].id : null), [profiles]);
+  const currentTab = useMemo<SettingsTab>(() => {
+    if (location.pathname === "/settings/account") return "account";
+    if (location.pathname === "/settings/pantry") return "pantry";
+    if (location.pathname === "/settings/kbju-calculator") return "kbju_calculator";
+    return "profiles";
+  }, [location.pathname]);
 
   const forceLogin = useCallback(() => {
     logout();
-    navigate("/login", { replace: true, state: { from: "/settings" } });
-  }, [logout, navigate]);
+    navigate("/login", { replace: true, state: { from: location.pathname } });
+  }, [location.pathname, logout, navigate]);
 
   const handleUnauthorized = useCallback((err: unknown) => {
     if (err instanceof ApiError && err.status === 401) {
@@ -405,6 +415,7 @@ export function SettingsPage() {
   const openCreateModal = () => {
     setCreateForm(EMPTY_CREATE_FORM);
     setCreateError(null);
+    setCreateInfo(null);
     setCreateModalOpen(true);
   };
 
@@ -412,11 +423,41 @@ export function SettingsPage() {
     if (creatingProfile) return;
     setCreateModalOpen(false);
     setCreateError(null);
+    setCreateInfo(null);
   };
 
   const updateCreateField = (field: keyof CreateProfileForm, value: string) => {
     setCreateForm((prev) => ({ ...prev, [field]: value }));
     setCreateError(null);
+    setCreateInfo(null);
+  };
+
+  const applyLatestToCreateForm = async () => {
+    if (creatingProfile || applyingLatestToCreate) return;
+    setApplyingLatestToCreate(true);
+    setCreateError(null);
+    setCreateInfo(null);
+    try {
+      const latest = await getLatestProfileTargetCalculation();
+      setCreateForm((prev) => ({
+        ...prev,
+        target_kcal: String(latest.target_kcal),
+        target_protein: String(Math.round(latest.target_protein)),
+        target_fat: String(Math.round(latest.target_fat)),
+        target_carbs: String(Math.round(latest.target_carbs)),
+        target_fiber: String(Math.round(latest.target_fiber)),
+      }));
+      setCreateInfo("Поля КБЖУ и клетчатки заполнены из последнего расчёта.");
+    } catch (err) {
+      if (handleUnauthorized(err)) return;
+      if (err instanceof ApiError && err.status === 404) {
+        setCreateError("Сначала выполните расчёт в калькуляторе КБЖУ.");
+      } else {
+        setCreateError(err instanceof Error ? err.message : "Не удалось подставить последний расчёт.");
+      }
+    } finally {
+      setApplyingLatestToCreate(false);
+    }
   };
 
   const onCreateProfile = async (e: React.FormEvent) => {
@@ -534,6 +575,16 @@ export function SettingsPage() {
     [resolvedPantryPresets],
   );
 
+  const navigateToSettingsTab = (next: SettingsTab) => {
+    const pathByTab: Record<SettingsTab, string> = {
+      account: "/settings/account",
+      profiles: "/settings/profiles",
+      kbju_calculator: "/settings/kbju-calculator",
+      pantry: "/settings/pantry",
+    };
+    navigate(pathByTab[next]);
+  };
+
   return (
     <section className="settings-page">
       <div className="settings-shell">
@@ -541,29 +592,36 @@ export function SettingsPage() {
           <h1 className="settings-title">Настройки</h1>
           <button
             type="button"
-            className={`settings-tab-btn ${tab === "account" ? "is-active" : ""}`}
-            onClick={() => setTab("account")}
+            className={`settings-tab-btn ${currentTab === "account" ? "is-active" : ""}`}
+            onClick={() => navigateToSettingsTab("account")}
           >
             Аккаунт
           </button>
           <button
             type="button"
-            className={`settings-tab-btn ${tab === "goals" ? "is-active" : ""}`}
-            onClick={() => setTab("goals")}
+            className={`settings-tab-btn ${currentTab === "profiles" ? "is-active" : ""}`}
+            onClick={() => navigateToSettingsTab("profiles")}
           >
-            Цели
+            Профили
           </button>
           <button
             type="button"
-            className={`settings-tab-btn ${tab === "pantry" ? "is-active" : ""}`}
-            onClick={() => setTab("pantry")}
+            className={`settings-tab-btn ${currentTab === "kbju_calculator" ? "is-active" : ""}`}
+            onClick={() => navigateToSettingsTab("kbju_calculator")}
+          >
+            Калькулятор КБЖУ
+          </button>
+          <button
+            type="button"
+            className={`settings-tab-btn ${currentTab === "pantry" ? "is-active" : ""}`}
+            onClick={() => navigateToSettingsTab("pantry")}
           >
             Есть дома
           </button>
         </aside>
 
         <article className="settings-panel">
-          {tab === "account" && (
+          {currentTab === "account" && (
             <>
               <h2 className="settings-panel-title">Аккаунт</h2>
               <form className="settings-account-form" onSubmit={onAccountSave} noValidate>
@@ -672,12 +730,12 @@ export function SettingsPage() {
             </>
           )}
 
-          {tab === "goals" && (
+          {currentTab === "profiles" && (
             <>
               <div className="settings-panel-head">
                 <div>
-                  <h2 className="settings-panel-title">Цели</h2>
-                  <p className="settings-subtitle">Профили и цели редактируются на одной вкладке.</p>
+                  <h2 className="settings-panel-title">Профили</h2>
+                  <p className="settings-subtitle">Настройте цели и ограничения для ваших профилей.</p>
                 </div>
 
                 <div className="settings-head-actions">
@@ -748,7 +806,11 @@ export function SettingsPage() {
             </>
           )}
 
-          {tab === "pantry" && (
+          {currentTab === "kbju_calculator" && (
+            <ProfileTargetCalculatorPage embedded />
+          )}
+
+          {currentTab === "pantry" && (
             <>
               <div className="settings-panel-head">
                 <div>
@@ -881,6 +943,7 @@ export function SettingsPage() {
             <p className="settings-subtitle">Название обязательно. Цели можно оставить пустыми.</p>
 
             {createError && <Alert text={createError} />}
+            {createInfo && <p className="settings-success">{createInfo}</p>}
 
             <form className="create-profile-form" onSubmit={onCreateProfile}>
               <label className="profile-name-field" htmlFor="create_profile_name">
@@ -960,6 +1023,14 @@ export function SettingsPage() {
               </div>
 
               <div className="create-profile-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void applyLatestToCreateForm()}
+                  disabled={creatingProfile || applyingLatestToCreate}
+                >
+                  {applyingLatestToCreate ? "Подставляем..." : "Подставить последний расчёт"}
+                </button>
                 <button type="button" className="btn btn-secondary" onClick={closeCreateModal} disabled={creatingProfile}>
                   Отмена
                 </button>

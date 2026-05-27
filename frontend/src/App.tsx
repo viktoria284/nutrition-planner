@@ -180,6 +180,14 @@ export default function App() {
               path="/settings"
               element={
                 <RequireAuth>
+                  <Navigate to="/settings/profiles" replace />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/settings/:section"
+              element={
+                <RequireAuth>
                   <SettingsPage />
                 </RequireAuth>
               }
@@ -188,7 +196,15 @@ export default function App() {
               path="/profiles"
               element={
                 <RequireAuth>
-                  <SettingsPage />
+                  <Navigate to="/settings/profiles" replace />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/profiles/calculator"
+              element={
+                <RequireAuth>
+                  <Navigate to="/settings/kbju-calculator" replace />
                 </RequireAuth>
               }
             />

@@ -82,3 +82,11 @@ export async function deleteProfile(id: number): Promise<void> {
     token: getToken(),
   });
 }
+
+export async function applyLatestCalculationToProfile(id: number): Promise<Profile> {
+  return apiRequest<Profile>({
+    method: "POST",
+    path: `/profiles/${id}/apply-latest-calculation`,
+    token: getToken(),
+  });
+}

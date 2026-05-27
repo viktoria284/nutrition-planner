@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { getFood, type FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
-import { deleteProfile, updateProfile, type Profile, type ProfileUpdatePayload } from "../api/profiles";
+import {
+  applyLatestCalculationToProfile,
+  deleteProfile,
+  updateProfile,
+  type Profile,
+  type ProfileUpdatePayload,
+} from "../api/profiles";
 import { type FoodCategory, FOOD_CATEGORIES, FOOD_CATEGORY_LABELS } from "../types/foodCategory";
 import { Alert } from "./Alert";
 import { FoodSearchSelect, type FoodSearchOption } from "./FoodSearchSelect";
@@ -366,6 +372,9 @@ export function ProfileTargetsCard({
   const [deleting, setDeleting] = useState(false);
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [applyModalOpen, setApplyModalOpen] = useState(false);
+  const [applyingLatest, setApplyingLatest] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [excludedFoods, setExcludedFoods] = useState<FoodSearchOption[]>(
@@ -418,6 +427,9 @@ export function ProfileTargetsCard({
     setMode("kcal_pct");
     setDeleteModalOpen(false);
     setDeleteError(null);
+    setApplyModalOpen(false);
+    setApplyingLatest(false);
+    setApplyError(null);
     setError(null);
     setSuccess(null);
     setExcludedFoods(profile.excluded_food_ids.map(profileFoodPlaceholder));
@@ -502,18 +514,23 @@ export function ProfileTargetsCard({
   }, [excludedFoods, preferredFoods]);
 
   useEffect(() => {
-    if (!deleteModalOpen) return;
+    if (!deleteModalOpen && !applyModalOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !deleting) {
+      if (e.key !== "Escape") return;
+      if (deleteModalOpen && !deleting) {
         setDeleteModalOpen(false);
         setDeleteError(null);
+      }
+      if (applyModalOpen && !applyingLatest) {
+        setApplyModalOpen(false);
+        setApplyError(null);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [deleteModalOpen, deleting]);
+  }, [applyModalOpen, applyingLatest, deleteModalOpen, deleting]);
 
   const updateGoalsField = (field: keyof GoalsForm, value: string) => {
     setGoalsForm((prev) => ({ ...prev, [field]: value }));
@@ -644,7 +661,7 @@ export function ProfileTargetsCard({
 
   const onSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (validationError || saving || deleting) return;
+    if (validationError || saving || deleting || applyingLatest) return;
 
     setError(null);
     setSuccess(null);
@@ -687,7 +704,7 @@ export function ProfileTargetsCard({
   };
 
   const onDelete = async () => {
-    if (isDefault || saving || deleting) return;
+    if (isDefault || saving || deleting || applyingLatest) return;
 
     setDeleteError(null);
     setDeleteModalOpen(true);
@@ -700,7 +717,7 @@ export function ProfileTargetsCard({
   };
 
   const onDeleteConfirmed = async () => {
-    if (isDefault || saving || deleting) return;
+    if (isDefault || saving || deleting || applyingLatest) return;
 
     setError(null);
     setSuccess(null);
@@ -724,7 +741,46 @@ export function ProfileTargetsCard({
     }
   };
 
-  const saveDisabled = saving || deleting || Boolean(validationError) || Boolean(cookTimeValidationError);
+  const openApplyModal = () => {
+    if (saving || deleting || applyingLatest) return;
+    setApplyError(null);
+    setApplyModalOpen(true);
+  };
+
+  const closeApplyModal = () => {
+    if (applyingLatest) return;
+    setApplyModalOpen(false);
+    setApplyError(null);
+  };
+
+  const onApplyLatestConfirmed = async () => {
+    if (saving || deleting || applyingLatest) return;
+
+    setError(null);
+    setSuccess(null);
+    setApplyError(null);
+    setApplyingLatest(true);
+
+    try {
+      const updated = await applyLatestCalculationToProfile(profile.id);
+      onSaved(updated);
+      setApplyModalOpen(false);
+      setSuccess("Цели из последнего расчёта успешно подставлены в профиль.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        setApplyingLatest(false);
+        setApplyModalOpen(false);
+        setApplyError(null);
+        onUnauthorized?.();
+        return;
+      }
+      setApplyError(err instanceof Error ? err.message : "Не удалось подставить последний расчёт.");
+    } finally {
+      setApplyingLatest(false);
+    }
+  };
+
+  const saveDisabled = saving || deleting || applyingLatest || Boolean(validationError) || Boolean(cookTimeValidationError);
 
   return (
     <article id={`profile-card-${profile.id}`} className={`profile-card ${highlighted ? "is-highlighted" : ""}`}>
@@ -1136,6 +1192,14 @@ export function ProfileTargetsCard({
         </details>
 
         <div className="profile-card-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={openApplyModal}
+            disabled={saving || deleting || applyingLatest}
+          >
+            Подставить последний расчёт
+          </button>
           <button type="submit" className="btn btn-primary" disabled={saveDisabled}>
             {saving ? "Сохраняем..." : "Сохранить"}
           </button>
@@ -1164,6 +1228,36 @@ export function ProfileTargetsCard({
               </button>
               <button type="button" className="btn btnDanger" onClick={onDeleteConfirmed} disabled={deleting}>
                 {deleting ? "Удаление..." : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {applyModalOpen && (
+        <div className="modalOverlay" role="presentation" onClick={closeApplyModal}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`apply-profile-title-${profile.id}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4 id={`apply-profile-title-${profile.id}`} className="modalTitle">
+              Подставить последний расчёт?
+            </h4>
+            <p className="modalSubtitle">
+              Цели КБЖУ и клетчатки в этом профиле будут заменены значениями из последнего расчёта. Продолжить?
+            </p>
+
+            {applyError && <Alert text={applyError} />}
+
+            <div className="modalActions">
+              <button type="button" className="btn btn-secondary" onClick={closeApplyModal} disabled={applyingLatest}>
+                Отмена
+              </button>
+              <button type="button" className="btn btn-primary" onClick={onApplyLatestConfirmed} disabled={applyingLatest}>
+                {applyingLatest ? "Применяем..." : "Продолжить"}
               </button>
             </div>
           </div>

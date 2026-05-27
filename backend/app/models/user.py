@@ -25,3 +25,8 @@ class User(Base):
 
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     profiles: Mapped[list["Profile"]] = relationship("Profile", back_populates="user")
+    latest_profile_target_calculation: Mapped["ProfileTargetCalculation | None"] = relationship(
+        "ProfileTargetCalculation",
+        uselist=False,
+        back_populates="user",
+    )
