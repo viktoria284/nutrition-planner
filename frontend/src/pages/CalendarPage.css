@@ -581,9 +581,56 @@
   .calendar-day-dots-mobile {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     min-width: 0;
     overflow: hidden;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot {
+    width: 10px;
+    height: 10px;
+    border: 1px solid rgba(31, 37, 50, 0.18);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.65);
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-0 {
+    background: #5f99f2;
+    border-color: #3f7fd8;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-1 {
+    background: #f0a149;
+    border-color: #d7832f;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-2 {
+    background: #4fab72;
+    border-color: #3b925d;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-3 {
+    background: #9f76ec;
+    border-color: #885ed8;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-4 {
+    background: #ec7b9c;
+    border-color: #d66486;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-5 {
+    background: #47ada8;
+    border-color: #359690;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-6 {
+    background: #d4a937;
+    border-color: #b68e27;
+  }
+
+  .calendar-day-dots-mobile .calendar-plan-dot.calendar-plan-color-7 {
+    background: #7f86df;
+    border-color: #676ece;
   }
 
   .calendar-week-view {
