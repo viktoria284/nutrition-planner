@@ -886,7 +886,7 @@ def test_reports_unlist_on_threshold(client: TestClient) -> None:
     assert owner_get.json()["is_listed"] is False
 
 
-def test_withdraw_unlists_but_keeps_access_by_id(client: TestClient) -> None:
+def test_withdraw_returns_food_to_private_draft_and_editable(client: TestClient) -> None:
     register_user(client, email="owner@example.com", username="owneruser")
     register_user(client, email="u1@example.com", username="userone")
 
@@ -902,8 +902,8 @@ def test_withdraw_unlists_but_keeps_access_by_id(client: TestClient) -> None:
     withdraw_response = client.post(f"/foods/{food_id}/withdraw", headers=auth_headers(owner_token))
     assert withdraw_response.status_code == 200, withdraw_response.text
     withdrawn_food = withdraw_response.json()
-    assert withdrawn_food["source"] == "community"
-    assert withdrawn_food["status"] == "approved"
+    assert withdrawn_food["source"] == "private"
+    assert withdrawn_food["status"] == "draft"
     assert withdrawn_food["is_listed"] is False
 
     search_other = client.get(
@@ -923,11 +923,20 @@ def test_withdraw_unlists_but_keeps_access_by_id(client: TestClient) -> None:
     assert any(item["id"] == food_id for item in search_owner.json())
 
     get_other = client.get(f"/foods/{food_id}", headers=auth_headers(user1_token))
-    assert get_other.status_code == 200, get_other.text
-    assert get_other.json()["id"] == food_id
+    assert get_other.status_code == 404, get_other.text
 
     get_owner = client.get(f"/foods/{food_id}", headers=auth_headers(owner_token))
     assert get_owner.status_code == 200, get_owner.text
+    assert get_owner.json()["source"] == "private"
+    assert get_owner.json()["status"] == "draft"
+
+    patch_response = client.patch(
+        f"/foods/{food_id}",
+        headers=auth_headers(owner_token),
+        json={"name": "Editable Tuna"},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    assert patch_response.json()["name"] == "Editable Tuna"
     assert get_owner.json()["id"] == food_id
 
 

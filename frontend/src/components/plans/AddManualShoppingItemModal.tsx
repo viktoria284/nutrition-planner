@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { FormErrorSummary } from "../FormErrorSummary";
 import type { ShoppingManualItemCreatePayload } from "../../types/shopping";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, type FoodCategory } from "../../types/foodCategory";
+import { CustomSelect } from "../CustomSelect";
 
 type AddManualShoppingItemModalProps = {
   open: boolean;
@@ -17,6 +18,11 @@ type ManualFormState = {
   unit: string;
   category: FoodCategory;
 };
+
+const FOOD_CATEGORY_SELECT_OPTIONS = FOOD_CATEGORIES.map((category) => ({
+  value: category,
+  label: FOOD_CATEGORY_LABELS[category],
+}));
 
 function validatePositiveDecimal(raw: string): { value: string | null; error: string | null } {
   const normalized = raw.trim().replace(",", ".");
@@ -47,8 +53,11 @@ export function AddManualShoppingItemModal({
 
   useEffect(() => {
     if (!open) return;
-    setForm({ name: "", adjusted_grams: "", unit: "г", category: "other" });
-    setFormErrors([]);
+    const timeoutId = window.setTimeout(() => {
+      setForm({ name: "", adjusted_grams: "", unit: "г", category: "other" });
+      setFormErrors([]);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [open]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -120,19 +129,15 @@ export function AddManualShoppingItemModal({
 
           <label className="plans-field" htmlFor="manual-item-category">
             <span className="plans-field-label">Раздел магазина</span>
-            <select
+            <CustomSelect
               id="manual-item-category"
-              className="plans-field-input"
               value={form.category}
-              onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value as FoodCategory }))}
+              options={FOOD_CATEGORY_SELECT_OPTIONS}
+              onChange={(nextValue) => setForm((prev) => ({ ...prev, category: nextValue as FoodCategory }))}
               disabled={saving}
-            >
-              {FOOD_CATEGORIES.map((category) => (
-                <option key={category} value={category}>
-                  {FOOD_CATEGORY_LABELS[category]}
-                </option>
-              ))}
-            </select>
+              triggerClassName="plans-field-input"
+              ariaLabel="Раздел магазина"
+            />
           </label>
 
           <label className="plans-field" htmlFor="manual-item-grams">

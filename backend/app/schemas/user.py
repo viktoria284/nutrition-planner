@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, TypeAdapter, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, TypeAdapter, ValidationError, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 from app.models.enums import UserRole
 import re
@@ -88,15 +88,9 @@ class UserOut(BaseModel):
 
 
 class UserUpdateMe(BaseModel):
-    email: EmailStr | None = None
-    username: str | None = None
+    model_config = ConfigDict(extra="forbid")
 
-    @field_validator("email", mode="before")
-    @classmethod
-    def validate_email(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        return _normalize_email(v)
+    username: str | None = None
 
     @field_validator("username")
     @classmethod

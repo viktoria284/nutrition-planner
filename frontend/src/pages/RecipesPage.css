@@ -1024,10 +1024,29 @@
 }
 
 .ingredients-edit-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fbfbfb;
+  padding: 10px;
   display: grid;
-  gap: 10px;
-  grid-template-columns: minmax(220px, 1.5fr) minmax(120px, 160px) minmax(220px, 1.5fr) auto;
-  align-items: flex-start;
+  gap: 8px;
+  grid-template-columns: 1fr;
+}
+
+.ingredients-edit-row-top {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.ingredients-edit-row-bottom {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(118px, 170px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
 }
 
 .ingredients-row-food,
@@ -1044,10 +1063,13 @@
 .ingredients-serving-grid {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 0.7fr);
   gap: 8px;
+  align-items: start;
 }
 
 .ingredients-serving-hint {
+  grid-column: 1 / -1;
   margin: 0;
   color: var(--text-soft);
   font-size: 0.84rem;
@@ -1068,6 +1090,15 @@
 .ingredients-delete-btn {
   min-width: 96px;
   align-self: start;
+}
+
+.ingredients-delete-icon-btn {
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
 .ingredients-readonly-row {
@@ -1094,6 +1125,8 @@
 
 .recipes-modal {
   width: min(620px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
@@ -1218,6 +1251,11 @@
 
   .ingredients-edit-row {
     grid-template-columns: 1fr;
+  }
+
+  .ingredients-edit-row-bottom,
+  .ingredients-serving-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .ingredients-row-actions {

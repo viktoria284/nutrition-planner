@@ -1837,22 +1837,11 @@
   white-space: nowrap;
 }
 
-.shopping-mobile-more > summary {
-  list-style: none;
-}
-
-.shopping-mobile-more > summary::-webkit-details-marker {
-  display: none;
-}
-
 .shopping-mobile-more-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  left: auto;
-  width: min(220px, calc(100vw - 24px));
+  position: fixed;
+  width: 220px;
   max-width: calc(100vw - 24px);
-  z-index: 5;
+  z-index: 80;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
@@ -1860,12 +1849,16 @@
   padding: 6px;
   display: grid;
   gap: 6px;
+  max-height: min(260px, calc(100dvh - 24px));
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .shopping-mobile-more-btn {
   width: 100%;
   justify-content: flex-start;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: left;
 }
 
 .shopping-mobile-add-label-short {
@@ -2123,10 +2116,6 @@
 
   .shopping-mobile-add {
     min-width: 112px;
-  }
-
-  .shopping-mobile-more-panel {
-    right: 0;
   }
 
   .plan-shopping-controls-panel {

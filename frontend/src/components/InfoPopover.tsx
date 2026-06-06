@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation } from "react-router-dom";
 import "./InfoPopover.css";
 
 type InfoPopoverProps = {
@@ -9,6 +10,7 @@ type InfoPopoverProps = {
 };
 
 export function InfoPopover({ text, ariaLabel, className }: InfoPopoverProps) {
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ top: 0, left: 0, maxWidth: 320 });
   const [isReady, setIsReady] = useState(false);
@@ -58,35 +60,42 @@ export function InfoPopover({ text, ariaLabel, className }: InfoPopoverProps) {
   useEffect(() => {
     if (!open) return undefined;
 
-    const onPointerDown = (event: MouseEvent) => {
+    const close = () => setOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
       if (rootRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
-      setOpen(false);
+      close();
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setOpen(false);
+        close();
       }
     };
 
-    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("pointerdown", onPointerDown, true);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("touchmove", close, { passive: true });
     return () => {
-      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("pointerdown", onPointerDown, true);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("touchmove", close);
     };
   }, [open]);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setOpen(false), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [location.pathname, location.search]);
+
   useLayoutEffect(() => {
     if (!open) return;
-    setIsReady(false);
     updatePosition();
   }, [open, text]);
 
@@ -103,7 +112,10 @@ export function InfoPopover({ text, ariaLabel, className }: InfoPopoverProps) {
         }}
         onClick={(event) => {
           event.stopPropagation();
-          setOpen((prev) => !prev);
+          setOpen((prev) => {
+            if (!prev) setIsReady(false);
+            return !prev;
+          });
         }}
       >
         i

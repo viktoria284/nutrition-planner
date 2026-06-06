@@ -1,0 +1,120 @@
+.recipe-placeholder {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 18px;
+  color: #ffffff;
+  isolation: isolate;
+  text-align: center;
+  background: linear-gradient(135deg, #49b36d, #2f9f83 52%, #247a6b);
+}
+
+.recipe-placeholder::before,
+.recipe-placeholder::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+  z-index: -1;
+}
+
+.recipe-placeholder::before {
+  width: 188px;
+  height: 188px;
+  right: -46px;
+  top: -58px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.08) 68%, transparent 70%);
+}
+
+.recipe-placeholder::after {
+  width: 150px;
+  height: 150px;
+  left: -54px;
+  bottom: -58px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.18), transparent 70%);
+}
+
+.recipe-placeholder.recipe-placeholder--breakfast {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.14), transparent 38%),
+    linear-gradient(135deg, #ffc36a, #ff8c5f 48%, #f06062);
+}
+
+.recipe-placeholder.recipe-placeholder--lunch {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.13), transparent 40%),
+    linear-gradient(135deg, #6fcf82, #2f9f83 52%, #247a6b);
+}
+
+.recipe-placeholder.recipe-placeholder--dinner {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.12), transparent 40%),
+    linear-gradient(135deg, #667eea, #6c4ab6 54%, #352a77);
+}
+
+.recipe-placeholder.recipe-placeholder--snack {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.14), transparent 40%),
+    linear-gradient(135deg, #ff8bb8, #d85a8e 52%, #9e4f9f);
+}
+
+.recipe-placeholder.recipe-placeholder--default {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.13), transparent 40%),
+    linear-gradient(135deg, #78b7ff, #5b8def 52%, #5160b5);
+}
+
+.recipe-placeholder-pattern {
+  position: absolute;
+  inset: 12px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background-image:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+  opacity: 0.38;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.recipe-placeholder-orb {
+  position: relative;
+  z-index: 1;
+  width: clamp(58px, 26%, 96px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  font-size: clamp(1.8rem, 8vw, 3rem);
+  box-shadow: 0 14px 34px rgba(16, 24, 20, 0.18);
+  transform: rotate(7deg);
+}
+
+.recipe-placeholder--compact {
+  padding: 12px 10px 10px;
+  gap: 5px;
+}
+
+.recipe-placeholder--compact .recipe-placeholder-orb {
+  width: clamp(38px, 34%, 52px);
+  border-radius: 16px;
+  font-size: clamp(1.18rem, 7vw, 1.55rem);
+}
+
+.recipe-placeholder.recipe-grid-image-fallback,
+.recipe-placeholder.recipe-cover-fallback,
+.recipe-placeholder.plan-slot-preview-cover-fallback {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  color: #ffffff;
+}

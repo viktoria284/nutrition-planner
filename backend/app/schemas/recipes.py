@@ -38,9 +38,11 @@ def _validate_image_url(value: str | None) -> str | None:
     normalized = _normalize_optional_text(value)
     if normalized is None:
         return None
+    if normalized.startswith("/media/recipes/"):
+        return normalized
     parsed = urlparse(normalized)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("image_url must be a valid http/https URL")
+        raise ValueError("image_url must be a valid http/https URL or uploaded recipe media URL")
     return normalized
 
 
@@ -256,8 +258,8 @@ class RecipeStepsReplace(BaseModel):
 
 class RecipeRead(BaseModel):
     id: int
-    owner_user_id: int
-    author_id: int
+    owner_user_id: int | None
+    author_id: int | None
     author_username: str | None = None
     name: str
     description: str | None

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { useProfiles } from "../context/ProfilesContext";
+import { CustomSelect } from "./CustomSelect";
 import { LogoutConfirmModal } from "./LogoutConfirmModal";
 
 function navClass({ isActive }: { isActive: boolean }) {
@@ -16,6 +17,11 @@ export function Navbar() {
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
 
   const profileValue = activeProfileId !== null ? String(activeProfileId) : "";
+  const profileOptions = loading
+    ? [{ value: "", label: "Загрузка…", disabled: true }]
+    : profiles.length === 0
+      ? [{ value: "", label: "Нет профилей", disabled: true }]
+      : profiles.map((profile) => ({ value: String(profile.id), label: profile.name }));
   const isAutoplanRoute = location.pathname.startsWith("/plans/autogenerate");
   const isPlansRoute =
     location.pathname.startsWith("/plans") &&
@@ -23,7 +29,8 @@ export function Navbar() {
     !location.pathname.startsWith("/plans/autogenerate/");
 
   useEffect(() => {
-    setMobileMenuOpen(false);
+    const timeoutId = window.setTimeout(() => setMobileMenuOpen(false), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [location.pathname]);
 
   const requestLogout = () => {
@@ -69,7 +76,7 @@ export function Navbar() {
                 <NavLink to="/shopping-lists" className={navClass}>
                   Покупки
                 </NavLink>
-                {user?.role === "admin" && (
+                {(user?.role === "admin" || user?.role === "superadmin") && (
                   <NavLink to="/admin" className={navClass}>
                     Админ
                   </NavLink>
@@ -77,28 +84,21 @@ export function Navbar() {
               </nav>
 
               <nav className="topbar-nav" aria-label="Пользовательское меню">
-                <label className="profile-picker" htmlFor="active-profile-picker">
+                <div className="profile-picker">
                   <span className="sr-only">Активный профиль</span>
-                  <select
+                  <CustomSelect
                     id="active-profile-picker"
-                    className="profile-picker-select"
                     value={profileValue}
+                    options={profileOptions}
                     disabled={loading || profiles.length === 0}
-                    onChange={(e) => {
-                      const next = Number(e.target.value);
+                    ariaLabel="Активный профиль"
+                    triggerClassName="profile-picker-select"
+                    onChange={(nextValue) => {
+                      const next = Number(nextValue);
                       if (Number.isInteger(next)) setActiveProfileId(next);
                     }}
-                  >
-                    {loading && <option value="">Загрузка…</option>}
-                    {!loading && profiles.length === 0 && <option value="">Нет профилей</option>}
-                    {!loading &&
-                      profiles.map((profile) => (
-                        <option key={profile.id} value={String(profile.id)}>
-                          {profile.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+                  />
+                </div>
 
                 <NavLink to="/settings" className={navClass}>
                   Настройки
@@ -115,28 +115,21 @@ export function Navbar() {
                 Nutrition
               </Link>
 
-              <label className="profile-picker profile-picker-mobile" htmlFor="active-profile-picker-mobile">
+              <div className="profile-picker profile-picker-mobile">
                 <span className="sr-only">Активный профиль</span>
-                <select
+                <CustomSelect
                   id="active-profile-picker-mobile"
-                  className="profile-picker-select profile-picker-select-mobile"
                   value={profileValue}
+                  options={profileOptions}
                   disabled={loading || profiles.length === 0}
-                  onChange={(e) => {
-                    const next = Number(e.target.value);
+                  ariaLabel="Активный профиль"
+                  triggerClassName="profile-picker-select profile-picker-select-mobile"
+                  onChange={(nextValue) => {
+                    const next = Number(nextValue);
                     if (Number.isInteger(next)) setActiveProfileId(next);
                   }}
-                >
-                  {loading && <option value="">Загрузка…</option>}
-                  {!loading && profiles.length === 0 && <option value="">Нет профилей</option>}
-                  {!loading &&
-                    profiles.map((profile) => (
-                      <option key={profile.id} value={String(profile.id)}>
-                        {profile.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+                />
+              </div>
 
               <button
                 type="button"
@@ -193,7 +186,7 @@ export function Navbar() {
                 >
                   Покупки
                 </NavLink>
-                {user?.role === "admin" && (
+                {(user?.role === "admin" || user?.role === "superadmin") && (
                   <NavLink
                     to="/admin"
                     className={({ isActive }) => `nav-link topbar-mobile-menu-link ${isActive ? "nav-link-active" : ""}`}

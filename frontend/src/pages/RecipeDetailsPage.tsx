@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  addAdminRecipeIngredient,
+  deleteAdminRecipeIngredient,
+  getAdminRecipe,
+  moderateAdminRecipe,
+  resolveAdminRecipeReport,
+  updateAdminRecipeIngredient,
+} from "../api/admin";
 import { getFoodServings, type FoodItem, type FoodServingRead } from "../api/foods";
 import { ApiError } from "../api/http";
 import { useAuth } from "../auth/useAuth";
@@ -26,8 +34,10 @@ import {
 } from "../api/recipes";
 import { favoriteAuthor, listFavoriteAuthors, unfavoriteAuthor } from "../api/users";
 import { Alert } from "../components/Alert";
+import { CustomSelect } from "../components/CustomSelect";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { MarkdownContent } from "../components/MarkdownTextarea";
+import { RecipePlaceholder } from "../components/recipes/RecipePlaceholder";
 import { getCurrentUserIdFromJwt } from "../utils/auth";
 import { formatRoundedNumber, formatTrimmedNumber, toSafeNumber } from "../utils/numberFormat";
 import "./RecipesPage.css";
@@ -83,9 +93,27 @@ type IngredientRow = {
 
 type RecipeDetailsLocationState = {
   flashMessage?: string;
+  adminReturnTo?: string;
+  adminReportId?: number;
+  adminReportTargetType?: "food" | "recipe";
+  adminReportTargetName?: string;
+  adminReportQueue?: Array<{
+    id: number;
+    targetType: "food" | "recipe";
+    targetId: number;
+    targetName: string;
+  }>;
+  adminReportQueueIndex?: number;
 };
 
 const REPORT_REASON_OPTIONS = ["Неверные данные", "Дубликат", "Спам/мусор", "Оскорбительный контент", "Другое"] as const;
+const REPORT_REASON_SELECT_OPTIONS = [
+  { value: "", label: "Выберите причину" },
+  ...REPORT_REASON_OPTIONS.map((reason) => ({ value: reason, label: reason })),
+];
+
+const RECIPE_LOCKED_EDIT_MESSAGE =
+  "Опубликованный рецепт нельзя редактировать. Чтобы внести изменения, отзовите публикацию.";
 
 const EMPTY_REPORT_FORM: ReportForm = {
   reason: "",
@@ -163,9 +191,12 @@ function buildIngredientRows(ingredients?: RecipeIngredientRead[]): IngredientRo
       food_id: ingredient.food_id,
       food: toFoodSearchOption(ingredient),
       mode,
-      grams: String(ingredient.grams),
+      grams: formatTrimmedNumber(ingredient.grams),
       serving_id: hasServingMode ? ingredient.serving_id ?? undefined : undefined,
-      multiplier: hasServingMode && ingredient.multiplier !== null && ingredient.multiplier !== undefined ? String(ingredient.multiplier) : "",
+      multiplier:
+        hasServingMode && ingredient.multiplier !== null && ingredient.multiplier !== undefined
+          ? formatTrimmedNumber(ingredient.multiplier)
+          : "",
       initialMode: mode,
       initialFoodId: ingredient.food_id,
       initialGrams: Number.isFinite(initialGramsValue) ? initialGramsValue : null,
@@ -288,6 +319,8 @@ export function RecipeDetailsPage() {
   const [favoriteUpdating, setFavoriteUpdating] = useState(false);
   const [favoriteAuthorIds, setFavoriteAuthorIds] = useState<Set<number>>(new Set());
   const [favoriteAuthorUpdating, setFavoriteAuthorUpdating] = useState(false);
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionError, setAdminActionError] = useState<string | null>(null);
 
   const [noteValue, setNoteValue] = useState("");
   const [noteLoading, setNoteLoading] = useState(false);
@@ -297,6 +330,7 @@ export function RecipeDetailsPage() {
   const [noteSuccess, setNoteSuccess] = useState<string | null>(null);
   const [recipeImageBroken, setRecipeImageBroken] = useState(false);
   const [flashMessage, setFlashMessage] = useState<string | null>(null);
+  const locationState = location.state as RecipeDetailsLocationState | null;
 
   const [ingredientRows, setIngredientRows] = useState<IngredientRow[]>([]);
   const [ingredientsSaving, setIngredientsSaving] = useState(false);
@@ -408,10 +442,15 @@ export function RecipeDetailsPage() {
   }, [flashMessage]);
 
   const isOwner = Boolean(recipe && currentUserId !== null && recipe.owner_user_id === currentUserId);
+  const isAdminRecipeEditor = Boolean(
+    recipe &&
+      (user?.role === "admin" || user?.role === "superadmin") &&
+      locationState?.adminReturnTo === "/admin/recipes",
+  );
   const canEditRecipe = Boolean(recipe && isOwner && recipe.source === "private" && recipe.status === "draft");
   const canPublishRecipe = canEditRecipe;
   const canDeleteRecipe = canEditRecipe;
-  const canEditIngredients = isOwner;
+  const canEditIngredients = canEditRecipe || isAdminRecipeEditor;
   const canWithdrawRecipe = Boolean(
     recipe && isOwner && recipe.source === "community" && recipe.status === "approved" && recipe.is_listed,
   );
@@ -429,12 +468,22 @@ export function RecipeDetailsPage() {
   const currentUserIdNumber = Number(currentUserId);
   const canFavoriteAuthor = Boolean(
     recipe &&
+      recipe.author_id !== null &&
       recipe.author_username &&
       Number.isFinite(currentUserIdNumber) &&
       recipe.author_id !== currentUserIdNumber,
   );
-  const isAuthorFavorite = Boolean(recipe && favoriteAuthorIds.has(recipe.author_id));
+  const isAuthorFavorite = Boolean(recipe && recipe.author_id !== null && favoriteAuthorIds.has(recipe.author_id));
   const showModerationBanner = Boolean(recipe && isOwner && recipe.status === "pending" && !recipe.is_listed);
+  const showAdminActionBar = Boolean((user?.role === "admin" || user?.role === "superadmin") && locationState?.adminReturnTo);
+  const adminReportQueue = locationState?.adminReportQueue ?? [];
+  const adminReportQueueIndex = locationState?.adminReportQueueIndex ?? -1;
+  const adminPreviousReport =
+    adminReportQueueIndex > 0 && adminReportQueueIndex < adminReportQueue.length ? adminReportQueue[adminReportQueueIndex - 1] : null;
+  const adminNextReport =
+    adminReportQueueIndex >= 0 && adminReportQueueIndex < adminReportQueue.length - 1
+      ? adminReportQueue[adminReportQueueIndex + 1]
+      : null;
 
   const loadFavoriteAuthors = useCallback(async () => {
     try {
@@ -495,7 +544,7 @@ export function RecipeDetailsPage() {
     () => ingredientRows.filter((row) => !row.markedForDelete),
     [ingredientRows],
   );
-  const servingsCache = useMemo(() => servingsCacheRef.current, [servingsVersion]);
+  const servingsCache = servingsCacheRef.current;
 
   const ensureFoodServingsLoaded = useCallback(async (foodId: number) => {
     if (servingsCacheRef.current.has(foodId) || servingsLoadingRef.current.has(foodId)) return;
@@ -530,6 +579,25 @@ export function RecipeDetailsPage() {
       }
     }
   }, [ensureFoodServingsLoaded, visibleIngredientRows]);
+
+  useEffect(() => {
+    setIngredientRows((prev) => {
+      let changed = false;
+      const next = prev.map((row) => {
+        if (row.mode !== "serving" || !row.food_id || !servingsCacheRef.current.has(row.food_id)) return row;
+        if ((servingsCacheRef.current.get(row.food_id)?.length ?? 0) > 0) return row;
+        changed = true;
+        return {
+          ...row,
+          mode: "grams" as IngredientMode,
+          serving_id: undefined,
+          multiplier: "",
+          errors: { ...row.errors, serving: undefined, multiplier: undefined },
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [servingsVersion]);
 
   const ingredientDeleteTarget = useMemo(
     () => ingredientRows.find((row) => row.localId === ingredientDeleteTargetLocalId) ?? null,
@@ -591,19 +659,24 @@ export function RecipeDetailsPage() {
   const onIngredientFoodChange = (localId: string, food: FoodItem | null) => {
     if (food?.id) void ensureFoodServingsLoaded(food.id);
 
-    updateIngredientRow(localId, (row) => ({
-      ...row,
-      food: food
-        ? {
-            id: food.id,
-            name: food.name,
-            brand: food.brand ?? null,
-          }
-        : null,
-      food_id: food?.id,
-      serving_id: row.food_id === food?.id ? row.serving_id : undefined,
-      errors: { ...row.errors, food: undefined, serving: undefined },
-    }));
+    updateIngredientRow(localId, (row) => {
+      const isSameFood = row.food_id === food?.id;
+      return {
+        ...row,
+        food: food
+          ? {
+              id: food.id,
+              name: food.name,
+              brand: food.brand ?? null,
+            }
+          : null,
+        food_id: food?.id,
+        mode: isSameFood ? row.mode : "grams",
+        serving_id: isSameFood ? row.serving_id : undefined,
+        multiplier: isSameFood ? row.multiplier : "",
+        errors: { ...row.errors, food: undefined, serving: undefined, multiplier: undefined },
+      };
+    });
   };
 
   const onIngredientModeChange = (localId: string, mode: IngredientMode) => {
@@ -692,7 +765,7 @@ export function RecipeDetailsPage() {
     try {
       for (const row of validatedRows) {
         if (row.markedForDelete && row.id) {
-          await deleteIngredient(recipe.id, row.id);
+          await (isAdminRecipeEditor ? deleteAdminRecipeIngredient(recipe.id, row.id) : deleteIngredient(recipe.id, row.id));
         }
       }
 
@@ -721,28 +794,35 @@ export function RecipeDetailsPage() {
             payload.multiplier = multiplier;
           }
 
-          await updateIngredient(recipe.id, row.id, payload);
+          await (isAdminRecipeEditor ? updateAdminRecipeIngredient(recipe.id, row.id, payload) : updateIngredient(recipe.id, row.id, payload));
           continue;
         }
 
         if (row.mode === "grams") {
           const grams = Number(row.grams.trim());
-          await addIngredient(recipe.id, { food_id: row.food_id, grams });
+          await (isAdminRecipeEditor
+            ? addAdminRecipeIngredient(recipe.id, { food_id: row.food_id, grams })
+            : addIngredient(recipe.id, { food_id: row.food_id, grams }));
         } else {
           const multiplier = Number(row.multiplier.trim());
-          await addIngredient(recipe.id, {
+          const payload = {
             food_id: row.food_id,
             serving_id: row.serving_id,
             multiplier,
-          });
+          };
+          await (isAdminRecipeEditor ? addAdminRecipeIngredient(recipe.id, payload) : addIngredient(recipe.id, payload));
         }
       }
 
-      const refreshed = await getRecipe(recipe.id);
+      const refreshed = await (isAdminRecipeEditor ? getAdminRecipe(recipe.id) : getRecipe(recipe.id));
       applyRecipePayload(refreshed);
       setIngredientsSuccess(true);
     } catch (err) {
-      setIngredientsError(resolveActionError(err, "Не удалось сохранить ингредиенты."));
+      if (err instanceof ApiError && err.status === 409) {
+        setIngredientsError(RECIPE_LOCKED_EDIT_MESSAGE);
+      } else {
+        setIngredientsError(resolveActionError(err, "Не удалось сохранить ингредиенты."));
+      }
     } finally {
       setIngredientsSaving(false);
     }
@@ -916,7 +996,7 @@ export function RecipeDetailsPage() {
   };
 
   const onToggleFavoriteAuthor = async () => {
-    if (!recipe || !canFavoriteAuthor || favoriteAuthorUpdating) return;
+    if (!recipe || recipe.author_id === null || !canFavoriteAuthor || favoriteAuthorUpdating) return;
     setFavoriteAuthorUpdating(true);
     try {
       if (favoriteAuthorIds.has(recipe.author_id)) {
@@ -970,6 +1050,51 @@ export function RecipeDetailsPage() {
     }
   };
 
+  const onAdminToggleRecipeVisibility = async () => {
+    if (!recipe || adminActionLoading) return;
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    try {
+      await moderateAdminRecipe(recipe.id, recipe.is_listed ? "hide" : "restore");
+      const refreshed = await getRecipe(recipe.id);
+      applyRecipePayload(refreshed);
+    } catch (err) {
+      setAdminActionError(resolveActionError(err, "Не удалось выполнить действие администратора."));
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const onAdminResolveRecipeReport = async (resolution: "no_action" | "content_hidden") => {
+    if (!locationState?.adminReportId || locationState.adminReportTargetType !== "recipe" || adminActionLoading) return;
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    try {
+      await resolveAdminRecipeReport(locationState.adminReportId, resolution);
+      if (recipe && resolution === "content_hidden") {
+        const refreshed = await getRecipe(recipe.id).catch(() => null);
+        if (refreshed) applyRecipePayload(refreshed);
+      }
+    } catch (err) {
+      setAdminActionError(resolveActionError(err, "Не удалось закрыть жалобу."));
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const buildAdminReportState = (
+    item: NonNullable<typeof adminNextReport>,
+    indexOffset: -1 | 1,
+  ): RecipeDetailsLocationState => ({
+    ...(locationState ?? {}),
+    adminReturnTo: locationState?.adminReturnTo ?? "/admin/reports",
+    adminReportId: item.id,
+    adminReportTargetType: item.targetType,
+    adminReportTargetName: item.targetName,
+    adminReportQueue,
+    adminReportQueueIndex: adminReportQueueIndex + indexOffset,
+  });
+
   return (
     <section className="recipes-page">
       <div className="recipes-shell">
@@ -991,6 +1116,60 @@ export function RecipeDetailsPage() {
 
         {loading && <p className="recipes-note">Загрузка...</p>}
         {flashMessage && <p className="recipes-inline-success">{flashMessage}</p>}
+
+        {showAdminActionBar && (
+          <div className="admin-context-bar">
+            <div>
+              <b>Админский просмотр</b>
+              <p>{locationState?.adminReportTargetName ? `Жалоба: ${locationState.adminReportTargetName}` : "Объект открыт из админки."}</p>
+              {!recipe && !loading && <p className="admin-context-error">Объект не найден или уже удалён. Жалобу всё ещё можно закрыть.</p>}
+              {adminActionError && <p className="admin-context-error">{adminActionError}</p>}
+            </div>
+            <div className="admin-context-actions">
+              <Link to={locationState?.adminReturnTo ?? "/admin/reports"} className="btn btn-secondary">
+                Вернуться без решения
+              </Link>
+              {recipe && !locationState?.adminReportId && (
+                <button type="button" className="btn btn-secondary" onClick={() => void onAdminToggleRecipeVisibility()} disabled={adminActionLoading}>
+                  {recipe.is_listed ? "Скрыть объект" : "Восстановить объект"}
+                </button>
+              )}
+              {locationState?.adminReportTargetType === "recipe" && locationState.adminReportId && recipe && (
+                <>
+                  <button type="button" className="btn btn-secondary" onClick={() => void onAdminResolveRecipeReport("content_hidden")} disabled={adminActionLoading}>
+                    Скрыть объект и закрыть жалобу
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={() => void onAdminResolveRecipeReport("no_action")} disabled={adminActionLoading}>
+                    Оставить объект и закрыть жалобу
+                  </button>
+                </>
+              )}
+              {locationState?.adminReportTargetType === "recipe" && locationState.adminReportId && !recipe && !loading && (
+                <button type="button" className="btn btn-primary" onClick={() => void onAdminResolveRecipeReport("no_action")} disabled={adminActionLoading}>
+                  Закрыть жалобу
+                </button>
+              )}
+              {adminPreviousReport && (
+                <Link
+                  to={adminPreviousReport.targetType === "food" ? `/foods/${adminPreviousReport.targetId}` : `/recipes/${adminPreviousReport.targetId}`}
+                  state={buildAdminReportState(adminPreviousReport, -1)}
+                  className="btn btn-secondary"
+                >
+                  Предыдущая жалоба
+                </Link>
+              )}
+              {adminNextReport && (
+                <Link
+                  to={adminNextReport.targetType === "food" ? `/foods/${adminNextReport.targetId}` : `/recipes/${adminNextReport.targetId}`}
+                  state={buildAdminReportState(adminNextReport, 1)}
+                  className="btn btn-secondary"
+                >
+                  Следующая жалоба
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
 
         {!loading && error && (
           <div className="recipes-error-block">
@@ -1015,9 +1194,7 @@ export function RecipeDetailsPage() {
                         onError={() => setRecipeImageBroken(true)}
                       />
                     ) : (
-                      <div className="recipe-cover-fallback" aria-hidden="true">
-                        {recipe.name.slice(0, 1).toUpperCase()}
-                      </div>
+                      <RecipePlaceholder name={recipe.name} mealTypes={recipe.meal_types} className="recipe-cover-fallback" />
                     )}
                   </div>
 
@@ -1116,12 +1293,16 @@ export function RecipeDetailsPage() {
                 {recipe.author_username && (
                   <div className="recipe-meta-row recipe-meta-row-author">
                     <b>Автор:</b>{" "}
-                    <Link
-                      to={`/recipes/public?author=${recipe.author_id}${recipe.author_username ? `&author_username=${encodeURIComponent(recipe.author_username)}` : ""}`}
-                      className="recipe-author-link"
-                    >
-                      @{recipe.author_username}
-                    </Link>
+                    {recipe.author_id === null ? (
+                      <span>{recipe.author_username}</span>
+                    ) : (
+                      <Link
+                        to={`/recipes/public?author=${recipe.author_id}${recipe.author_username ? `&author_username=${encodeURIComponent(recipe.author_username)}` : ""}`}
+                        className="recipe-author-link"
+                      >
+                        @{recipe.author_username}
+                      </Link>
+                    )}
                     {canFavoriteAuthor && (
                       <button
                         type="button"
@@ -1279,6 +1460,9 @@ export function RecipeDetailsPage() {
                 </div>
               )}
               {ingredientsSuccess && <p className="recipes-inline-success">Ингредиенты сохранены.</p>}
+              {recipe && isOwner && !canEditRecipe && (
+                <p className="recipes-note">{RECIPE_LOCKED_EDIT_MESSAGE}</p>
+              )}
 
               {visibleIngredientRows.length === 0 && <p className="recipes-note">Ингредиентов пока нет</p>}
               {canEditIngredients && visibleIngredientRows.length === 0 && (
@@ -1289,113 +1473,121 @@ export function RecipeDetailsPage() {
                 <ul className="ingredients-edit-list">
                   {visibleIngredientRows.map((row) => (
                     <li key={row.localId} className="ingredients-edit-row">
-                      <div className="ingredients-row-food">
-                        <FoodSearchSelect
-                          value={row.food}
-                          onChange={(food) => onIngredientFoodChange(row.localId, food)}
-                          placeholder="Выберите продукт"
-                          disabled={ingredientsSaving}
-                        />
-                        <div className="ingredients-error-slot">{row.errors?.food && <p className="recipes-field-error">{row.errors.food}</p>}</div>
-                      </div>
-
-                      <div className="ingredients-row-mode">
-                        <select
-                          className="recipes-field-input"
-                          value={row.mode}
-                          onChange={(e) => onIngredientModeChange(row.localId, e.target.value as IngredientMode)}
-                          disabled={ingredientsSaving}
-                        >
-                          <option value="grams">Граммы</option>
-                          <option value="serving">Порция</option>
-                        </select>
-                        <div className="ingredients-error-slot" />
-                      </div>
-
-                      {row.mode === "grams" ? (
-                        <div className="ingredients-row-field">
-                          <input
-                            className={`recipes-field-input ${row.errors?.grams ? "is-invalid" : ""}`}
-                            type="number"
-                            min={0}
-                            step="0.1"
-                            value={row.grams}
-                            onChange={(e) => onIngredientGramsChange(row.localId, e.target.value)}
-                            placeholder="Граммы"
+                      <div className="ingredients-edit-row-top">
+                        <div className="ingredients-row-food">
+                          <FoodSearchSelect
+                            value={row.food}
+                            onChange={(food) => onIngredientFoodChange(row.localId, food)}
+                            placeholder="Выберите продукт"
                             disabled={ingredientsSaving}
                           />
-                          <div className="ingredients-error-slot">{row.errors?.grams && <p className="recipes-field-error">{row.errors.grams}</p>}</div>
+                          <div className="ingredients-error-slot">{row.errors?.food && <p className="recipes-field-error">{row.errors.food}</p>}</div>
                         </div>
-                      ) : (
-                        <div className="ingredients-serving-grid">
-                          <div className="ingredients-row-field">
-                            <select
-                              className={`recipes-field-input ${row.errors?.serving ? "is-invalid" : ""}`}
-                              value={row.serving_id ?? ""}
-                              onChange={(e) => onIngredientServingChange(row.localId, e.target.value)}
-                              disabled={ingredientsSaving || !row.food_id || servingsLoadingRef.current.has(row.food_id ?? -1)}
-                            >
-                              <option value="">Выберите порцию</option>
-                              {(row.food_id ? servingsCache.get(row.food_id) : [])?.map((serving) => (
-                                <option key={serving.id} value={serving.id}>
-                                  {serving.name} ({formatTrimmedNumber(serving.grams)} г)
-                                </option>
-                              ))}
-                            </select>
-                            <div className="ingredients-error-slot">
-                              {row.errors?.serving && <p className="recipes-field-error">{row.errors.serving}</p>}
-                              {!row.errors?.serving && row.food_id && servingsErrorsByFoodId[row.food_id] && (
-                                <p className="recipes-field-error">{servingsErrorsByFoodId[row.food_id]}</p>
-                              )}
-                              {!row.errors?.serving &&
-                                row.food_id &&
-                                !servingsErrorsByFoodId[row.food_id] &&
-                                !servingsLoadingRef.current.has(row.food_id ?? -1) &&
-                                (servingsCache.get(row.food_id)?.length ?? 0) === 0 && (
-                                  <p className="recipes-field-error">У выбранного продукта нет сохранённых порций.</p>
-                                )}
-                            </div>
-                          </div>
 
-                          <div className="ingredients-row-field">
-                            <input
-                              className={`recipes-field-input ${row.errors?.multiplier ? "is-invalid" : ""}`}
-                              type="number"
-                              min={0}
-                              step="0.1"
-                              value={row.multiplier}
-                              onChange={(e) => onIngredientMultiplierChange(row.localId, e.target.value)}
-                              placeholder="Множитель"
-                              disabled={ingredientsSaving}
-                            />
-                            <div className="ingredients-error-slot">
-                              {row.errors?.multiplier && <p className="recipes-field-error">{row.errors.multiplier}</p>}
-                            </div>
-                          </div>
-
-                          <p className="ingredients-serving-hint">
-                            {(() => {
-                              const servings = row.food_id ? servingsCache.get(row.food_id) ?? [] : [];
-                              const serving = servings.find((item) => item.id === row.serving_id);
-                              const multiplier = Number(row.multiplier.trim());
-                              if (!serving || !Number.isFinite(multiplier) || multiplier <= 0) {
-                                return "Итого грамм: —";
-                              }
-                              return `Итого грамм: ${formatTrimmedNumber(serving.grams * multiplier)} г`;
-                            })()}
-                          </p>
-                        </div>
-                      )}
-
-                      <div className="ingredients-row-actions">
                         <button
                           type="button"
-                          className="btn btn-subtle ingredients-delete-btn"
+                          className="btn btn-subtle ingredients-delete-icon-btn"
                           onClick={() => openIngredientDeleteModal(row.localId)}
                           disabled={ingredientsSaving}
+                          aria-label={`Удалить ингредиент ${ingredientLabel(row)}`}
                         >
-                          Удалить
+                          <span aria-hidden="true">×</span>
                         </button>
+                      </div>
+
+                      <div className="ingredients-edit-row-bottom">
+                        <div className="ingredients-row-mode">
+                          <CustomSelect
+                            value={row.mode}
+                            onChange={(value) => onIngredientModeChange(row.localId, value as IngredientMode)}
+                            disabled={ingredientsSaving}
+                            ariaLabel="Способ ввода количества ингредиента"
+                            options={[
+                              { value: "grams", label: "Граммы" },
+                              ...(row.mode === "serving" || (row.food_id ? (servingsCache.get(row.food_id)?.length ?? 0) > 0 : false)
+                                ? [{ value: "serving", label: "Порция" }]
+                                : []),
+                            ]}
+                          />
+                          <div className="ingredients-error-slot" />
+                        </div>
+
+                        {row.mode === "grams" ? (
+                          <div className="ingredients-row-field">
+                            <input
+                              className={`recipes-field-input ${row.errors?.grams ? "is-invalid" : ""}`}
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={row.grams}
+                              onChange={(e) => onIngredientGramsChange(row.localId, e.target.value)}
+                              placeholder="Граммы"
+                              disabled={ingredientsSaving}
+                            />
+                            <div className="ingredients-error-slot">{row.errors?.grams && <p className="recipes-field-error">{row.errors.grams}</p>}</div>
+                          </div>
+                        ) : (
+                          <div className="ingredients-serving-grid">
+                            <div className="ingredients-row-field">
+                              <CustomSelect
+                                value={row.serving_id ? String(row.serving_id) : ""}
+                                onChange={(value) => onIngredientServingChange(row.localId, value)}
+                                disabled={ingredientsSaving || !row.food_id || servingsLoadingRef.current.has(row.food_id ?? -1)}
+                                invalid={Boolean(row.errors?.serving)}
+                                ariaLabel="Выберите порцию ингредиента"
+                                placeholder="Выберите порцию"
+                                options={[
+                                  { value: "", label: "Выберите порцию" },
+                                  ...(row.food_id ? servingsCache.get(row.food_id) ?? [] : []).map((serving) => ({
+                                    value: String(serving.id),
+                                    label: `${serving.name} (${formatTrimmedNumber(serving.grams)} г)`,
+                                  })),
+                                ]}
+                              />
+                              <div className="ingredients-error-slot">
+                                {row.errors?.serving && <p className="recipes-field-error">{row.errors.serving}</p>}
+                                {!row.errors?.serving && row.food_id && servingsErrorsByFoodId[row.food_id] && (
+                                  <p className="recipes-field-error">{servingsErrorsByFoodId[row.food_id]}</p>
+                                )}
+                                {!row.errors?.serving &&
+                                  row.food_id &&
+                                  !servingsErrorsByFoodId[row.food_id] &&
+                                  !servingsLoadingRef.current.has(row.food_id ?? -1) &&
+                                  (servingsCache.get(row.food_id)?.length ?? 0) === 0 && (
+                                    <p className="recipes-field-error">У выбранного продукта нет сохранённых порций.</p>
+                                  )}
+                              </div>
+                            </div>
+
+                            <div className="ingredients-row-field">
+                              <input
+                                className={`recipes-field-input ${row.errors?.multiplier ? "is-invalid" : ""}`}
+                                type="number"
+                                min={0}
+                                step="any"
+                                value={row.multiplier}
+                                onChange={(e) => onIngredientMultiplierChange(row.localId, e.target.value)}
+                                placeholder="Множитель"
+                                disabled={ingredientsSaving}
+                              />
+                              <div className="ingredients-error-slot">
+                                {row.errors?.multiplier && <p className="recipes-field-error">{row.errors.multiplier}</p>}
+                              </div>
+                            </div>
+
+                            <p className="ingredients-serving-hint">
+                              {(() => {
+                                const servings = row.food_id ? servingsCache.get(row.food_id) ?? [] : [];
+                                const serving = servings.find((item) => item.id === row.serving_id);
+                                const multiplier = Number(row.multiplier.trim());
+                                if (!serving || !Number.isFinite(multiplier) || multiplier <= 0) {
+                                  return "Итого грамм: —";
+                                }
+                                return `Итого грамм: ${formatTrimmedNumber(serving.grams * multiplier)} г`;
+                              })()}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </li>
                   ))}
@@ -1506,20 +1698,16 @@ export function RecipeDetailsPage() {
             <form className="recipes-form recipes-form-compact" onSubmit={onSubmitReport} noValidate>
               <label className="recipes-field" htmlFor="report_recipe_reason">
                 <span className="recipes-field-label">Причина</span>
-                <select
+                <CustomSelect
                   id="report_recipe_reason"
-                  className={`recipes-field-input ${reportErrors.reason ? "is-invalid" : ""}`}
                   value={reportForm.reason}
-                  onChange={(e) => updateReportField("reason", e.target.value)}
+                  options={REPORT_REASON_SELECT_OPTIONS}
+                  onChange={(nextValue) => updateReportField("reason", nextValue)}
                   disabled={reporting}
-                >
-                  <option value="">Выберите причину</option>
-                  {REPORT_REASON_OPTIONS.map((reason) => (
-                    <option key={reason} value={reason}>
-                      {reason}
-                    </option>
-                  ))}
-                </select>
+                  invalid={Boolean(reportErrors.reason)}
+                  triggerClassName="recipes-field-input"
+                  ariaLabel="Причина жалобы"
+                />
                 <div className="recipes-field-error-slot" aria-live="polite">
                   {reportErrors.reason && <p className="recipes-field-error">{reportErrors.reason}</p>}
                 </div>

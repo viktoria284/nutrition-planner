@@ -158,7 +158,8 @@
   display: grid;
   gap: 12px;
   max-height: min(90vh, calc(100dvh - 24px));
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .foods-modal-head {
@@ -529,7 +530,6 @@
   .foods-modal {
     width: 100%;
     max-height: calc(100dvh - 24px);
-    height: calc(100dvh - 24px);
   }
 
   .food-details-top {

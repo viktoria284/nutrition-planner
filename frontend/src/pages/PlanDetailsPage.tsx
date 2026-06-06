@@ -8,7 +8,7 @@ import { EditPlanSlotModal } from "../components/plans/EditPlanSlotModal";
 import { PlanConfirmModal } from "../components/plans/PlanConfirmModal";
 import { Alert } from "../components/Alert";
 import type { PlanAnalyticsResponse, PlanDay, PlanRead, PlanSlot } from "../types/plan";
-import { formatDecimal, formatPlanDate, formatPlanDayLabel, planTitleWithFallback } from "./plans";
+import { formatDecimal, formatPlanDate, formatPlanDateLong, formatPlanDayLabel, planTitleWithFallback } from "./plans";
 import "./PlansPage.css";
 
 function resolvePlanDetailsError(err: unknown): string {
@@ -201,6 +201,18 @@ export function PlanDetailsPage() {
   useEffect(() => {
     if (!plan) setEditingSlot(null);
   }, [plan]);
+
+  useEffect(() => {
+    if (!plan || !editingSlot) return;
+    const updatedSlot = plan.slots.find((slot) => slot.id === editingSlot.id) ?? null;
+    if (!updatedSlot) {
+      setEditingSlot(null);
+      return;
+    }
+    if (updatedSlot !== editingSlot) {
+      setEditingSlot(updatedSlot);
+    }
+  }, [plan, editingSlot]);
 
   useEffect(() => {
     if (!plan) {
@@ -661,7 +673,7 @@ export function PlanDetailsPage() {
         title="Перегенерировать день"
         message={
           dayToRegenerate
-            ? `Будут заново подобраны рецепты на ${formatPlanDate(dayToRegenerate.date)}.`
+            ? `Будут заново подобраны рецепты на ${formatPlanDateLong(dayToRegenerate.date)}.`
             : ""
         }
         hintText="Закреплённые слоты останутся без изменений."
@@ -714,15 +726,28 @@ function DayAnalyticsIndicator({
 
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
+    const close = () => setOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
       const root = rootRef.current;
       if (!root) return;
       if (root.contains(event.target as Node)) return;
-      setOpen(false);
+      close();
     };
-    document.addEventListener("mousedown", onPointerDown);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const onScroll = () => close();
+    const onTouchMove = () => close();
+
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("touchmove", onTouchMove);
     };
   }, [open]);
 

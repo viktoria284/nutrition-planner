@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../../api/http";
 import {
@@ -16,8 +16,9 @@ import type {
   PlanSlotIngredientOverridesReplacePayload,
 } from "../../types/plan";
 import type { PlanSlot } from "../../types/plan";
-import { formatDecimal } from "../../pages/plans";
+import { formatQuantityDisplay, formatQuantityForInput } from "../../utils/quantityFormat";
 import { FoodSearchSelect, type FoodSearchOption } from "../FoodSearchSelect";
+import { RecipePlaceholder } from "../recipes/RecipePlaceholder";
 import { PlanConfirmModal } from "./PlanConfirmModal";
 import { RecipeSearchSelect, type RecipePickerOption } from "./RecipeSearchSelect";
 
@@ -122,7 +123,7 @@ function computeDefaultSlotIngredientGrams(
   slotMultiplier: number,
 ): string {
   const grams = (Number(ingredient.grams) / recipeServingsCount) * slotMultiplier;
-  return formatDecimal(grams);
+  return formatQuantityForInput(grams);
 }
 
 function makeManualKey() {
@@ -243,7 +244,7 @@ function buildEditableIngredientsState(
           name: resolvedFoodName,
           brand: null,
         },
-        grams: effective?.grams ?? defaultGrams,
+        grams: formatQuantityForInput(effective?.grams ?? defaultGrams),
         isExcluded: excludedIds.has(ingredient.id),
       } satisfies EditableBaseIngredient;
     });
@@ -257,7 +258,7 @@ function buildEditableIngredientsState(
         name: item.food_name,
         brand: null,
       },
-      grams: String(item.grams),
+      grams: formatQuantityForInput(item.grams),
     }));
 
   return { base, manual };
@@ -291,6 +292,8 @@ export function EditPlanSlotModal({
   const [baseIngredients, setBaseIngredients] = useState<EditableBaseIngredient[]>([]);
   const [manualIngredients, setManualIngredients] = useState<EditableManualIngredient[]>([]);
   const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
+  const [replaceNotice, setReplaceNotice] = useState<string | null>(null);
+  const resetSlotIdRef = useRef<number | null>(null);
   const isBusy = busyAction !== null;
 
   const originalRecipeId = slot?.recipe_id ?? null;
@@ -298,9 +301,13 @@ export function EditPlanSlotModal({
     isOpen && slot !== null && selectedRecipeId !== null && originalRecipeId !== null && selectedRecipeId === originalRecipeId;
 
   useEffect(() => {
-    if (!isOpen || !slot) return;
+    if (!isOpen || !slot) {
+      resetSlotIdRef.current = null;
+      return;
+    }
+    const isNewSlot = resetSlotIdRef.current !== slot.id;
     setSelectedRecipeId(slot.recipe_id);
-    setMultiplier(slot.recipe_id === null ? "1" : formatDecimal(slot.servings_multiplier));
+    setMultiplier(slot.recipe_id === null ? "1" : formatQuantityForInput(slot.servings_multiplier));
     setPinned(slot.pinned);
     setFormErrors([]);
     setBusyAction(null);
@@ -311,6 +318,10 @@ export function EditPlanSlotModal({
     setBaseIngredients([]);
     setManualIngredients([]);
     setResetConfirmOpen(false);
+    if (isNewSlot) {
+      setReplaceNotice(null);
+    }
+    resetSlotIdRef.current = slot.id;
   }, [isOpen, slot]);
 
   useEffect(() => {
@@ -458,6 +469,7 @@ export function EditPlanSlotModal({
 
     setBusyAction("save");
     setFormErrors([]);
+    setReplaceNotice(null);
 
     try {
       await updatePlanSlot(planId, slot.id, {
@@ -484,6 +496,7 @@ export function EditPlanSlotModal({
 
     setBusyAction("clear");
     setFormErrors([]);
+    setReplaceNotice(null);
     try {
       await updatePlanSlot(planId, slot.id, { recipe_id: null });
       await onSaved();
@@ -500,6 +513,7 @@ export function EditPlanSlotModal({
 
     setBusyAction("replace");
     setFormErrors([]);
+    setReplaceNotice(null);
     try {
       const excludedRecipeIdsSet = new Set<number>(replacementHistory);
       if (slot.recipe_id !== null) {
@@ -514,9 +528,12 @@ export function EditPlanSlotModal({
       const replacedSlot = updatedPlan.slots.find((value) => value.id === slot.id) ?? null;
       if (replacedSlot && replacedSlot.recipe_id !== null) {
         onRememberReplacementRecipe(slot.id, replacedSlot.recipe_id);
+        setSelectedRecipeId(replacedSlot.recipe_id);
+        setMultiplier(formatQuantityForInput(replacedSlot.servings_multiplier));
+        setPinned(replacedSlot.pinned);
       }
       await onSaved();
-      onClose();
+      setReplaceNotice("Рецепт заменён. Проверьте ингредиенты и сохраните слот, если меняете другие параметры.");
     } catch (err) {
       setFormErrors([toFriendlyReplaceError(err)]);
     } finally {
@@ -596,6 +613,7 @@ export function EditPlanSlotModal({
 
           <form className="plans-modal-form" onSubmit={onSubmit} noValidate>
             <FormErrorSummary messages={formErrors} className="plans-form-summary form-error-summary" itemClassName="plans-form-error-item" />
+            {replaceNotice && <p className="plans-inline-hint">{replaceNotice}</p>}
 
             <label className="plans-field">
               <span className="plans-field-label">Рецепт</span>
@@ -621,9 +639,12 @@ export function EditPlanSlotModal({
                         onError={() => setPreviewImageBroken(true)}
                       />
                     ) : (
-                      <div className="plan-slot-preview-cover-fallback" aria-hidden="true">
-                        {(previewRecipe?.name ?? recipeNamesById[selectedRecipeId] ?? "Р").slice(0, 1).toUpperCase()}
-                      </div>
+                      <RecipePlaceholder
+                        name={previewRecipe?.name ?? recipeNamesById[selectedRecipeId] ?? "Рецепт"}
+                        mealTypes={previewRecipe?.meal_types}
+                        className="plan-slot-preview-cover-fallback"
+                        compact
+                      />
                     )}
                   </div>
                   <div className="plan-slot-preview-main">
@@ -643,7 +664,7 @@ export function EditPlanSlotModal({
                     {previewIngredients.map((ingredient) => (
                       <li key={ingredient.id} className="plan-slot-preview-ingredient-row">
                         <span>{ingredient.food?.name ?? "Продукт"}</span>
-                        <b>{formatDecimal((Number(ingredient.grams) / (previewRecipe?.servings_count ?? 1)) * normalizedMultiplier)} г</b>
+                        <b>{formatQuantityDisplay((Number(ingredient.grams) / (previewRecipe?.servings_count ?? 1)) * normalizedMultiplier)} г</b>
                       </li>
                     ))}
                   </ul>

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ApiError } from "../api/http";
 import { listPlans } from "../api/plans";
 import { Alert } from "../components/Alert";
+import { CustomSelect } from "../components/CustomSelect";
 import { useProfiles } from "../context/ProfilesContext";
 import type { PlanListItem } from "../types/plan";
 import { formatPlanDate, planTitleWithFallback } from "./plans";
@@ -338,23 +339,18 @@ export function CalendarPage() {
 
           <label className="calendar-profile-filter" htmlFor="calendar-profile-filter">
             <span>Профиль</span>
-            <select
+            <CustomSelect
               id="calendar-profile-filter"
-              className="calendar-profile-filter-select"
               value={profileFilter}
-              onChange={(event) => {
-                const nextValue = event.target.value;
+              options={profileFilterOptions}
+              onChange={(nextValue) => {
                 if (nextValue === "all" || nextValue === "none" || nextValue.startsWith("profile:")) {
                   setProfileFilter(nextValue as CalendarProfileFilterValue);
                 }
               }}
-            >
-              {profileFilterOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              ariaLabel="Профиль"
+              triggerClassName="calendar-profile-filter-select"
+            />
           </label>
 
           <div className="calendar-period-nav">

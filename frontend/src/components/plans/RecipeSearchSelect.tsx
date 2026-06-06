@@ -74,13 +74,18 @@ export function RecipeSearchSelect({
   const normalizedQuery = debouncedQuery.trim().toLowerCase();
 
   useEffect(() => {
+    let nextQuery: string | null = null;
     if (valueId !== prevValueIdRef.current) {
-      setQuery(selected?.name ?? "");
+      nextQuery = selected?.name ?? "";
       prevValueIdRef.current = valueId;
-      return;
+    } else if (!open && selected) {
+      nextQuery = selected.name;
+    } else if (!open && !selected && valueId === null && query.trim()) {
+      nextQuery = "";
     }
-    if (!open && selected) setQuery(selected.name);
-    if (!open && !selected && valueId === null && query.trim()) setQuery("");
+    if (nextQuery === null) return;
+    const timeoutId = window.setTimeout(() => setQuery(nextQuery), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [open, query, selected, valueId]);
 
   useEffect(() => {

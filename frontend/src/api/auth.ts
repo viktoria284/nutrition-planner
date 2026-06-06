@@ -8,7 +8,7 @@ export type User = {
   username: string;
   display_name?: string | null;
   is_active: boolean;
-  role: "user" | "admin";
+  role: "user" | "admin" | "superadmin";
   created_at?: string;
 };
 
@@ -22,7 +22,6 @@ export type RegisterRequest = {
 };
 
 export type UpdateMeRequest = {
-  email?: string;
   username?: string;
 };
 

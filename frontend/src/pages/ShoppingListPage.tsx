@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { RefreshCw } from "lucide-react";
 import { ApiError } from "../api/http";
 import { getPlan } from "../api/plans";
@@ -24,11 +24,14 @@ import {
   saveOfflineCheckedOverride,
   saveOfflineShoppingSnapshot,
 } from "../utils/pwa/shoppingOfflineCache";
+import { formatQuantityDisplay, formatQuantityForInput } from "../utils/quantityFormat";
 import { InfoPopover } from "../components/InfoPopover";
 import "./PlansPage.css";
 
 const HIDE_CHECKED_STORAGE_KEY = "nutrition:shopping-list:hide-checked";
 const PANTRY_COLLAPSE_KEY = "__pantry__";
+
+type MobileMorePanelStyle = Pick<CSSProperties, "top" | "left" | "width" | "maxHeight" | "transformOrigin">;
 
 function collapsedCategoriesStorageKey(shoppingListId: number): string {
   return `nutrition:shopping-list:${shoppingListId}:collapsed-categories`;
@@ -92,13 +95,6 @@ function normalizePositiveDecimal(raw: string): { value: string | null; error: s
   return { value: normalized, error: null };
 }
 
-function formatDecimalRu(value: number, maximumFractionDigits: number): string {
-  return value.toLocaleString("ru-RU", {
-    maximumFractionDigits,
-    minimumFractionDigits: 0,
-  });
-}
-
 export function formatShoppingQuantity(amount: string | number | null | undefined, unit?: string | null): string {
   if (amount === null || amount === undefined || amount === "") return "Количество не указано";
 
@@ -108,13 +104,13 @@ export function formatShoppingQuantity(amount: string | number | null | undefine
 
   if (normalizedUnit === "g" || normalizedUnit === "г") {
     if (numeric >= 1000) {
-      return `${formatDecimalRu(numeric / 1000, 2)} кг`;
+      return `${formatQuantityDisplay(numeric / 1000)} кг`;
     }
-    return `${Math.round(numeric)} г`;
+    return `${formatQuantityDisplay(numeric)} г`;
   }
 
   const displayUnit = normalizedUnit === "kg" ? "кг" : unit?.trim() || normalizedUnit;
-  return `${formatDecimalRu(numeric, 2)} ${displayUnit}`;
+  return `${formatQuantityDisplay(numeric)} ${displayUnit}`;
 }
 
 function displayAmount(item: ShoppingListItem): string {
@@ -160,8 +156,11 @@ function applyPendingCheckedOverrides(
 export function ShoppingListPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { isOnline } = useOnlineStatus();
   const previousOnlineRef = useRef<boolean>(isOnline);
+  const mobileMoreRef = useRef<HTMLDivElement | null>(null);
+  const mobileMoreTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const [shoppingList, setShoppingList] = useState<ShoppingListRead | null>(null);
   const [sourcePlan, setSourcePlan] = useState<PlanRead | null>(null);
@@ -196,11 +195,84 @@ export function ShoppingListPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const [pantryFoodIds, setPantryFoodIds] = useState<Set<number>>(new Set());
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [mobileMorePanelStyle, setMobileMorePanelStyle] = useState<MobileMorePanelStyle>({
+    top: 0,
+    left: 0,
+    width: 220,
+    maxHeight: 260,
+    transformOrigin: "top right",
+  });
 
   const shoppingListId = useMemo(() => {
     const parsed = Number(id);
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
   }, [id]);
+
+  const updateMobileMorePosition = useCallback(() => {
+    const trigger = mobileMoreTriggerRef.current;
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    const visualViewport = window.visualViewport;
+    const viewportWidth = visualViewport?.width ?? window.innerWidth;
+    const viewportHeight = visualViewport?.height ?? window.innerHeight;
+    const margin = 12;
+    const gap = 8;
+    const estimatedPanelHeight = 164;
+    const panelWidth = Math.min(220, Math.max(176, viewportWidth - margin * 2));
+    const left = Math.min(Math.max(margin, rect.right - panelWidth), Math.max(margin, viewportWidth - margin - panelWidth));
+    const spaceBelow = viewportHeight - rect.bottom - margin;
+    const spaceAbove = rect.top - margin;
+    const openUp = spaceBelow < estimatedPanelHeight && spaceAbove > spaceBelow;
+    const availableHeight = Math.max(120, Math.min(260, (openUp ? spaceAbove : spaceBelow) - gap));
+    const panelHeight = Math.min(estimatedPanelHeight, availableHeight);
+    const unclampedTop = openUp ? rect.top - gap - panelHeight : rect.bottom + gap;
+    const top = Math.min(Math.max(margin, unclampedTop), Math.max(margin, viewportHeight - margin - panelHeight));
+
+    setMobileMorePanelStyle({
+      top,
+      left,
+      width: panelWidth,
+      maxHeight: availableHeight,
+      transformOrigin: openUp ? "bottom right" : "top right",
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!mobileMoreOpen) return undefined;
+
+    const close = () => setMobileMoreOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (mobileMoreRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+
+    updateMobileMorePosition();
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", updateMobileMorePosition);
+    window.visualViewport?.addEventListener("resize", updateMobileMorePosition);
+    window.addEventListener("touchmove", close, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", updateMobileMorePosition);
+      window.visualViewport?.removeEventListener("resize", updateMobileMorePosition);
+      window.removeEventListener("touchmove", close);
+    };
+  }, [mobileMoreOpen, updateMobileMorePosition]);
+
+  useEffect(() => {
+    setMobileMoreOpen(false);
+  }, [location.pathname, location.search]);
 
   const loadShoppingList = useCallback(
     async (options?: { background?: boolean }) => {
@@ -313,7 +385,7 @@ export function ShoppingListPage() {
     const nextDrafts: Record<number, string> = {};
     for (const item of shoppingList.items) {
       if (item.item_type !== "computed") continue;
-      nextDrafts[item.id] = item.adjusted_grams ?? item.effective_grams ?? "";
+      nextDrafts[item.id] = formatQuantityForInput(item.adjusted_grams ?? item.effective_grams);
     }
     setDraftAdjustedByItemId(nextDrafts);
   }, [shoppingList]);
@@ -728,28 +800,64 @@ export function ShoppingListPage() {
               <span className="shopping-mobile-add-label-full">+ Добавить</span>
               <span className="shopping-mobile-add-label-short">+</span>
             </button>
-            <details className="shopping-mobile-more">
-              <summary className="icon-button icon-button--secondary shopping-mobile-more-trigger">Ещё</summary>
-              <div className="shopping-mobile-more-panel">
-                <button type="button" className="btn btn-secondary shopping-mobile-more-btn" onClick={() => window.print()}>
-                  Печать
-                </button>
-                <button type="button" className="btn btn-secondary shopping-mobile-more-btn" onClick={exportTxt}>
-                  Экспорт .txt
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary shopping-mobile-more-btn"
-                  onClick={() => {
-                    setDeleteListError(null);
-                    setDeleteListModalOpen(true);
-                  }}
-                  disabled={!shoppingList || !isOnline}
-                >
-                  Удалить список
-                </button>
-              </div>
-            </details>
+            <div className="shopping-mobile-more" ref={mobileMoreRef}>
+              <button
+                type="button"
+                ref={mobileMoreTriggerRef}
+                className="icon-button icon-button--secondary shopping-mobile-more-trigger"
+                aria-haspopup="menu"
+                aria-expanded={mobileMoreOpen}
+                onClick={() => {
+                  if (mobileMoreOpen) {
+                    setMobileMoreOpen(false);
+                    return;
+                  }
+                  updateMobileMorePosition();
+                  setMobileMoreOpen(true);
+                }}
+              >
+                Ещё
+              </button>
+              {mobileMoreOpen && (
+                <div className="shopping-mobile-more-panel" role="menu" style={mobileMorePanelStyle}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary shopping-mobile-more-btn"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      window.print();
+                    }}
+                  >
+                    Печать
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary shopping-mobile-more-btn"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      exportTxt();
+                    }}
+                  >
+                    Экспорт .txt
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary shopping-mobile-more-btn"
+                    role="menuitem"
+                    onClick={() => {
+                      setMobileMoreOpen(false);
+                      setDeleteListError(null);
+                      setDeleteListModalOpen(true);
+                    }}
+                    disabled={!shoppingList || !isOnline}
+                  >
+                    Удалить список
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

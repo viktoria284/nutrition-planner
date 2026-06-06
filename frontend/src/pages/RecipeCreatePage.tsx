@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { createAdminRecipe } from "../api/admin";
 import { createRecipe, type MealType } from "../api/recipes";
 import { FormErrorSummary } from "../components/FormErrorSummary";
 import { MarkdownTextarea } from "../components/MarkdownTextarea";
@@ -12,7 +13,11 @@ import {
 } from "./recipeForm";
 import "./RecipesPage.css";
 
-export function RecipeCreatePage() {
+type RecipeCreatePageProps = {
+  adminMode?: boolean;
+};
+
+export function RecipeCreatePage({ adminMode = false }: RecipeCreatePageProps) {
   const navigate = useNavigate();
 
   const [form, setForm] = useState<RecipeFormState>(EMPTY_RECIPE_FORM);
@@ -48,8 +53,8 @@ export function RecipeCreatePage() {
     setErrors({ form: [] });
 
     try {
-      const created = await createRecipe(payload);
-      navigate(`/recipes/${created.id}#ingredients`, { replace: true });
+      const created = adminMode ? await createAdminRecipe(payload) : await createRecipe(payload);
+      navigate(adminMode ? `/admin/recipes/${created.id}/edit` : `/recipes/${created.id}#ingredients`, { replace: true });
     } catch (err) {
       setErrors({
         form: [err instanceof Error ? err.message : "Не удалось создать рецепт."],
@@ -64,13 +69,17 @@ export function RecipeCreatePage() {
       <div className="recipes-shell">
         <header className="recipes-head">
           <div className="recipes-head-main">
-            <h1 className="recipes-title">Создание рецепта</h1>
-            <p className="recipes-subtitle">Заполните базовые поля. Ингредиенты добавим на следующем шаге.</p>
+            <h1 className="recipes-title">{adminMode ? "Добавить публичный рецепт" : "Создание рецепта"}</h1>
+            <p className="recipes-subtitle">
+              {adminMode
+                ? "Сначала заполните базовые поля, затем добавьте ингредиенты, шаги и фото."
+                : "Заполните базовые поля. Ингредиенты добавим на следующем шаге."}
+            </p>
           </div>
 
           <div className="recipes-head-actions">
-            <Link to="/recipes" className="btn btn-secondary">
-              К списку рецептов
+            <Link to={adminMode ? "/admin/recipes" : "/recipes"} className="btn btn-secondary">
+              {adminMode ? "К публичным рецептам" : "К списку рецептов"}
             </Link>
           </div>
         </header>
@@ -185,11 +194,11 @@ export function RecipeCreatePage() {
           </div>
 
           <div className="recipes-form-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => navigate("/recipes")} disabled={submitting}>
+            <button type="button" className="btn btn-secondary" onClick={() => navigate(adminMode ? "/admin/recipes" : "/recipes")} disabled={submitting}>
               Отмена
             </button>
             <button type="submit" className="btn btn-primary" disabled={submitting}>
-              {submitting ? "Создание..." : "Создать рецепт"}
+              {submitting ? "Создание..." : adminMode ? "Создать публичный рецепт" : "Создать рецепт"}
             </button>
           </div>
         </form>

@@ -1,6 +1,9 @@
 .app-shell {
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .topbar {
@@ -121,11 +124,13 @@
 .profile-picker-select {
   height: 40px;
   min-width: 180px;
+  max-width: min(260px, calc(100vw - 24px));
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text-main);
   padding: 0 34px 0 12px;
+  justify-content: space-between;
 }
 
 .profile-picker-select:focus {
@@ -141,6 +146,10 @@
 .profile-picker {
   display: inline-flex;
   min-width: 0;
+}
+
+.profile-picker .ui-select {
+  width: 100%;
 }
 
 .topbar-mobile-menu-link {
@@ -221,11 +230,39 @@
   font-weight: 600;
   cursor: pointer;
   box-shadow: none;
+  max-width: 100%;
 }
 
 .btn:disabled {
   cursor: not-allowed;
   opacity: 0.7;
+}
+
+.admin-context-bar {
+  border: 1px solid rgba(var(--primary-rgb), 0.28);
+  border-radius: var(--radius-md);
+  background: rgba(var(--primary-rgb), 0.08);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-context-bar p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+}
+
+.admin-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-context-error {
+  color: var(--danger) !important;
 }
 
 .btn-primary {
@@ -400,6 +437,11 @@
     height: 42px;
     padding: 0 14px;
     font-size: 0.95rem;
+  }
+
+  .admin-context-actions,
+  .admin-context-actions .btn {
+    width: 100%;
   }
 
   .icon-button {

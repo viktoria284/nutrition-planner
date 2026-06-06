@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { moderateAdminFood, resolveAdminFoodReport } from "../api/admin";
 import { ApiError } from "../api/http";
 import {
   createServing,
@@ -16,6 +17,8 @@ import {
   type FoodServing,
 } from "../api/foods";
 import { Alert } from "../components/Alert";
+import { CustomSelect } from "../components/CustomSelect";
+import { useAuth } from "../auth/useAuth";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, isFoodCategory, type FoodCategory } from "../types/foodCategory";
 import { getCurrentUserIdFromJwt } from "../utils/auth";
 import "./FoodsPage.css";
@@ -62,6 +65,16 @@ const REPORT_REASON_OPTIONS = [
   "Другое",
 ] as const;
 
+const REPORT_REASON_SELECT_OPTIONS = [
+  { value: "", label: "Выберите причину" },
+  ...REPORT_REASON_OPTIONS.map((reason) => ({ value: reason, label: reason })),
+];
+
+const FOOD_CATEGORY_SELECT_OPTIONS = FOOD_CATEGORIES.map((category) => ({
+  value: category,
+  label: FOOD_CATEGORY_LABELS[category],
+}));
+
 type ReportForm = {
   reason: string;
   comment: string;
@@ -71,6 +84,20 @@ type ReportFormErrors = {
   reason?: string;
   comment?: string;
   form?: string;
+};
+
+type FoodDetailsLocationState = {
+  adminReturnTo?: string;
+  adminReportId?: number;
+  adminReportTargetType?: "food" | "recipe";
+  adminReportTargetName?: string;
+  adminReportQueue?: Array<{
+    id: number;
+    targetType: "food" | "recipe";
+    targetId: number;
+    targetName: string;
+  }>;
+  adminReportQueueIndex?: number;
 };
 
 const EMPTY_SERVING_FORM: ServingForm = {
@@ -338,8 +365,11 @@ function ConfirmModal({
 
 export function FoodDetailsPage() {
   const { id } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
-  const currentUserId = getCurrentUserIdFromJwt();
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? getCurrentUserIdFromJwt();
+  const locationState = location.state as FoodDetailsLocationState | null;
 
   const [food, setFood] = useState<FoodItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -379,6 +409,8 @@ export function FoodDetailsPage() {
   const [deleteModalError, setDeleteModalError] = useState<string | null>(null);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [withdrawModalError, setWithdrawModalError] = useState<string | null>(null);
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionError, setAdminActionError] = useState<string | null>(null);
 
   const refreshServings = () => setServingsReloadSeq((prev) => prev + 1);
   const canEditFood = Boolean(food && food.source === "private" && food.status === "draft");
@@ -387,6 +419,15 @@ export function FoodDetailsPage() {
     food && food.source === "community" && food.status === "approved" && food.is_listed === true && isFoodOwner,
   );
   const canReportFood = Boolean(food && food.source === "community" && (currentUserId === null || !isFoodOwner));
+  const showAdminActionBar = Boolean((user?.role === "admin" || user?.role === "superadmin") && locationState?.adminReturnTo);
+  const adminReportQueue = locationState?.adminReportQueue ?? [];
+  const adminReportQueueIndex = locationState?.adminReportQueueIndex ?? -1;
+  const adminPreviousReport =
+    adminReportQueueIndex > 0 && adminReportQueueIndex < adminReportQueue.length ? adminReportQueue[adminReportQueueIndex - 1] : null;
+  const adminNextReport =
+    adminReportQueueIndex >= 0 && adminReportQueueIndex < adminReportQueue.length - 1
+      ? adminReportQueue[adminReportQueueIndex + 1]
+      : null;
 
   useEffect(() => {
     if (!id) {
@@ -815,6 +856,50 @@ export function FoodDetailsPage() {
     }
   };
 
+  const onAdminToggleFoodVisibility = async () => {
+    if (!food || adminActionLoading) return;
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    try {
+      const updated = await moderateAdminFood(food.id, food.is_listed ? "hide" : "restore");
+      setFood(updated);
+    } catch (err) {
+      setAdminActionError(resolveApiMessage(err, "Не удалось выполнить действие администратора.", "Не удалось выполнить действие администратора."));
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const onAdminResolveFoodReport = async (resolution: "no_action" | "content_hidden") => {
+    if (!locationState?.adminReportId || locationState.adminReportTargetType !== "food" || adminActionLoading) return;
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    try {
+      const resolved = await resolveAdminFoodReport(locationState.adminReportId, resolution);
+      if (food && resolution === "content_hidden") {
+        setFood((prev) => (prev ? { ...prev, is_listed: false } : prev));
+      }
+      void resolved;
+    } catch (err) {
+      setAdminActionError(resolveApiMessage(err, "Не удалось закрыть жалобу.", "Не удалось закрыть жалобу."));
+    } finally {
+      setAdminActionLoading(false);
+    }
+  };
+
+  const buildAdminReportState = (
+    item: NonNullable<typeof adminNextReport>,
+    indexOffset: -1 | 1,
+  ): FoodDetailsLocationState => ({
+    ...(locationState ?? {}),
+    adminReturnTo: locationState?.adminReturnTo ?? "/admin/reports",
+    adminReportId: item.id,
+    adminReportTargetType: item.targetType,
+    adminReportTargetName: item.targetName,
+    adminReportQueue,
+    adminReportQueueIndex: adminReportQueueIndex + indexOffset,
+  });
+
   return (
     <section className="foods-page">
       <div className="foods-shell">
@@ -823,6 +908,60 @@ export function FoodDetailsPage() {
             Назад
           </Link>
         </div>
+
+        {showAdminActionBar && (
+          <div className="admin-context-bar">
+            <div>
+              <b>Админский просмотр</b>
+              <p>{locationState?.adminReportTargetName ? `Жалоба: ${locationState.adminReportTargetName}` : "Объект открыт из админки."}</p>
+              {!food && !loading && <p className="admin-context-error">Объект не найден или уже удалён. Жалобу всё ещё можно закрыть.</p>}
+              {adminActionError && <p className="admin-context-error">{adminActionError}</p>}
+            </div>
+            <div className="admin-context-actions">
+              <Link to={locationState?.adminReturnTo ?? "/admin/reports"} className="btn btn-secondary">
+                Вернуться без решения
+              </Link>
+              {food && !locationState?.adminReportId && (
+                <button type="button" className="btn btn-secondary" onClick={() => void onAdminToggleFoodVisibility()} disabled={adminActionLoading}>
+                  {food.is_listed ? "Скрыть объект" : "Восстановить объект"}
+                </button>
+              )}
+              {locationState?.adminReportTargetType === "food" && locationState.adminReportId && food && (
+                <>
+                  <button type="button" className="btn btn-secondary" onClick={() => void onAdminResolveFoodReport("content_hidden")} disabled={adminActionLoading}>
+                    Скрыть объект и закрыть жалобу
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={() => void onAdminResolveFoodReport("no_action")} disabled={adminActionLoading}>
+                    Оставить объект и закрыть жалобу
+                  </button>
+                </>
+              )}
+              {locationState?.adminReportTargetType === "food" && locationState.adminReportId && !food && !loading && (
+                <button type="button" className="btn btn-primary" onClick={() => void onAdminResolveFoodReport("no_action")} disabled={adminActionLoading}>
+                  Закрыть жалобу
+                </button>
+              )}
+              {adminPreviousReport && (
+                <Link
+                  to={adminPreviousReport.targetType === "food" ? `/foods/${adminPreviousReport.targetId}` : `/recipes/${adminPreviousReport.targetId}`}
+                  state={buildAdminReportState(adminPreviousReport, -1)}
+                  className="btn btn-secondary"
+                >
+                  Предыдущая жалоба
+                </Link>
+              )}
+              {adminNextReport && (
+                <Link
+                  to={adminNextReport.targetType === "food" ? `/foods/${adminNextReport.targetId}` : `/recipes/${adminNextReport.targetId}`}
+                  state={buildAdminReportState(adminNextReport, 1)}
+                  className="btn btn-secondary"
+                >
+                  Следующая жалоба
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
 
         {loading && <p className="foods-note">Загрузка...</p>}
         {!loading && error && <Alert text={error} />}
@@ -1049,19 +1188,15 @@ export function FoodDetailsPage() {
             <form className="foods-create-form" onSubmit={onSubmitReport} noValidate>
               <label className="foods-field" htmlFor="report_food_reason">
                 <span className="foods-field-label">Причина</span>
-                <select
+                <CustomSelect
                   id="report_food_reason"
-                  className={`foods-field-input ${reportFormErrors.reason ? "is-invalid" : ""}`}
                   value={reportForm.reason}
-                  onChange={(e) => updateReportField("reason", e.target.value)}
-                >
-                  <option value="">Выберите причину</option>
-                  {REPORT_REASON_OPTIONS.map((reason) => (
-                    <option key={reason} value={reason}>
-                      {reason}
-                    </option>
-                  ))}
-                </select>
+                  options={REPORT_REASON_SELECT_OPTIONS}
+                  onChange={(value) => updateReportField("reason", value)}
+                  invalid={Boolean(reportFormErrors.reason)}
+                  ariaLabel="Причина жалобы"
+                  triggerClassName="foods-field-input"
+                />
                 {reportFormErrors.reason && <p className="foods-field-error">{reportFormErrors.reason}</p>}
               </label>
 
@@ -1143,18 +1278,15 @@ export function FoodDetailsPage() {
 
               <label className="foods-field" htmlFor="edit_food_category">
                 <span className="foods-field-label">Раздел магазина</span>
-                <select
+                <CustomSelect
                   id="edit_food_category"
-                  className={`foods-field-input ${editErrors.category ? "is-invalid" : ""}`}
                   value={editForm.category}
-                  onChange={(e) => updateEditField("category", e.target.value as FoodCategory)}
-                >
-                  {FOOD_CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {FOOD_CATEGORY_LABELS[category]}
-                    </option>
-                  ))}
-                </select>
+                  options={FOOD_CATEGORY_SELECT_OPTIONS}
+                  onChange={(value) => updateEditField("category", value as FoodCategory)}
+                  invalid={Boolean(editErrors.category)}
+                  ariaLabel="Раздел магазина"
+                  triggerClassName="foods-field-input"
+                />
               </label>
 
               <div className="foods-grid">

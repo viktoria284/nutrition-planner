@@ -51,31 +51,35 @@ def test_update_username_conflict_returns_409(client: TestClient) -> None:
     assert response.status_code == 409, response.text
 
 
-def test_user_can_update_email_and_login_with_new_email(client: TestClient) -> None:
+def test_user_cannot_update_email(client: TestClient) -> None:
     register_user(client, email="old-email@example.com", username="emailupdate")
     token = login_and_get_token(client, identifier="old-email@example.com")
 
     response = client.patch("/auth/me", json={"email": "new-email@example.com"}, headers=auth_headers(token))
 
-    assert response.status_code == 200, response.text
-    payload = response.json()
-    assert payload["email"] == "new-email@example.com"
+    assert response.status_code == 422, response.text
 
-    login_response = client.post(
+    old_login_response = client.post(
+        "/auth/login",
+        data={"username": "old-email@example.com", "password": TEST_PASSWORD, "grant_type": "password"},
+    )
+    assert old_login_response.status_code == 200, old_login_response.text
+
+    new_login_response = client.post(
         "/auth/login",
         data={"username": "new-email@example.com", "password": TEST_PASSWORD, "grant_type": "password"},
     )
-    assert login_response.status_code == 200, login_response.text
+    assert new_login_response.status_code == 401, new_login_response.text
 
 
-def test_update_email_conflict_returns_409(client: TestClient) -> None:
+def test_update_email_payload_is_rejected_before_conflict_check(client: TestClient) -> None:
     register_user(client, email="mail-a@example.com", username="maila")
     register_user(client, email="mail-b@example.com", username="mailb")
     token = login_and_get_token(client, identifier="mail-a@example.com")
 
     response = client.patch("/auth/me", json={"email": "mail-b@example.com"}, headers=auth_headers(token))
 
-    assert response.status_code == 409, response.text
+    assert response.status_code == 422, response.text
 
 
 def test_update_invalid_email_returns_422(client: TestClient) -> None:

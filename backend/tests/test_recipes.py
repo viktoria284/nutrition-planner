@@ -723,6 +723,62 @@ def test_serving_must_match_food(client: TestClient) -> None:
     assert response.status_code == 422, response.text
 
 
+def test_update_ingredient_food_without_matching_serving_switches_to_grams(client: TestClient) -> None:
+    register_user(client, email="serving-switch@example.com", username="servingswitch")
+    token = login_and_get_token(client, identifier="serving-switch@example.com")
+
+    food_with_serving = create_food_via_api(
+        client,
+        token,
+        name="Food With Serving",
+        kcal="100.00",
+        protein="10.00",
+        fat="0.00",
+        carbs="10.00",
+    )
+    food_without_serving = create_food_via_api(
+        client,
+        token,
+        name="Food Without Serving",
+        kcal="90.00",
+        protein="9.00",
+        fat="1.00",
+        carbs="8.00",
+    )
+    serving = create_serving_via_api(
+        client,
+        token,
+        food_id=food_with_serving["id"],
+        name="1 шт",
+        grams="120",
+    )
+    recipe = create_recipe_via_api(client, token, servings_count=1)
+
+    add_response = client.post(
+        f"/recipes/{recipe['id']}/ingredients",
+        headers=auth_headers(token),
+        json={
+            "food_id": food_with_serving["id"],
+            "serving_id": serving["id"],
+            "multiplier": "2",
+        },
+    )
+    assert add_response.status_code == 201, add_response.text
+    ingredient = add_response.json()
+
+    patch_response = client.patch(
+        f"/recipes/{recipe['id']}/ingredients/{ingredient['id']}",
+        headers=auth_headers(token),
+        json={"food_id": food_without_serving["id"]},
+    )
+    assert patch_response.status_code == 200, patch_response.text
+    updated = patch_response.json()
+    assert updated["food_id"] == food_without_serving["id"]
+    assert Decimal(str(updated["grams"])) == Decimal("240.00")
+    assert updated["serving_id"] is None
+    assert updated["multiplier"] is None
+
+
 def test_multiplier_positive(client: TestClient) -> None:
     register_user(client, email="serving-mult@example.com", username="servingmult")
     token = login_and_get_token(client, identifier="serving-mult@example.com")

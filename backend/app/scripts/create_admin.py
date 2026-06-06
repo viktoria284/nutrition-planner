@@ -12,6 +12,7 @@ DEFAULT_ADMIN_EMAIL = "admin@example.com"
 DEFAULT_ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin"
 DEFAULT_ADMIN_DISPLAY_NAME = "Admin"
+DEFAULT_ADMIN_ROLE = "superadmin"
 
 
 def _env_or_default(name: str, default: str) -> str:
@@ -26,6 +27,8 @@ def main() -> None:
     email = _env_or_default("ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL).lower()
     username = _env_or_default("ADMIN_USERNAME", DEFAULT_ADMIN_USERNAME).lower()
     display_name = _env_or_default("ADMIN_DISPLAY_NAME", DEFAULT_ADMIN_DISPLAY_NAME)
+    role_value = _env_or_default("ADMIN_ROLE", DEFAULT_ADMIN_ROLE)
+    role = UserRole.superadmin if role_value == "superadmin" else UserRole.admin
 
     password_raw = os.getenv("ADMIN_PASSWORD")
     password = DEFAULT_ADMIN_PASSWORD if password_raw is None or not password_raw.strip() else password_raw
@@ -46,14 +49,14 @@ def main() -> None:
         if existing_users:
             updated = False
             for user in existing_users:
-                if user.role != UserRole.admin:
-                    user.role = UserRole.admin
+                if user.role != role:
+                    user.role = role
                     updated = True
             if updated:
                 db.commit()
-                print("Updated existing user to admin")
+                print(f"Updated existing user to {role.value}")
             else:
-                print("Admin already exists")
+                print(f"{role.value} already exists")
             return
 
         create_user(
@@ -62,7 +65,7 @@ def main() -> None:
             username=username,
             display_name=display_name,
             hashed_password=hash_password(password),
-            role=UserRole.admin,
+            role=role,
         )
     except IntegrityError:
         db.rollback()
@@ -71,7 +74,7 @@ def main() -> None:
     finally:
         db.close()
 
-    print(f"Created admin: {email} / {username}")
+    print(f"Created {role.value}: {email} / {username}")
 
 
 if __name__ == "__main__":

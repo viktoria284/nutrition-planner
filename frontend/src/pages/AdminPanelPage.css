@@ -55,6 +55,38 @@
   font-weight: 700;
 }
 
+.admin-subtabs {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-subtab {
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-soft);
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-subtab:hover {
+  background: #f3f3f3;
+  color: var(--text-main);
+}
+
+.admin-subtab.is-active {
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-dark);
+}
+
 .admin-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -93,6 +125,7 @@
 .admin-field {
   display: grid;
   gap: 6px;
+  min-width: 0;
 }
 
 .admin-field span {
@@ -101,17 +134,23 @@
 }
 
 .admin-field input,
-.admin-field select {
+.admin-field select,
+.admin-field-select {
   height: 42px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
   color: var(--text-main);
   padding: 0 12px;
+  min-width: 0;
 }
 
 .admin-field-grow {
   flex: 1 1 280px;
+}
+
+.admin-field .ui-select {
+  width: min(220px, calc(100vw - 48px));
 }
 
 .admin-checkbox {
@@ -174,6 +213,101 @@
   color: var(--danger);
 }
 
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  background: rgba(20, 20, 20, 0.42);
+  padding: 18px;
+  display: grid;
+  place-items: center;
+}
+
+.admin-modal {
+  width: min(640px, calc(100vw - 24px));
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 16px 42px rgba(18, 18, 18, 0.22);
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.admin-modal-head,
+.admin-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-modal-head h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.admin-modal-form {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-modal-form textarea {
+  min-height: 96px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-main);
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.admin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.admin-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.admin-chip {
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 12px;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  background: var(--surface);
+}
+
+.admin-chip.is-active {
+  border-color: rgba(var(--primary-rgb), 0.32);
+  background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.admin-form-errors {
+  border: 1px solid rgba(var(--danger-rgb), 0.34);
+  border-radius: 10px;
+  background: rgba(var(--danger-rgb), 0.08);
+  color: var(--danger);
+  padding: 10px 12px;
+}
+
+.admin-form-errors p {
+  margin: 0;
+}
+
 .admin-access-denied {
   max-width: 760px;
   margin: 28px auto;
@@ -221,8 +355,31 @@
     flex: initial;
   }
 
+  .admin-field .ui-select {
+    width: 100%;
+  }
+
   .admin-actions .btn {
     width: 100%;
+  }
+
+  .admin-modal-backdrop {
+    padding: 10px;
+    align-items: end;
+  }
+
+  .admin-modal {
+    width: calc(100vw - 20px);
+    max-height: 90vh;
+    border-radius: 14px;
+  }
+
+  .admin-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-modal-actions .btn {
+    flex: 1;
   }
 }
 

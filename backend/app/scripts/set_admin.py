@@ -2,18 +2,22 @@ import argparse
 
 from app.db.session import SessionLocal
 from app.models.enums import UserRole
-from app.services.users import set_user_admin_role
+from app.services.users import get_user_by_email
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Назначить или снять роль администратора")
+    parser = argparse.ArgumentParser(description="Назначить роль пользователя")
     parser.add_argument("--email", required=True, help="Email пользователя")
-    parser.add_argument("--is-admin", default="true", choices=["true", "false"], help="true/false")
+    parser.add_argument("--role", default="admin", choices=["user", "admin", "superadmin"], help="Новая роль")
     args = parser.parse_args()
 
     db = SessionLocal()
     try:
-        updated = set_user_admin_role(db, email=args.email, is_admin=args.is_admin == "true")
+        updated = get_user_by_email(db, args.email)
+        if updated is not None:
+            updated.role = UserRole(args.role)
+            db.commit()
+            db.refresh(updated)
     finally:
         db.close()
 
@@ -21,8 +25,7 @@ def main() -> None:
         print("Пользователь не найден")
         raise SystemExit(1)
 
-    role = "admin" if updated.role == UserRole.admin else "user"
-    print(f"Роль обновлена: {updated.email} -> {role}")
+    print(f"Роль обновлена: {updated.email} -> {updated.role.value}")
 
 
 if __name__ == "__main__":

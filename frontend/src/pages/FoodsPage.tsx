@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { createFood, searchFoods, type FoodCreatePayload, type FoodItem, type FoodSource } from "../api/foods";
 import { Alert } from "../components/Alert";
+import { CustomSelect } from "../components/CustomSelect";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { FOOD_CATEGORIES, FOOD_CATEGORY_LABELS, isFoodCategory, type FoodCategory } from "../types/foodCategory";
 import "./FoodsPage.css";
@@ -45,6 +46,11 @@ const SOURCE_LABELS: Record<FoodSource, string> = {
   verified: "Verified",
   community: "Community",
 };
+
+const FOOD_CATEGORY_SELECT_OPTIONS = FOOD_CATEGORIES.map((category) => ({
+  value: category,
+  label: FOOD_CATEGORY_LABELS[category],
+}));
 
 function formatNutrient(value: number): string {
   const numeric = Number(value);
@@ -393,18 +399,15 @@ export function FoodsPage() {
 
               <label className="foods-field" htmlFor="create_food_category">
                 <span className="foods-field-label">Раздел магазина</span>
-                <select
+                <CustomSelect
                   id="create_food_category"
-                  className={`foods-field-input ${createErrors.category ? "is-invalid" : ""}`}
                   value={createForm.category}
-                  onChange={(e) => updateCreateField("category", e.target.value as FoodCategory)}
-                >
-                  {FOOD_CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {FOOD_CATEGORY_LABELS[category]}
-                    </option>
-                  ))}
-                </select>
+                  options={FOOD_CATEGORY_SELECT_OPTIONS}
+                  onChange={(nextValue) => updateCreateField("category", nextValue as FoodCategory)}
+                  invalid={Boolean(createErrors.category)}
+                  triggerClassName="foods-field-input"
+                  ariaLabel="Раздел магазина"
+                />
               </label>
 
               <div className="foods-grid">

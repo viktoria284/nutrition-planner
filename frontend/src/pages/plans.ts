@@ -13,10 +13,28 @@ const dayLabelFormatter = new Intl.DateTimeFormat("ru-RU", {
   timeZone: "UTC",
 });
 
+const longDateFormatter = new Intl.DateTimeFormat("ru-RU", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
 export function formatPlanDate(dateIso: string): string {
   const date = toUtcDate(dateIso);
   if (!date) return dateIso;
   return dateFormatter.format(date);
+}
+
+export function formatPlanDateLong(dateIso: string): string {
+  const date = toUtcDate(dateIso);
+  if (!date) return dateIso;
+  const parts = longDateFormatter.formatToParts(date);
+  const day = parts.find((part) => part.type === "day")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const year = parts.find((part) => part.type === "year")?.value;
+  if (!day || !month || !year) return longDateFormatter.format(date).replace(/\s?г\.$/, " года");
+  return `${day} ${month} ${year} года`;
 }
 
 export function formatPlanDayLabel(dateIso: string): string {

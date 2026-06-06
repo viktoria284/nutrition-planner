@@ -10,8 +10,12 @@ from app.models.enums import FoodSource, FoodStatus
 from app.models.foods import FoodItem, FoodReport
 from app.models.plan import Plan
 from app.models.profile import Profile
-from app.models.recipe import Recipe, RecipeReport
+from app.models.recipe import Recipe, RecipeIngredient, RecipeReport, RecipeStep
 from app.models.user import User
+from app.schemas.foods import FoodItemCreate, FoodItemUpdate
+from app.schemas.recipes import RecipeCreate, RecipeIngredientCreate, RecipeIngredientUpdate, RecipeStepsReplace, RecipeUpdate
+from app.services.media import maybe_delete_media_file, save_uploaded_recipe_image
+from app.services.recipes import _resolve_ingredient_measurement
 
 
 class AdminNotFoundError(ValueError):
@@ -111,6 +115,7 @@ def list_admin_foods(
     *,
     q: str | None,
     source: FoodSource | None,
+    origin: str,
     status: FoodStatus | None,
     is_listed: bool | None,
     reported_only: bool,
@@ -130,6 +135,10 @@ def list_admin_foods(
         )
     if source is not None:
         stmt = stmt.where(FoodItem.source == source)
+    if origin == "system":
+        stmt = stmt.where(FoodItem.owner_user_id.is_(None))
+    elif origin == "user":
+        stmt = stmt.where(FoodItem.owner_user_id.is_not(None), FoodItem.source == FoodSource.community)
     if status is not None:
         stmt = stmt.where(FoodItem.status == status)
     if is_listed is not None:
@@ -145,6 +154,7 @@ def list_admin_recipes(
     db: Session,
     *,
     q: str | None,
+    origin: str,
     status: FoodStatus | None,
     is_listed: bool | None,
     reported_only: bool,
@@ -158,6 +168,10 @@ def list_admin_recipes(
     if q_normalized:
         like_pattern = f"%{q_normalized.lower()}%"
         stmt = stmt.where(func.lower(Recipe.name).like(like_pattern))
+    if origin == "system":
+        stmt = stmt.where(Recipe.owner_user_id.is_(None))
+    elif origin == "user":
+        stmt = stmt.where(Recipe.owner_user_id.is_not(None), Recipe.source == FoodSource.community)
     if status is not None:
         stmt = stmt.where(Recipe.status == status)
     if is_listed is not None:
@@ -204,6 +218,51 @@ def moderate_food_by_admin(
     return food
 
 
+def create_public_food_by_admin(db: Session, *, data: FoodItemCreate) -> FoodItem:
+    food = FoodItem(
+        name=data.name,
+        brand=data.brand,
+        category=data.category,
+        kcal=data.kcal,
+        protein=data.protein,
+        fat=data.fat,
+        carbs=data.carbs,
+        fiber=data.fiber,
+        source=FoodSource.verified,
+        status=FoodStatus.approved,
+        owner_user_id=None,
+        is_listed=True,
+        reports_count=0,
+    )
+    db.add(food)
+    db.commit()
+    db.refresh(food)
+    return food
+
+
+def update_food_by_admin(db: Session, *, food_id: int, data: FoodItemUpdate) -> FoodItem:
+    food = db.execute(select(FoodItem).where(FoodItem.id == food_id)).scalar_one_or_none()
+    if food is None:
+        raise AdminNotFoundError("Food not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(food, field, value)
+
+    db.commit()
+    db.refresh(food)
+    return food
+
+
+def delete_food_by_admin(db: Session, *, food_id: int) -> None:
+    food = db.execute(select(FoodItem).where(FoodItem.id == food_id)).scalar_one_or_none()
+    if food is None:
+        raise AdminNotFoundError("Food not found")
+
+    db.delete(food)
+    db.commit()
+
+
 def moderate_recipe_by_admin(
     db: Session,
     *,
@@ -234,6 +293,254 @@ def moderate_recipe_by_admin(
     db.commit()
     db.refresh(recipe)
     return recipe
+
+
+def create_public_recipe_by_admin(db: Session, *, data: RecipeCreate) -> Recipe:
+    recipe = Recipe(
+        owner_user_id=None,
+        name=data.name,
+        description=data.description,
+        instructions=data.instructions,
+        image_url=data.image_url,
+        servings_count=data.servings_count,
+        meal_types=data.meal_types,
+        cook_time_minutes=data.cook_time_minutes,
+        source=FoodSource.community,
+        status=FoodStatus.approved,
+        is_listed=True,
+        reports_count=0,
+    )
+    db.add(recipe)
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+def get_recipe_by_admin(db: Session, *, recipe_id: int) -> Recipe:
+    recipe = db.execute(select(Recipe).where(Recipe.id == recipe_id)).scalar_one_or_none()
+    if recipe is None:
+        raise AdminNotFoundError("Recipe not found")
+    return recipe
+
+
+def update_recipe_by_admin(db: Session, *, recipe_id: int, data: RecipeUpdate) -> Recipe:
+    recipe = get_recipe_by_admin(db, recipe_id=recipe_id)
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(recipe, field, value)
+
+    db.commit()
+    db.refresh(recipe)
+    return recipe
+
+
+def add_recipe_ingredient_by_admin(db: Session, *, recipe_id: int, data: RecipeIngredientCreate) -> RecipeIngredient:
+    recipe = get_recipe_by_admin(db, recipe_id=recipe_id)
+    food = db.execute(select(FoodItem).where(FoodItem.id == data.food_id)).scalar_one_or_none()
+    if food is None:
+        raise AdminNotFoundError("Food not found")
+
+    grams, serving_id, multiplier = _resolve_ingredient_measurement(
+        db,
+        food_id=data.food_id,
+        grams=data.grams,
+        serving_id=data.serving_id,
+        multiplier=data.multiplier,
+    )
+    ingredient = RecipeIngredient(
+        recipe_id=recipe.id,
+        food_id=data.food_id,
+        grams=grams,
+        serving_id=serving_id,
+        multiplier=multiplier,
+    )
+    db.add(ingredient)
+    db.commit()
+    db.refresh(ingredient)
+    return ingredient
+
+
+def update_recipe_ingredient_by_admin(
+    db: Session,
+    *,
+    recipe_id: int,
+    ingredient_id: int,
+    data: RecipeIngredientUpdate,
+) -> RecipeIngredient:
+    get_recipe_by_admin(db, recipe_id=recipe_id)
+    ingredient = db.execute(
+        select(RecipeIngredient).where(
+            RecipeIngredient.id == ingredient_id,
+            RecipeIngredient.recipe_id == recipe_id,
+        )
+    ).scalar_one_or_none()
+    if ingredient is None:
+        raise AdminNotFoundError("Ingredient not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+    next_food_id = update_data.get("food_id", ingredient.food_id)
+    if "food_id" in update_data:
+        food = db.execute(select(FoodItem).where(FoodItem.id == next_food_id)).scalar_one_or_none()
+        if food is None:
+            raise AdminNotFoundError("Food not found")
+
+    next_grams = ingredient.grams
+    next_serving_id = ingredient.serving_id
+    next_multiplier = ingredient.multiplier
+
+    has_explicit_grams = "grams" in update_data and update_data["grams"] is not None
+    has_serving_payload = "serving_id" in update_data or "multiplier" in update_data
+    if has_explicit_grams:
+        next_grams = update_data["grams"]
+        next_serving_id = None
+        next_multiplier = None
+    elif has_serving_payload:
+        next_serving_id = update_data.get("serving_id", next_serving_id)
+        next_multiplier = update_data.get("multiplier", next_multiplier)
+        if next_serving_id is None:
+            next_multiplier = None
+        else:
+            next_grams, next_serving_id, next_multiplier = _resolve_ingredient_measurement(
+                db,
+                food_id=next_food_id,
+                grams=None,
+                serving_id=next_serving_id,
+                multiplier=next_multiplier,
+            )
+
+    ingredient.food_id = next_food_id
+    ingredient.grams = next_grams
+    ingredient.serving_id = next_serving_id
+    ingredient.multiplier = next_multiplier
+
+    db.commit()
+    db.refresh(ingredient)
+    return ingredient
+
+
+def delete_recipe_ingredient_by_admin(db: Session, *, recipe_id: int, ingredient_id: int) -> None:
+    get_recipe_by_admin(db, recipe_id=recipe_id)
+    ingredient = db.execute(
+        select(RecipeIngredient).where(
+            RecipeIngredient.id == ingredient_id,
+            RecipeIngredient.recipe_id == recipe_id,
+        )
+    ).scalar_one_or_none()
+    if ingredient is None:
+        raise AdminNotFoundError("Ingredient not found")
+    db.delete(ingredient)
+    db.commit()
+
+
+def replace_recipe_steps_by_admin(db: Session, *, recipe_id: int, payload: RecipeStepsReplace) -> list[RecipeStep]:
+    get_recipe_by_admin(db, recipe_id=recipe_id)
+    existing_steps = db.execute(select(RecipeStep).where(RecipeStep.recipe_id == recipe_id)).scalars().all()
+    existing_by_id = {step.id: step for step in existing_steps}
+    used_ids: set[int] = set()
+
+    referenced_existing_ids = [
+        step_input.id
+        for step_input in payload.steps
+        if step_input.id is not None and step_input.id in existing_by_id
+    ]
+    temporary_start_position = max(
+        len(existing_steps) + len(payload.steps) + 1,
+        max((step.position for step in existing_steps), default=0) + len(existing_steps) + 1,
+    )
+    for offset, step_id in enumerate(referenced_existing_ids):
+        existing_by_id[step_id].position = temporary_start_position + offset
+    db.flush()
+
+    for index, step_input in enumerate(payload.steps, start=1):
+        if step_input.id is not None and step_input.id in existing_by_id:
+            step = existing_by_id[step_input.id]
+            step.position = index
+            step.text = step_input.text
+            step.note = step_input.note
+            used_ids.add(step.id)
+            continue
+        db.add(
+            RecipeStep(
+                recipe_id=recipe_id,
+                position=index,
+                text=step_input.text,
+                note=step_input.note,
+                image_url=None,
+            )
+        )
+
+    for step in existing_steps:
+        if step.id not in used_ids:
+            maybe_delete_media_file(step.image_url)
+            db.delete(step)
+
+    db.commit()
+    return db.execute(
+        select(RecipeStep)
+        .where(RecipeStep.recipe_id == recipe_id)
+        .order_by(RecipeStep.position.asc(), RecipeStep.id.asc())
+    ).scalars().all()
+
+
+def upload_recipe_cover_image_by_admin(db: Session, *, recipe_id: int, upload_file) -> Recipe:
+    recipe = get_recipe_by_admin(db, recipe_id=recipe_id)
+    old_image_url = recipe.image_url
+    recipe.image_url = save_uploaded_recipe_image(upload_file)
+    db.commit()
+    db.refresh(recipe)
+    maybe_delete_media_file(old_image_url)
+    return recipe
+
+
+def delete_recipe_cover_image_by_admin(db: Session, *, recipe_id: int) -> Recipe:
+    recipe = get_recipe_by_admin(db, recipe_id=recipe_id)
+    old_image_url = recipe.image_url
+    recipe.image_url = None
+    db.commit()
+    db.refresh(recipe)
+    maybe_delete_media_file(old_image_url)
+    return recipe
+
+
+def _get_recipe_step_by_admin(db: Session, *, recipe_id: int, step_id: int) -> RecipeStep:
+    get_recipe_by_admin(db, recipe_id=recipe_id)
+    step = db.execute(
+        select(RecipeStep).where(
+            RecipeStep.id == step_id,
+            RecipeStep.recipe_id == recipe_id,
+        )
+    ).scalar_one_or_none()
+    if step is None:
+        raise AdminNotFoundError("Recipe step not found")
+    return step
+
+
+def upload_recipe_step_image_by_admin(db: Session, *, recipe_id: int, step_id: int, upload_file) -> RecipeStep:
+    step = _get_recipe_step_by_admin(db, recipe_id=recipe_id, step_id=step_id)
+    old_image_url = step.image_url
+    step.image_url = save_uploaded_recipe_image(upload_file)
+    db.commit()
+    db.refresh(step)
+    maybe_delete_media_file(old_image_url)
+    return step
+
+
+def delete_recipe_step_image_by_admin(db: Session, *, recipe_id: int, step_id: int) -> RecipeStep:
+    step = _get_recipe_step_by_admin(db, recipe_id=recipe_id, step_id=step_id)
+    old_image_url = step.image_url
+    step.image_url = None
+    db.commit()
+    db.refresh(step)
+    maybe_delete_media_file(old_image_url)
+    return step
+
+
+def delete_recipe_by_admin(db: Session, *, recipe_id: int) -> None:
+    recipe = get_recipe_by_admin(db, recipe_id=recipe_id)
+
+    db.delete(recipe)
+    db.commit()
 
 
 def list_admin_reports(

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { searchFoods, type FoodItem } from "../api/foods";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import "./FoodSearchSelect.css";
@@ -24,6 +25,7 @@ export function FoodSearchSelect({
   disabled = false,
   allowCreate = false,
 }: FoodSearchSelectProps) {
+  const location = useLocation();
   const [query, setQuery] = useState(value ? formatFoodLabel(value) : "");
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<FoodItem[]>([]);
@@ -38,35 +40,72 @@ export function FoodSearchSelect({
   const canSearch = normalizedQuery.length >= 2;
 
   useEffect(() => {
-    const onMouseDown = (event: MouseEvent) => {
+    if (!open) return undefined;
+
+    const close = () => setOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (!rootRef.current?.contains(target)) setOpen(false);
+      if (!rootRef.current?.contains(target)) close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    const onScroll = (event: Event) => {
+      const target = event.target as Node | null;
+      if (target && rootRef.current?.contains(target)) return;
+      close();
+    };
+    const onTouchMove = (event: TouchEvent) => {
+      const target = event.target as Node | null;
+      if (target && rootRef.current?.contains(target)) return;
+      close();
     };
 
-    document.addEventListener("mousedown", onMouseDown);
-    return () => document.removeEventListener("mousedown", onMouseDown);
-  }, []);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("touchmove", onTouchMove);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setOpen(false), 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     const currentId = value?.id ?? null;
     if (currentId !== prevValueIdRef.current) {
-      if (value) setQuery(formatFoodLabel(value));
-      else if (prevValueIdRef.current !== null) setQuery("");
+      const previousId = prevValueIdRef.current;
       prevValueIdRef.current = currentId;
+      const nextQuery = value ? formatFoodLabel(value) : previousId !== null ? "" : null;
+      if (nextQuery === null) return;
+      const timeoutId = window.setTimeout(() => setQuery(nextQuery), 0);
+      return () => window.clearTimeout(timeoutId);
     }
   }, [value]);
 
   useEffect(() => {
     if (!canSearch) {
-      setItems([]);
-      setError(null);
-      setLoading(false);
-      return;
+      const timeoutId = window.setTimeout(() => {
+        setItems([]);
+        setError(null);
+        setLoading(false);
+      }, 0);
+      return () => window.clearTimeout(timeoutId);
     }
 
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const loadingTimeoutId = window.setTimeout(() => {
+      if (cancelled) return;
+      setLoading(true);
+      setError(null);
+    }, 0);
 
     searchFoods({ q: normalizedQuery, limit: 20 })
       .then((results) => {
@@ -85,6 +124,7 @@ export function FoodSearchSelect({
 
     return () => {
       cancelled = true;
+      window.clearTimeout(loadingTimeoutId);
     };
   }, [normalizedQuery, canSearch]);
 

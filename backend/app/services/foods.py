@@ -439,6 +439,8 @@ def withdraw_food(db: Session, user_id: int, food_id: int) -> FoodItem | None:
     if not food.is_listed:
         raise FoodWithdrawConflictError("Food is already withdrawn")
 
+    food.source = FoodSource.private
+    food.status = FoodStatus.draft
     food.is_listed = False
     db.commit()
     db.refresh(food)

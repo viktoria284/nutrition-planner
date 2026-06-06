@@ -1,5 +1,6 @@
 .settings-page {
   padding: 28px 24px 40px;
+  overflow-x: clip;
 }
 
 .settings-shell {
@@ -10,6 +11,7 @@
   justify-content: center;
   max-width: 1100px;
   margin: 0 auto;
+  min-width: 0;
 }
 
 .settings-sidebar {
@@ -65,6 +67,7 @@
   width: 100%;
   max-width: 760px;
   justify-self: center;
+  min-width: 0;
 }
 
 .settings-panel-head {
@@ -310,6 +313,23 @@
   background: #f1f1f1;
   color: #7c7c7c;
   border-color: #d7d7d7;
+}
+
+.settings-readonly-value {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f7f7f7;
+  color: var(--text-main);
+  padding: 9px 12px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.settings-field-hint {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.92rem;
 }
 
 .profile-card-form {
@@ -773,6 +793,18 @@
 
   .settings-sidebar {
     grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .settings-tab-btn {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .settings-panel {
+    padding: 14px;
   }
 
   .settings-pantry-search {

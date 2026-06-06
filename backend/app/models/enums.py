@@ -4,6 +4,7 @@ from enum import Enum
 class UserRole(str, Enum):
     user = "user"
     admin = "admin"
+    superadmin = "superadmin"
 
 
 class FoodSource(str, Enum):

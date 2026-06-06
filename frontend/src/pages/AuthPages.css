@@ -1,5 +1,6 @@
 .auth-layout {
   min-height: calc(100vh - 64px);
+  min-height: calc(100dvh - 64px);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -9,6 +10,7 @@
 
 .auth-main {
   width: 100%;
+  min-width: 0;
   display: flex;
   justify-content: center;
 }
@@ -191,11 +193,14 @@
 
 @media (max-width: 680px) {
   .auth-layout {
-    padding: 20px 14px;
+    min-height: calc(100dvh - 73px);
+    align-items: start;
+    padding: 16px 14px;
   }
 
   .auth-main-inner {
-    padding: 18px;
+    max-width: 100%;
+    padding: 16px;
   }
 
   .auth-title {

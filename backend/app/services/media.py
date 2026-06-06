@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -31,7 +30,7 @@ def get_media_root() -> Path:
     configured = os.getenv("MEDIA_ROOT")
     if configured:
         return Path(configured).expanduser().resolve()
-    return (Path(tempfile.gettempdir()) / "nutrition_planner_uploads").resolve()
+    return (Path(__file__).resolve().parents[2] / "media" / "uploads").resolve()
 
 
 def get_recipes_upload_dir() -> Path:

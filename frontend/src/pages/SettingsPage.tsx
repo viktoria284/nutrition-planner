@@ -132,7 +132,6 @@ export function SettingsPage() {
 
   const [highlightedProfileId, setHighlightedProfileId] = useState<number | null>(null);
   const [accountUsername, setAccountUsername] = useState("");
-  const [accountEmail, setAccountEmail] = useState("");
   const [accountSaving, setAccountSaving] = useState(false);
   const [accountSuccess, setAccountSuccess] = useState<string | null>(null);
   const [accountError, setAccountError] = useState<string | null>(null);
@@ -215,8 +214,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     setAccountUsername(user?.username ?? "");
-    setAccountEmail(user?.email ?? "");
-  }, [user?.username, user?.email]);
+  }, [user?.username]);
 
   useEffect(() => {
     if (!accountSuccess) return undefined;
@@ -310,19 +308,13 @@ export function SettingsPage() {
     if (!user) return;
 
     const nextUsername = accountUsername.trim().toLowerCase();
-    const nextEmail = accountEmail.trim().toLowerCase();
     if (!nextUsername) {
       setAccountError("Username не должен быть пустым.");
       return;
     }
-    if (!nextEmail) {
-      setAccountError("Email не должен быть пустым.");
-      return;
-    }
 
-    const payload: { username?: string; email?: string } = {};
+    const payload: { username?: string } = {};
     if (nextUsername !== user.username) payload.username = nextUsername;
-    if (nextEmail !== user.email) payload.email = nextEmail;
 
     if (Object.keys(payload).length === 0) {
       setAccountSuccess("Изменений нет.");
@@ -341,9 +333,9 @@ export function SettingsPage() {
       if (handleUnauthorized(err)) return;
       if (err instanceof ApiError) {
         if (err.status === 409) {
-          setAccountError("Email или username уже заняты.");
+          setAccountError("Username уже занят.");
         } else if (err.status === 422) {
-          setAccountError("Проверьте корректность email и username.");
+          setAccountError("Проверьте корректность username.");
         } else {
           setAccountError("Не удалось сохранить изменения аккаунта.");
         }
@@ -640,21 +632,10 @@ export function SettingsPage() {
                     disabled={accountSaving}
                   />
                 </label>
-                <label className="profile-name-field" htmlFor="settings-email">
+                <div className="profile-name-field">
                   <span className="profile-name-label">Email</span>
-                  <input
-                    id="settings-email"
-                    className="profile-name-input"
-                    type="email"
-                    autoComplete="email"
-                    value={accountEmail}
-                    onChange={(event) => {
-                      setAccountEmail(event.target.value);
-                      setAccountError(null);
-                    }}
-                    disabled={accountSaving}
-                  />
-                </label>
+                  <p className="settings-readonly-value">{user?.email ?? "—"}</p>
+                </div>
                 {accountError && <Alert text={accountError} />}
                 {accountSuccess && <p className="settings-success">{accountSuccess}</p>}
                 <div className="settings-account-actions">

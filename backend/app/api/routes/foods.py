@@ -60,7 +60,7 @@ def search_foods(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    is_admin = current_user.role == UserRole.admin
+    is_admin = current_user.role in {UserRole.admin, UserRole.superadmin}
     query_text = q.strip()
     if len(query_text) < 2:
         raise HTTPException(
@@ -102,7 +102,7 @@ def get_food_by_id(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    is_admin = current_user.role == UserRole.admin
+    is_admin = current_user.role in {UserRole.admin, UserRole.superadmin}
     food = get_accessible_food_by_id(
         db,
         current_user.id,
@@ -203,7 +203,7 @@ def list_food_servings(
         db,
         current_user.id,
         food_id,
-        is_admin=current_user.role == UserRole.admin,
+        is_admin=current_user.role in {UserRole.admin, UserRole.superadmin},
     )
     if not food:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Food not found")

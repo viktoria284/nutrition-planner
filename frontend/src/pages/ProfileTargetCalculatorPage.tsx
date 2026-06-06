@@ -14,6 +14,7 @@ import {
   type SpecialCondition,
 } from "../api/profileTargetCalculations";
 import { Alert } from "../components/Alert";
+import { CustomSelect } from "../components/CustomSelect";
 import { InfoPopover } from "../components/InfoPopover";
 import "./ProfileTargetCalculatorPage.css";
 
@@ -60,6 +61,45 @@ const GOAL_LABELS: Record<ProfileTargetCalculationGoal, string> = {
   lose: "Снижение",
   gain: "Набор",
 };
+
+const SEX_OPTIONS = [
+  { value: "male", label: "Мужской" },
+  { value: "female", label: "Женский" },
+];
+
+const ACTIVITY_OPTIONS = [
+  { value: "sedentary", label: "Сидячий" },
+  { value: "light", label: "Лёгкая активность" },
+  { value: "moderate", label: "Умеренная активность" },
+  { value: "active", label: "Высокая активность" },
+  { value: "very_active", label: "Очень высокая активность" },
+];
+
+const GOAL_OPTIONS = [
+  { value: "maintain", label: "Поддержание" },
+  { value: "lose", label: "Снижение" },
+  { value: "gain", label: "Набор" },
+];
+
+const MACRO_PRESET_OPTIONS = [
+  { value: "balanced", label: "Сбалансированное" },
+  { value: "higher_protein", label: "Больше белка" },
+  { value: "higher_carb", label: "Больше углеводов" },
+];
+
+const SPECIAL_CONDITION_OPTIONS = [
+  { value: "none", label: "Нет" },
+  { value: "pregnant", label: "Беременность" },
+  { value: "breastfeeding", label: "Грудное вскармливание" },
+  { value: "medical_special_diet", label: "Лечебное питание / ограничения по здоровью" },
+];
+
+const LACTATION_PERIOD_OPTIONS = [
+  { value: "", label: "Не указано" },
+  { value: "first_6_months", label: "Первые 6 месяцев" },
+  { value: "after_6_months", label: "После 6 месяцев" },
+  { value: "unknown", label: "Точно не знаю" },
+];
 
 function parseNumber(value: string): number | null {
   const normalized = value.trim().replace(",", ".");
@@ -201,16 +241,15 @@ export function ProfileTargetCalculatorPage({ embedded = false }: ProfileTargetC
           <div className="calculator-grid">
             <label className="calculator-field" htmlFor="calculator-sex">
               <span className="calculator-label">Пол</span>
-              <select
+              <CustomSelect
                 id="calculator-sex"
-                className="calculator-input"
                 value={form.sex}
-                onChange={(e) => updateField("sex", e.target.value as ProfileTargetCalculationSex)}
+                options={SEX_OPTIONS}
+                onChange={(value) => updateField("sex", value as ProfileTargetCalculationSex)}
                 disabled={submitting}
-              >
-                <option value="male">Мужской</option>
-                <option value="female">Женский</option>
-              </select>
+                ariaLabel="Пол"
+                triggerClassName="calculator-input"
+              />
               <div className="calculator-error-slot" aria-live="polite" />
             </label>
 
@@ -270,35 +309,29 @@ export function ProfileTargetCalculatorPage({ embedded = false }: ProfileTargetC
 
             <label className="calculator-field" htmlFor="calculator-activity">
               <span className="calculator-label">Уровень активности</span>
-              <select
+              <CustomSelect
                 id="calculator-activity"
-                className="calculator-input"
                 value={form.activity_level}
-                onChange={(e) => updateField("activity_level", e.target.value as ProfileTargetCalculationActivityLevel)}
+                options={ACTIVITY_OPTIONS}
+                onChange={(value) => updateField("activity_level", value as ProfileTargetCalculationActivityLevel)}
                 disabled={submitting}
-              >
-                <option value="sedentary">Сидячий</option>
-                <option value="light">Лёгкая активность</option>
-                <option value="moderate">Умеренная активность</option>
-                <option value="active">Высокая активность</option>
-                <option value="very_active">Очень высокая активность</option>
-              </select>
+                ariaLabel="Уровень активности"
+                triggerClassName="calculator-input"
+              />
               <div className="calculator-error-slot" aria-live="polite" />
             </label>
 
             <label className="calculator-field" htmlFor="calculator-goal">
               <span className="calculator-label">Цель</span>
-              <select
+              <CustomSelect
                 id="calculator-goal"
-                className="calculator-input"
                 value={form.goal}
-                onChange={(e) => updateField("goal", e.target.value as ProfileTargetCalculationGoal)}
+                options={GOAL_OPTIONS}
+                onChange={(value) => updateField("goal", value as ProfileTargetCalculationGoal)}
                 disabled={submitting}
-              >
-                <option value="maintain">Поддержание</option>
-                <option value="lose">Снижение</option>
-                <option value="gain">Набор</option>
-              </select>
+                ariaLabel="Цель"
+                triggerClassName="calculator-input"
+              />
               <div className="calculator-error-slot" aria-live="polite" />
             </label>
 
@@ -371,59 +404,51 @@ export function ProfileTargetCalculatorPage({ embedded = false }: ProfileTargetC
 
             <label className="calculator-field" htmlFor="calculator-macros">
               <span className="calculator-label">Распределение БЖУ</span>
-              <select
+              <CustomSelect
                 id="calculator-macros"
-                className="calculator-input"
                 value={form.macro_preset}
-                onChange={(e) => updateField("macro_preset", e.target.value as ProfileTargetCalculationMacroPreset)}
+                options={MACRO_PRESET_OPTIONS}
+                onChange={(value) => updateField("macro_preset", value as ProfileTargetCalculationMacroPreset)}
                 disabled={submitting}
-              >
-                <option value="balanced">Сбалансированное</option>
-                <option value="higher_protein">Больше белка</option>
-                <option value="higher_carb">Больше углеводов</option>
-              </select>
+                ariaLabel="Распределение БЖУ"
+                triggerClassName="calculator-input"
+              />
               <div className="calculator-error-slot" aria-live="polite" />
             </label>
 
             <label className="calculator-field" htmlFor="calculator-special-condition">
               <span className="calculator-label">Дополнительные параметры</span>
               <p className="calculator-hint">Укажите, если расчёт требует дополнительных уточнений.</p>
-              <select
+              <CustomSelect
                 id="calculator-special-condition"
-                className="calculator-input"
                 value={form.special_condition}
-                onChange={(e) => {
-                  const next = e.target.value as SpecialCondition;
+                options={SPECIAL_CONDITION_OPTIONS}
+                onChange={(value) => {
+                  const next = value as SpecialCondition;
                   updateField("special_condition", next);
                   if (next !== "breastfeeding") {
                     updateField("lactation_period", "");
                   }
                 }}
                 disabled={submitting}
-              >
-                <option value="none">Нет</option>
-                <option value="pregnant">Беременность</option>
-                <option value="breastfeeding">Грудное вскармливание</option>
-                <option value="medical_special_diet">Лечебное питание / ограничения по здоровью</option>
-              </select>
+                ariaLabel="Дополнительные параметры"
+                triggerClassName="calculator-input"
+              />
               <div className="calculator-error-slot" aria-live="polite" />
             </label>
 
             {form.special_condition === "breastfeeding" && (
               <label className="calculator-field" htmlFor="calculator-lactation-period">
                 <span className="calculator-label">Период грудного вскармливания</span>
-                <select
+                <CustomSelect
                   id="calculator-lactation-period"
-                  className="calculator-input"
                   value={form.lactation_period}
-                  onChange={(e) => updateField("lactation_period", e.target.value as LactationPeriod | "")}
+                  options={LACTATION_PERIOD_OPTIONS}
+                  onChange={(value) => updateField("lactation_period", value as LactationPeriod | "")}
                   disabled={submitting}
-                >
-                  <option value="">Не указано</option>
-                  <option value="first_6_months">Первые 6 месяцев</option>
-                  <option value="after_6_months">После 6 месяцев</option>
-                  <option value="unknown">Точно не знаю</option>
-                </select>
+                  ariaLabel="Период грудного вскармливания"
+                  triggerClassName="calculator-input"
+                />
                 <div className="calculator-error-slot" aria-live="polite" />
               </label>
             )}

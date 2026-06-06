@@ -239,6 +239,26 @@ export default function App() {
               }
             />
             <Route
+              path="/admin/recipes/new"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <RecipeCreatePage adminMode />
+                  </RequireAdmin>
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/admin/recipes/:id/edit"
+              element={
+                <RequireAuth>
+                  <RequireAdmin>
+                    <RecipeEditPage adminMode />
+                  </RequireAdmin>
+                </RequireAuth>
+              }
+            />
+            <Route
               path="/admin/foods"
               element={
                 <RequireAuth>

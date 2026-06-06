@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { resolveRecipeImageSrc, type MealType, type RecipeRead } from "../../api/recipes";
 import { formatRoundedNumber } from "../../utils/numberFormat";
+import { RecipePlaceholder } from "./RecipePlaceholder";
 
 type RecipeGridCardProps = {
   recipe: RecipeRead;
@@ -35,14 +36,16 @@ export function RecipeGridCard({
                   if (fallback) fallback.style.display = "grid";
                 }}
               />
-              <div className="recipe-grid-image-fallback" style={{ display: "none" }} aria-hidden="true">
-                {recipe.name.slice(0, 1).toUpperCase()}
-              </div>
+              <RecipePlaceholder
+                name={recipe.name}
+                mealTypes={recipe.meal_types}
+                className="recipe-grid-image-fallback"
+                compact
+                style={{ display: "none" }}
+              />
             </>
           ) : (
-            <div className="recipe-grid-image-fallback" aria-hidden="true">
-              {recipe.name.slice(0, 1).toUpperCase()}
-            </div>
+            <RecipePlaceholder name={recipe.name} mealTypes={recipe.meal_types} className="recipe-grid-image-fallback" compact />
           )}
         </Link>
 

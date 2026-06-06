@@ -21,8 +21,8 @@ export type RecipeUpdate = Partial<RecipeCreate>;
 
 export type RecipeRead = {
   id: number;
-  owner_user_id: number;
-  author_id: number;
+  owner_user_id: number | null;
+  author_id: number | null;
   author_username: string | null;
   name: string;
   description: string | null;

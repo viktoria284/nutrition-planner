@@ -10,6 +10,7 @@ from app.models.enums import FoodSource, FoodStatus, UserRole
 AdminTargetType = Literal["food", "recipe"]
 AdminModerationAction = Literal["approve", "hide", "reject", "restore"]
 AdminReportResolution = Literal["no_action", "content_hidden", "content_restored", "content_rejected"]
+AdminContentOrigin = Literal["all", "system", "user"]
 
 
 class AdminOwnerRead(BaseModel):
@@ -34,6 +35,12 @@ class AdminFoodListItemRead(BaseModel):
     id: int
     name: str
     brand: str | None = None
+    category: str
+    kcal: float
+    protein: float
+    fat: float
+    carbs: float
+    fiber: float
     source: FoodSource
     status: FoodStatus
     is_listed: bool
@@ -46,6 +53,10 @@ class AdminFoodListItemRead(BaseModel):
 class AdminRecipeListItemRead(BaseModel):
     id: int
     name: str
+    description: str | None = None
+    instructions: str | None = None
+    servings_count: int
+    cook_time_minutes: int | None = None
     source: FoodSource
     status: FoodStatus
     is_listed: bool
@@ -110,9 +121,21 @@ class AdminUserListItemRead(BaseModel):
     plans_count: int = 0
 
 
+class AdminRoleUpdateRequest(BaseModel):
+    role: UserRole
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, value: UserRole) -> UserRole:
+        if value not in {UserRole.user, UserRole.admin, UserRole.superadmin}:
+            raise ValueError("Invalid role")
+        return value
+
+
 class AdminFoodsQuery(BaseModel):
     q: str | None = None
     source: FoodSource | None = None
+    origin: AdminContentOrigin = "all"
     status: FoodStatus | None = None
     is_listed: bool | None = None
     reported_only: bool = False
@@ -122,6 +145,7 @@ class AdminFoodsQuery(BaseModel):
 
 class AdminRecipesQuery(BaseModel):
     q: str | None = None
+    origin: AdminContentOrigin = "all"
     status: FoodStatus | None = None
     is_listed: bool | None = None
     reported_only: bool = False

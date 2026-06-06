@@ -2918,13 +2918,20 @@ def update_ingredient(
                 multiplier=next_multiplier,
             )
     elif "food_id" in update_data and next_serving_id is not None:
-        next_grams, next_serving_id, next_multiplier = _resolve_ingredient_measurement(
-            db,
-            food_id=next_food_id,
-            grams=None,
-            serving_id=next_serving_id,
-            multiplier=next_multiplier,
-        )
+        serving = db.execute(
+            select(FoodServing).where(FoodServing.id == next_serving_id)
+        ).scalar_one_or_none()
+        if serving is not None and serving.food_id == next_food_id and next_multiplier is not None:
+            next_grams, next_serving_id, next_multiplier = _resolve_ingredient_measurement(
+                db,
+                food_id=next_food_id,
+                grams=None,
+                serving_id=next_serving_id,
+                multiplier=next_multiplier,
+            )
+        else:
+            next_serving_id = None
+            next_multiplier = None
 
     ingredient.food_id = next_food_id
     ingredient.grams = next_grams
@@ -3263,7 +3270,7 @@ def build_recipe_read(recipe: Recipe, *, is_favorite: bool = False, author_usern
             "id": recipe.id,
             "owner_user_id": recipe.owner_user_id,
             "author_id": recipe.owner_user_id,
-            "author_username": author_username,
+            "author_username": author_username if recipe.owner_user_id is not None else "Nutrition Planner",
             "name": recipe.name,
             "description": recipe.description,
             "instructions": recipe.instructions,

@@ -113,7 +113,7 @@ def get_recipes(
         max_cook_time_minutes=max_cook_time_minutes,
         include_ingredients=True,
     )
-    author_usernames_by_id = get_usernames_by_ids(db, {recipe.owner_user_id for recipe in recipes})
+    author_usernames_by_id = get_usernames_by_ids(db, {recipe.owner_user_id for recipe in recipes if recipe.owner_user_id is not None})
     favorite_ids = list_favorite_recipe_ids(
         db,
         user_id=current_user.id,
@@ -123,7 +123,7 @@ def get_recipes(
         build_recipe_read(
             recipe,
             is_favorite=recipe.id in favorite_ids,
-            author_username=author_usernames_by_id.get(recipe.owner_user_id),
+            author_username=author_usernames_by_id.get(recipe.owner_user_id) if recipe.owner_user_id is not None else None,
         )
         for recipe in recipes
     ]
@@ -158,7 +158,7 @@ def get_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    author = get_user_by_id(db, recipe.owner_user_id)
+    author = get_user_by_id(db, recipe.owner_user_id) if recipe.owner_user_id is not None else None
     return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=author.username if author else None)
 
 
@@ -272,7 +272,7 @@ def report_recipe_by_id(
         user_id=current_user.id,
         recipe_ids={recipe.id},
     )
-    author = get_user_by_id(db, recipe.owner_user_id)
+    author = get_user_by_id(db, recipe.owner_user_id) if recipe.owner_user_id is not None else None
     return build_recipe_read(recipe, is_favorite=recipe.id in favorite_ids, author_username=author.username if author else None)
 
 

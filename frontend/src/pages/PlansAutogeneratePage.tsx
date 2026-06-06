@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import type { FoodItem } from "../api/foods";
 import { ApiError } from "../api/http";
 import { autogeneratePlan } from "../api/plans";
+import { CustomSelect } from "../components/CustomSelect";
 import { FoodSearchSelect, type FoodSearchOption } from "../components/FoodSearchSelect";
 import { FormErrorSummary } from "../components/FormErrorSummary";
 import { InfoPopover } from "../components/InfoPopover";
@@ -48,6 +49,14 @@ const BATCH_OPTIONS: Array<{ value: 1 | 2 | 3; label: string }> = [
   { value: 1, label: "По возможности разные" },
   { value: 2, label: "Готовить на 2 дня" },
   { value: 3, label: "Готовить на 3 дня" },
+];
+
+const BATCH_SELECT_OPTIONS = BATCH_OPTIONS.map((option) => ({ value: String(option.value), label: option.label }));
+
+const FAVORITE_RECIPE_MODE_OPTIONS: Array<{ value: PlanAutogenerateFormState["favorite_recipes_mode"]; label: string }> = [
+  { value: "none", label: "Не учитывать" },
+  { value: "prefer", label: "Использовать в приоритете" },
+  { value: "only", label: "Только избранные" },
 ];
 
 function toTodayIsoDate(): string {
@@ -492,17 +501,15 @@ export function PlansAutogeneratePage() {
                 ariaLabel="Подсказка по избранным рецептам"
               />
             </span>
-            <select
+            <CustomSelect
               id="autoplan-favorite-mode"
-              className="plans-field-input"
               value={form.favorite_recipes_mode}
-              onChange={(event) => updateTextField("favorite_recipes_mode", event.target.value)}
+              options={FAVORITE_RECIPE_MODE_OPTIONS}
+              onChange={(value) => updateTextField("favorite_recipes_mode", value)}
               disabled={saving}
-            >
-              <option value="none">Не учитывать</option>
-              <option value="prefer">Использовать в приоритете</option>
-              <option value="only">Только избранные</option>
-            </select>
+              ariaLabel="Избранные рецепты"
+              triggerClassName="plans-field-input"
+            />
             {form.favorite_recipes_mode === "only" && (
               <p className="plans-field-hint">План будет составляться только из избранных доступных рецептов.</p>
             )}
@@ -558,70 +565,54 @@ export function PlansAutogeneratePage() {
             <div className="plans-batch-grid">
               <label className="plans-field" htmlFor="autoplan-batch-breakfast">
                 <span className="plans-field-label">Завтрак</span>
-                <select
+                <CustomSelect
                   id="autoplan-batch-breakfast"
-                  className="plans-field-input"
                   value={form.batch_breakfast_days}
-                  onChange={(event) => updateTextField("batch_breakfast_days", event.target.value)}
+                  options={BATCH_SELECT_OPTIONS}
+                  onChange={(value) => updateTextField("batch_breakfast_days", value)}
                   disabled={saving}
-                >
-                  {BATCH_OPTIONS.map((option) => (
-                    <option key={`batch-breakfast-${option.value}`} value={String(option.value)}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Приготовление завтраков"
+                  triggerClassName="plans-field-input"
+                />
               </label>
 
               <label className="plans-field" htmlFor="autoplan-batch-lunch">
                 <span className="plans-field-label">Обед</span>
-                <select
+                <CustomSelect
                   id="autoplan-batch-lunch"
-                  className="plans-field-input"
                   value={form.batch_lunch_days}
-                  onChange={(event) => updateTextField("batch_lunch_days", event.target.value)}
+                  options={BATCH_SELECT_OPTIONS}
+                  onChange={(value) => updateTextField("batch_lunch_days", value)}
                   disabled={saving}
-                >
-                  {BATCH_OPTIONS.map((option) => (
-                    <option key={`batch-lunch-${option.value}`} value={String(option.value)}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Приготовление обедов"
+                  triggerClassName="plans-field-input"
+                />
               </label>
 
               <label className="plans-field" htmlFor="autoplan-batch-dinner">
                 <span className="plans-field-label">Ужин</span>
-                <select
+                <CustomSelect
                   id="autoplan-batch-dinner"
-                  className="plans-field-input"
                   value={form.batch_dinner_days}
-                  onChange={(event) => updateTextField("batch_dinner_days", event.target.value)}
+                  options={BATCH_SELECT_OPTIONS}
+                  onChange={(value) => updateTextField("batch_dinner_days", value)}
                   disabled={saving}
-                >
-                  {BATCH_OPTIONS.map((option) => (
-                    <option key={`batch-dinner-${option.value}`} value={String(option.value)}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Приготовление ужинов"
+                  triggerClassName="plans-field-input"
+                />
               </label>
 
               <label className="plans-field" htmlFor="autoplan-batch-snack">
                 <span className="plans-field-label">Перекус</span>
-                <select
+                <CustomSelect
                   id="autoplan-batch-snack"
-                  className="plans-field-input"
                   value={form.batch_snack_days}
-                  onChange={(event) => updateTextField("batch_snack_days", event.target.value)}
+                  options={BATCH_SELECT_OPTIONS}
+                  onChange={(value) => updateTextField("batch_snack_days", value)}
                   disabled={saving}
-                >
-                  {BATCH_OPTIONS.map((option) => (
-                    <option key={`batch-snack-${option.value}`} value={String(option.value)}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  ariaLabel="Приготовление перекусов"
+                  triggerClassName="plans-field-input"
+                />
               </label>
             </div>
           </details>

@@ -1,6 +1,7 @@
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.admin_action import AdminAction
 from app.models.author_favorite import AuthorFavorite
 from app.models.enums import UserRole
 from app.models.enums import FoodSource, FoodStatus
@@ -82,6 +83,50 @@ def set_user_admin_role(db: Session, *, email: str, is_admin: bool) -> User | No
     db.commit()
     db.refresh(user)
     return user
+
+
+class RoleChangeError(ValueError):
+    pass
+
+
+def count_superadmins(db: Session) -> int:
+    return int(db.execute(select(func.count(User.id)).where(User.role == UserRole.superadmin)).scalar_one() or 0)
+
+
+def set_user_role_by_superadmin(
+    db: Session,
+    *,
+    actor_user_id: int,
+    target_user_id: int,
+    role: UserRole,
+) -> User:
+    actor = get_user_by_id(db, actor_user_id)
+    if actor is None or actor.role != UserRole.superadmin:
+        raise RoleChangeError("Only superadmin can change roles")
+
+    target = get_user_by_id(db, target_user_id)
+    if target is None:
+        raise RoleChangeError("User not found")
+
+    if role not in {UserRole.user, UserRole.admin, UserRole.superadmin}:
+        raise RoleChangeError("Invalid role")
+
+    previous_role = target.role
+    if previous_role == UserRole.superadmin and role != UserRole.superadmin and count_superadmins(db) <= 1:
+        raise RoleChangeError("Cannot demote the last superadmin")
+
+    target.role = role
+    db.add(
+        AdminAction(
+            actor_user_id=actor_user_id,
+            target_user_id=target_user_id,
+            action="user_role_changed",
+            details={"from": previous_role.value, "to": role.value},
+        )
+    )
+    db.commit()
+    db.refresh(target)
+    return target
 
 
 def has_public_listed_recipes(db: Session, *, author_id: int) -> bool:
